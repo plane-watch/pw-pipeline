@@ -11,10 +11,11 @@ type (
 		next, prev *lossyFrame
 	}
 	lossyFrameList struct {
-		mu         sync.Mutex
-		head, tail *lossyFrame
-		capacity   int
-		numItems   int
+		head     *lossyFrame
+		tail     *lossyFrame
+		capacity int
+		numItems int
+		mu       sync.Mutex
 	}
 )
 

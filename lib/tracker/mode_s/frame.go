@@ -32,98 +32,22 @@ const (
 )
 
 type (
-	Position struct {
-		validAltitude bool
-		altitude      int32
-		isGnssAlt     bool
-		unit          int
-
-		rawLatitude  int /* Non decoded latitude */
-		rawLongitude int /* Non decoded longitude */
-
-		eastWestDirection   int /* 0 = East, 1 = West. */
-		eastWestVelocity    int /* E/W velocity. */
-		northSouthDirection int /* 0 = North, 1 = South. */
-		northSouthVelocity  int /* N/S velocity. */
-		validVelocity       bool
-		velocity            float64 /* Computed from EW and NS velocity. */
-		superSonic          bool
-
-		verticalRateSource int /* Vertical rate source. */
-		verticalRate       int /* Vertical rate. */
-		validVerticalRate  bool
-
-		onGround            bool /* VS Bit */
-		validVerticalStatus bool
-
-		heading      float64
-		validHeading bool
-
-		haeDirection byte //up or down increments of 25
-		haeDelta     int
-		validHae     bool
-	}
-
-	df17 struct {
-		messageType    byte // DF17 Extended Squitter Message Type
-		messageSubType byte // DF17 Extended Squitter Message Sub Type
-
-		cprFlagOddEven int    /* 1 = Odd, 0 = Even CPR message. */
-		timeFlag       int    /* UTC synchronized? */
-		flight         []byte /* 8 chars flight number. */
-
-		validCompatibilityClass bool
-		compatibilityClass      int
-		cccHasOperationalTcas   *bool
-		cccHas1090EsIn          bool
-		cccHasAirRefVel         *bool // supports Air Referenced velocity
-		cccHasLowTxPower        *bool
-		cccHasTargetStateRpt    *bool // supports Target State Report
-		cccHasTargetChangeRpt   *bool // supports Target Change Report
-		cccHasUATReceiver       bool
-		validNacV               bool
-
-		operationalModeCode int
-		adsbVersion         byte
-		nacP                byte // Navigation accuracy category - position
-		geoVertAccuracy     byte // geometric vertical accuracy
-		sil                 byte
-		airframeWidthLen    byte
-		nicCrossCheck       byte // whether or not the alt or heading is cross checked
-		northReference      byte // 0=true north, 1 = magnetic north
-
-		surveillanceStatus byte
-		nicSupplementA     byte
-		nicSupplementB     byte
-		nicSupplementC     byte
-		containmentRadius  int
-
-		intentChange  byte
-		ifrCapability byte
-		nacV          byte
-	}
-
 	extendedSquitter struct {
-		Df byte   `bits:"0-5" name:"DF" desc:"Downlink Format"`
-		Ca byte   `bits:"5-8" name:"CA" desc:"Aircraft System Capability"`
-		Aa uint32 `bits:"8-32" name:"AA" desc:"Address Announce, ICAO Identification"`
+		df17me29t1
+		df17me29t0
+		df17me29t2
 		Me uint64 `bits:"32-88" name:"ME" desc:"ADSB Message"`
+		Aa uint32 `bits:"8-32" name:"AA" desc:"Address Announce, ICAO Identification"`
 		Pi uint32 `bits:"88-111" name:"PI" desc:"Parity/Interr.Identity: reports source of interrogation. Contains the parity overlaid on the interrogator identity code"`
-
-		df17me1
-
 		df17me19t1
 		df17me19t3
-
-		df17me28t1
-		df17me28t2
-
-		df17me29t0
-		df17me29t1
-		df17me29t2
-
-		df17me31t0
 		df17me31t1
+		df17me31t0
+		df17me28t2
+		df17me1
+		df17me28t1
+		Df byte `bits:"0-5" name:"DF" desc:"Downlink Format"`
+		Ca byte `bits:"5-8" name:"CA" desc:"Aircraft System Capability"`
 	}
 
 	// df17me1 is Aircraft Identification and Category
@@ -142,18 +66,18 @@ type (
 
 	// df17me19t1 Airborne Velocity Message Subtype=1 and 2
 	df17me19t1 struct {
-		CategoryType    byte   `bits:"33-38"`
-		CategorySubType byte   `bits:"38-41"`
-		IntentChange    byte   `bits:"41-42" name:"Intent" desc:"Intent Change"`
+		EWVelocity      uint16 `bits:"47-57" name:"EWV" desc:"East/West Velocity"`
+		VertRate        uint16 `bits:"70-79" name:"VR" desc:"Vertical Rate"`
+		NSVelocity      uint16 `bits:"58-68" name:"NSV" desc:"North/South Velocity"`
 		ReservedA       byte   `bits:"42-43" name:"Res" desc:"Reserved-A"`
 		NacV            byte   `bits:"43-46"`
 		EWDir           byte   `bits:"46-47" name:"EW" desc:"(0)East/(1)West Direction"`
-		EWVelocity      uint16 `bits:"47-57" name:"EWV" desc:"East/West Velocity"`
+		CategoryType    byte   `bits:"33-38"`
 		NSDir           byte   `bits:"57-58" name:"NS" desc:"(0)North/(1)South Direction"`
-		NSVelocity      uint16 `bits:"58-68" name:"NSV" desc:"North/South Velocity"`
+		IntentChange    byte   `bits:"41-42" name:"Intent" desc:"Intent Change"`
 		VertRateSource  byte   `bits:"68-69" name:"VRS" desc:"Vertical Rate Source"`
 		VertRateSign    byte   `bits:"69-70" name:"VRS+" desc:"Vertical Rate Sign"`
-		VertRate        uint16 `bits:"70-79" name:"VR" desc:"Vertical Rate"`
+		CategorySubType byte   `bits:"38-41"`
 		ReservedB       byte   `bits:"79-81" name:"Res" desc:"Reserved-B"`
 		DiffBaroSign    byte   `bits:"81-82" name:"DB+" desc:"Diff from Baro Altitude Sign. 0=up, 1=down"`
 		DiffBaroAlt     byte   `bits:"82-89" name:"DB+" desc:"Diff from Baro Altitude"`
@@ -161,18 +85,18 @@ type (
 
 	// df17me19t3 Airborne Velocity Message Subtype=3 and 4
 	df17me19t3 struct {
-		CategoryType    byte   `bits:"33-38"`
-		CategorySubType byte   `bits:"38-41"`
-		IntentChange    byte   `bits:"41-42" name:"Intent" desc:"Intent Change"`
+		Heading         uint16 `bits:"47-57" name:"HD" desc:"Heading Status"`
+		VertRate        uint16 `bits:"70-79" name:"VR" desc:"Vertical Rate"`
+		AirSpeed        uint16 `bits:"58-68" name:"AS" desc:"Air Speed"`
 		ReservedA       byte   `bits:"42-43" name:"Res" desc:"Reserved-A"`
 		NacV            byte   `bits:"43-46"`
 		HeadingStatus   byte   `bits:"46-47" name:"HDS" desc:"Heading Status"`
-		Heading         uint16 `bits:"47-57" name:"HD" desc:"Heading Status"`
+		CategoryType    byte   `bits:"33-38"`
 		AirSpeedType    byte   `bits:"57-58" name:"AST" desc:"Air Speed Type"`
-		AirSpeed        uint16 `bits:"58-68" name:"AS" desc:"Air Speed"`
+		IntentChange    byte   `bits:"41-42" name:"Intent" desc:"Intent Change"`
 		VertRateSource  byte   `bits:"68-69" name:"VRS" desc:"Vertical Rate Source"`
 		VertRateSign    byte   `bits:"69-70" name:"VRS+" desc:"Vertical Rate Sign"`
-		VertRate        uint16 `bits:"70-79" name:"VR" desc:"Vertical Rate"`
+		CategorySubType byte   `bits:"38-41"`
 		ReservedB       byte   `bits:"79-81" name:"Res" desc:"Reserved-B"`
 		DiffBaroSign    byte   `bits:"81-82" name:"DB+" desc:"Diff from Baro Altitude Sign. 0=up, 1=down"`
 		DiffBaroAlt     byte   `bits:"82-89" name:"DB+" desc:"Diff from Baro Altitude"`
@@ -247,13 +171,13 @@ type (
 		Reserved        byte   `bits:"88-89" name:"Res" desc:"Reserved"`
 	}
 	df17me31t1 struct {
-		Type            byte   `bits:"33-38" name:"Type" desc:"ADS-B Message Type"`
-		SubType         byte   `bits:"38-41" name:"Sub" desc:"ADS-B Message Sub Type"`
 		CapClassCodes   uint16 `bits:"41-53" name:"CCC" desc:"Capability Class Codes"`
-		LWCodes         byte   `bits:"53-57" name:"L/W C" desc:"L/W Codes"`
 		OperationalMode uint16 `bits:"57-73" name:"OM" desc:"Operational Mode Codes"`
-		MopsVer         byte   `bits:"73-76" name:"VN" desc:"ADS-B MOPS Compliant Version"`
 		NicSuppA        byte   `bits:"76-77" name:"NicA" desc:"NIC Supp-A"`
+		LWCodes         byte   `bits:"53-57" name:"L/W C" desc:"L/W Codes"`
+		SubType         byte   `bits:"38-41" name:"Sub" desc:"ADS-B Message Sub Type"`
+		MopsVer         byte   `bits:"73-76" name:"VN" desc:"ADS-B MOPS Compliant Version"`
+		Type            byte   `bits:"33-38" name:"Type" desc:"ADS-B Message Type"`
 		NACp            byte   `bits:"77-81" name:"NicA" desc:"NIC Supp-A"`
 		ReservedA       byte   `bits:"81-83" name:"Res" desc:"ReservedA"`
 		Sil             byte   `bits:"83-85" name:"SIL" desc:"Source Integrity Level"`
@@ -263,52 +187,107 @@ type (
 		ReservedB       byte   `bits:"88-89" name:"Res" desc:"ReservedB"`
 	}
 
-	rawFields struct {
-		// fields named what they are. see describe.go for what they mean
-
-		vs, ca, cc, sl, ri, dr, um, fs byte
-		ac, ap, id, aa, pi             uint32
-		mv, me, mb                     uint64
-		md                             [10]byte
-
-		// altitude decoding
-		acQ, acM bool
-
-		// adsb decoding
-		catType, catSubType byte
-		catValid            bool
-	}
-
 	Frame struct {
-		rawFields
-		bds
-		df17
-		Position
-		mode string
-		// the timestamp we are processing this message at
-		timeStamp      time.Time
-		beastTimeStamp string
-		// beastTicks is the number of ticks since the beast was turned on
-		beastTicks uint64
-		// beastTicksNs is the number of nanoseconds since the beast was turned on
-		beastTicksNs   uint64
-		beastAvrUptime time.Duration
-		// raw is our semi processed string, full is the original string
-		raw, full      string
-		message        []byte
-		downLinkFormat byte // Down link Format (DF)
-		icao           uint32
-		crc, checkSum  uint32
-		identity       uint32 // squawk identity
-		special        string
-		emergencyID    int
-		emergency      string
-		alert          bool
-		// if we have trouble decoding our frame, the message ends up here
-		err error
-
-		decodeLock            *sync.Mutex
-		hasDecoded, fromBytes bool
+		timeStamp               time.Time
+		err                     error
+		cccHasOperationalTcas   *bool
+		cccHasTargetChangeRpt   *bool
+		cccHasAirRefVel         *bool
+		cccHasLowTxPower        *bool
+		decodeLock              *sync.Mutex
+		cccHasTargetStateRpt    *bool
+		special                 string
+		full                    string
+		raw                     string
+		beastTimeStamp          string
+		mode                    string
+		emergency               string
+		flight                  []byte
+		message                 []byte
+		me                      uint64
+		eastWestDirection       int
+		mb                      uint64
+		beastTicksNs            uint64
+		beastAvrUptime          time.Duration
+		velocity                float64
+		heading                 float64
+		timeFlag                int
+		cprFlagOddEven          int
+		mv                      uint64
+		compatibilityClass      int
+		operationalModeCode     int
+		containmentRadius       int
+		emergencyID             int
+		unit                    int
+		rawLatitude             int
+		rawLongitude            int
+		beastTicks              uint64
+		eastWestVelocity        int
+		haeDelta                int
+		verticalRate            int
+		verticalRateSource      int
+		northSouthVelocity      int
+		northSouthDirection     int
+		ac                      uint32
+		ap                      uint32
+		id                      uint32
+		aa                      uint32
+		pi                      uint32
+		altitude                int32
+		icao                    uint32
+		crc                     uint32
+		checkSum                uint32
+		identity                uint32
+		md                      [10]byte
+		catSubType              byte
+		um                      byte
+		fs                      byte
+		dr                      byte
+		ri                      byte
+		sl                      byte
+		cc                      byte
+		ca                      byte
+		vs                      byte
+		downLinkFormat          byte
+		haeDirection            byte
+		nacV                    byte
+		ifrCapability           byte
+		intentChange            byte
+		nicSupplementC          byte
+		nicSupplementB          byte
+		nicSupplementA          byte
+		surveillanceStatus      byte
+		northReference          byte
+		nicCrossCheck           byte
+		airframeWidthLen        byte
+		sil                     byte
+		geoVertAccuracy         byte
+		nacP                    byte
+		adsbVersion             byte
+		messageSubType          byte
+		messageType             byte
+		bdsMinor                byte
+		bdsMajor                byte
+		acQ                     bool
+		catType                 byte
+		catValid                bool
+		validHae                bool
+		validHeading            bool
+		validVerticalStatus     bool
+		onGround                bool
+		validVerticalRate       bool
+		superSonic              bool
+		isGnssAlt               bool
+		validAltitude           bool
+		validVelocity           bool
+		alert                   bool
+		fromBytes               bool
+		hasDecoded              bool
+		validNacV               bool
+		cccHasUATReceiver       bool
+		cccHas1090EsIn          bool
+		validCompatibilityClass bool
+		acM                     bool
 	}
 )
 

@@ -29,7 +29,6 @@ const (
 )
 
 type bds struct {
-	major, minor byte
 }
 
 var (
@@ -58,8 +57,8 @@ var (
 	}
 )
 
-func (b *bds) DescribeBds() string {
-	key := b.BdsMessageType()
+func (f *Frame) DescribeBds() string {
+	key := f.BdsMessageType()
 	s, ok := bdsFields[key]
 	if !ok {
 		return key + ": Unknown"
@@ -67,14 +66,14 @@ func (b *bds) DescribeBds() string {
 	return key + ": " + s
 }
 
-func (b *bds) BdsMessageType() string {
-	return fmt.Sprintf("%d.%d", b.major, b.minor)
+func (f *Frame) BdsMessageType() string {
+	return fmt.Sprintf("%d.%d", f.bdsMajor, f.bdsMinor)
 }
 
 // Decodes an MB Field
 func (f *Frame) decodeCommB() error {
 	var err error
-	f.major, f.minor, err = inferCommBMessageType(f.message[4:11])
+	f.bdsMajor, f.bdsMinor, err = inferCommBMessageType(f.message[4:11])
 	if nil != err {
 		// log the error?
 		if !errors.Is(err, ErrUnknownCommBMessage) {

@@ -10,25 +10,27 @@ import (
 
 // meanings: 0 is even frame, 1 is odd frame
 type CprLocation struct {
-	rwLock sync.RWMutex
-
-	evenLat, oddLat, evenLon, oddLon float64
-
-	time0, time1 time.Time
-
-	// working out values
-	rlat0, rlat1, airDLat0, airDLat1 float64
-
-	latitudeIndex int32
-
-	oddFrame, evenFrame   bool
-	oddDecode, evenDecode bool
-
-	nl0, nl1 int32
-
+	time0              time.Time
+	time1              time.Time
+	airDLat1           float64
 	globalSurfaceRange float64
-
-	refLat, refLon float64
+	oddLon             float64
+	oddLat             float64
+	evenLat            float64
+	rlat0              float64
+	rlat1              float64
+	airDLat0           float64
+	evenLon            float64
+	refLon             float64
+	refLat             float64
+	rwLock             sync.RWMutex
+	latitudeIndex      int32
+	nl0                int32
+	nl1                int32
+	evenDecode         bool
+	oddDecode          bool
+	evenFrame          bool
+	oddFrame           bool
 }
 
 var NLTable = map[int32]float64{

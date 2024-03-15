@@ -19,75 +19,72 @@ const (
 type (
 	headingInfo []heading
 	heading     struct {
-		from, to float64
-		label    string
+		label string
+		from  float64
+		to    float64
 	}
 	// PlaneLocation stores where we think a plane is currently at. It is am amalgamation of all the tracking info
 	// we receive.
 	PlaneLocation struct {
-		mu                   sync.Mutex
-		latitude, longitude  float64
-		altitude             int32
-		hasVerticalRate      bool
-		hasVelocity          bool
-		verticalRate         int
-		altitudeUnits        string
-		heading, velocity    float64
-		onGround, hasHeading bool
-		hasLatLon            bool
-		distanceTravelled    float64
-		durationTravelled    float64
-		TrackFinished        bool
-
-		cprDecodedTs   time.Time // when the planes position was last updated
-		altitudeTs     time.Time
-		headingTs      time.Time
-		velocityTs     time.Time
-		onGroundTs     time.Time
-		verticalRateTs time.Time
-
-		gridTileLocation string
+		onGroundTs        time.Time
+		cprDecodedTs      time.Time
+		headingTs         time.Time
+		velocityTs        time.Time
+		altitudeTs        time.Time
+		verticalRateTs    time.Time
+		gridTileLocation  string
+		altitudeUnits     string
+		heading           float64
+		velocity          float64
+		verticalRate      int
+		distanceTravelled float64
+		durationTravelled float64
+		longitude         float64
+		latitude          float64
+		mu                sync.Mutex
+		altitude          int32
+		onGround          bool
+		TrackFinished     bool
+		hasLatLon         bool
+		hasHeading        bool
+		hasVelocity       bool
+		hasVerticalRate   bool
 	}
 
 	flight struct {
-		identifier string
-		status     string
-		statusId   byte
-
 		flightStatusTs time.Time
+		identifier     string
+		status         string
+		statusId       byte
 	}
 
 	airframe struct {
-		category     string
-		categoryType string
 		width        *float32
 		length       *float32
 		registration *string
+		category     string
+		categoryType string
 	}
 
 	Plane struct {
-		recentFrames lossyFrameList
-
-		tracker         *Tracker
-		trackedSince    time.Time
-		lastSeen        time.Time
-		icaoIdentifier  uint32
-		icao            string
-		squawk          uint32
 		flight          flight
-		locationHistory []*PlaneLocation
-		location        *PlaneLocation
-		cprLocation     CprLocation
-		special         map[string]string
-		msgCount        uint64
 		airframe        airframe
-
-		squawkTs  time.Time
-		specialTs time.Time
-
-		signalLevel *float64 // RSSI dBFS
-
-		rwLock sync.RWMutex
+		specialTs       time.Time
+		lastSeen        time.Time
+		squawkTs        time.Time
+		trackedSince    time.Time
+		signalLevel     *float64
+		location        *PlaneLocation
+		special         map[string]string
+		tracker         *Tracker
+		icao            string
+		recentFrames    lossyFrameList
+		locationHistory []*PlaneLocation
+		cprLocation     CprLocation
+		msgCount        uint64
+		rwLock          sync.RWMutex
+		squawk          uint32
+		icaoIdentifier  uint32
 	}
 
 	PlaneIterator func(p *Plane) bool

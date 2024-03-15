@@ -310,12 +310,13 @@ func TestDecodeFailsOnNoEvenLoc(t *testing.T) {
 
 func TestCprDecode2(t *testing.T) {
 	type testDataType struct {
+		receivedAt time.Time
 		raw        string
 		icoa       string
-		isEven     bool
+		lat        string
+		lon        string
 		alt        int32
-		lat, lon   string
-		receivedAt time.Time
+		isEven     bool
 	}
 	testData := [][]testDataType{
 		{

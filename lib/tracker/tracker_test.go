@@ -32,13 +32,16 @@ func TestNLFunc(t *testing.T) {
 
 func TestCprDecode(t *testing.T) {
 	type testDataType struct {
-		evenLat, evenLon float64
-		oddLat, oddLon   float64
-
-		evenRlatCheck1, evenRlonCheck1 string
-
-		evenRlat, evenRlon string
-		oddRlat, oddRlon   string
+		evenRlatCheck1 string
+		evenRlonCheck1 string
+		evenRlat       string
+		evenRlon       string
+		oddRlat        string
+		oddRlon        string
+		evenLat        float64
+		evenLon        float64
+		oddLat         float64
+		oddLon         float64
 	}
 	testData := []testDataType{
 		//odd *8d7c4516581f76e48d95e8ab20ca; even *8d7c4516581f6288f83ade534ae1;
@@ -475,10 +478,10 @@ func TestBadLocationUpdateRejected(t *testing.T) {
 }
 
 type testProducer struct {
-	frames []beast.Frame
-	idx    int
 	e      chan FrameEvent
 	source *FrameSource
+	frames []beast.Frame
+	idx    int
 }
 
 func (tp *testProducer) Source() *FrameSource {

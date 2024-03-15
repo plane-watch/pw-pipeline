@@ -11,8 +11,9 @@ type (
 
 	// PlaneLocationEvent is sent whenever a planes information has been updated
 	PlaneLocationEvent struct {
-		new, removed bool
-		p            *Plane
+		p       *Plane
+		new     bool
+		removed bool
 	}
 
 	// FrameEvent is for whenever we get a frame of data from our producers
@@ -22,9 +23,11 @@ type (
 	}
 
 	FrameSource struct {
+		RefLat           *float64
+		RefLon           *float64
 		OriginIdentifier string
-		Name, Tag        string
-		RefLat, RefLon   *float64
+		Name             string
+		Tag              string
 		VelocityCheck    bool
 	}
 )

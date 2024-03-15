@@ -17,33 +17,24 @@ import (
 
 type (
 	Tracker struct {
-		planeList *forgetfulmap.ForgetfulSyncMap
-
-		// pruneTick is how long between pruning attempts
-		// pruneAfter is how long we wait from the last message before we remove it from the tracker
-		pruneTick, pruneAfter time.Duration
-
-		// Input Handling
-		producers   []Producer
-		middlewares []Middleware
-		sink        Sink
-
-		producerWaiter      sync.WaitGroup
-		middlewareWaiter    sync.WaitGroup
-		eventsWaiter        sync.WaitGroup
-		decodingQueueWaiter sync.WaitGroup
-
-		decodeWorkerCount int
-		finishDone        bool
-
-		startTime time.Time
-
+		log   zerolog.Logger
 		stats struct {
 			currentPlanes prometheus.Gauge
 			decodedFrames prometheus.Counter
 		}
-
-		log zerolog.Logger
+		startTime           time.Time
+		sink                Sink
+		planeList           *forgetfulmap.ForgetfulSyncMap
+		producers           []Producer
+		middlewares         []Middleware
+		producerWaiter      sync.WaitGroup
+		eventsWaiter        sync.WaitGroup
+		decodingQueueWaiter sync.WaitGroup
+		middlewareWaiter    sync.WaitGroup
+		decodeWorkerCount   int
+		pruneAfter          time.Duration
+		pruneTick           time.Duration
+		finishDone          bool
 	}
 
 	dummySink struct {

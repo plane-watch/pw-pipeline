@@ -126,10 +126,8 @@ func TestFrame_VerticalRate(t *testing.T) {
 		t.Errorf("valid vertical rate on nil frame")
 	}
 	f = &Frame{
-		Position: Position{
-			verticalRate:      1,
-			validVerticalRate: false,
-		},
+		verticalRate:      1,
+		validVerticalRate: false,
 	}
 	if f.VerticalRateValid() {
 		t.Errorf("valid vertical rate when not set")

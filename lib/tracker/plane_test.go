@@ -120,9 +120,9 @@ func Test_headingInfo_getCompassLabel(t *testing.T) {
 	}
 	tests := []struct {
 		name string
+		want string
 		hi   headingInfo
 		args args
-		want string
 	}{
 		{name: "T0", hi: headingLookup, args: args{heading: 0}, want: "N"},
 		{name: "T1", hi: headingLookup, args: args{heading: 1}, want: "N"},
