@@ -1,7 +1,9 @@
 package main
 
 import (
+	"fmt"
 	"reflect"
+	"strconv"
 	"testing"
 )
 
@@ -217,24 +219,47 @@ func TestAvrFrame_DecodeADSB(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:   "DF17 / 19 / 00",
+			name:   "DF17 / 19 / 01 (1)",
 			fields: []byte{0x8D, 0x00, 0x81, 0x26, 0x99, 0x0D, 0x23, 0x9A, 0x90, 0x78, 0x28, 0x28, 0xF2, 0x11},
 			want: DFADSB{
-				ICAO:           0x008126,
-				MessageType:    19,
-				MessageSubType: 1,
-				Interrogatable: true,
+				ICAO:                  0x008126,
+				MessageType:           19,
+				MessageSubType:        1,
+				Interrogatable:        true,
+				ValidVertical:         true,
+				VerticalRate:          1856,
+				ValidHeading:          true,
+				Heading:               233.96,
+				ValidVelocity:         true,
+				Velocity:              360.03,
+				ValidHAE:              true,
+				HeightAboveEllipsoid:  975,
+				ValidNacV:             true,
+				NavigationalAccuracyV: 1,
+				VerticalRateSource:    VerticalRateSourceGNSS,
 			},
 			wantErr: false,
 		},
 		{
-			name:   "DF17 / 19 / 1",
+			name:   "DF17 / 19 / 01 (2)",
 			fields: []byte{0x8D, 0x7C, 0x1B, 0x26, 0x99, 0x44, 0x5D, 0xA6, 0xA8, 0x5C, 0x30, 0x34, 0x00, 0xC7},
 			want: DFADSB{
-				ICAO:           0x7C1B26,
-				MessageType:    19,
-				MessageSubType: 1,
-				Interrogatable: true,
+				ICAO:                  0x7C1B26,
+				MessageType:           19,
+				MessageSubType:        1,
+				Interrogatable:        true,
+				ValidVertical:         true,
+				VerticalRate:          -1408,
+				ValidHeading:          true,
+				Heading:               196.63,
+				ValidVelocity:         true,
+				Velocity:              322.69,
+				ValidHAE:              true,
+				HeightAboveEllipsoid:  1175,
+				ValidNacV:             true,
+				NavigationalAccuracyV: 0,
+				IFRCapable:            true,
+				VerticalRateSource:    VerticalRateSourceBarometric,
 			},
 			wantErr: false,
 		},
@@ -242,10 +267,18 @@ func TestAvrFrame_DecodeADSB(t *testing.T) {
 			name:   "DF17 / 19 / 03",
 			fields: []byte{0x8D, 0x01, 0x02, 0x08, 0x9B, 0x07, 0x0A, 0x25, 0x78, 0x08, 0x00, 0x09, 0xE0, 0x30},
 			want: DFADSB{
-				ICAO:           0x010208,
-				MessageType:    19,
-				MessageSubType: 3,
-				Interrogatable: true,
+				ICAO:               0x010208,
+				MessageType:        19,
+				MessageSubType:     3,
+				Interrogatable:     true,
+				ValidVertical:      true,
+				VerticalRate:       -64,
+				ValidHeading:       true,
+				Heading:            272.81,
+				ValidVelocity:      true,
+				Velocity:           298,
+				ValidNacV:          true,
+				VerticalRateSource: VerticalRateSourceBarometric,
 			},
 			wantErr: false,
 		},
@@ -360,7 +393,54 @@ func TestAvrFrame_DecodeADSB(t *testing.T) {
 				return
 			}
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("DecodeDF17()\n got = %+v\nwant = %+v\n", got, tt.want)
+				t.Errorf("Did not Interpret %s correctly", a.String())
+				format := " %22s | %-17s | %-17s\n"
+				t.Errorf("DecodeDF17()")
+				t.Errorf(format, "Field", "GOT", "WANT")
+				printed := false
+
+				r := reflect.TypeOf(got)
+				for i := 0; i < r.NumField(); i++ {
+					vGot := reflect.ValueOf(got).Field(i)
+					vWant := reflect.ValueOf(tt.want).Field(i)
+
+					// if vGot.Equal(vWant) {
+					// 	continue
+					// }
+					var vGotVal, vWantVal string
+					switch vGot.Kind() {
+					case reflect.String:
+						vGotVal = vGot.String()
+						vWantVal = vWant.String()
+					case reflect.Bool:
+						vGotVal = strconv.FormatBool(vGot.Bool())
+						vWantVal = strconv.FormatBool(vWant.Bool())
+					case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+						vGotVal = strconv.FormatInt(vGot.Int(), 10)
+						vWantVal = strconv.FormatInt(vWant.Int(), 10)
+					case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+						vGotVal = strconv.FormatUint(vGot.Uint(), 10)
+						vWantVal = strconv.FormatUint(vWant.Uint(), 10)
+					case reflect.Float64, reflect.Float32:
+						vGotVal = fmt.Sprintf("%f", vGot.Float())
+						vWantVal = fmt.Sprintf("%f", vWant.Float())
+					default:
+						vGotVal = "Unknown Got Type: " + vGot.Kind().String()
+						vWantVal = "Unknown Want Type: " + vWant.Kind().String()
+					}
+
+					if vGotVal == vWantVal {
+						continue
+					}
+					printed = true
+
+					t.Errorf(format, r.Field(i).Name, vGotVal, vWantVal)
+				}
+				t.Errorf("\n\n")
+
+				if !printed {
+					t.Errorf("DecodeDF17()\n got = %+v\nwant = %+v\n", got, tt.want)
+				}
 			}
 		})
 	}

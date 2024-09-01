@@ -3,13 +3,16 @@ package main
 import "errors"
 
 const (
-	AltitudeUnitFeet    AltitudeUnit = 0
-	AltitudeUnitMetre   AltitudeUnit = 1
-	AltitudeUnitInvalid AltitudeUnit = 2
+	AltitudeUnitFeet  AltitudeUnit = 0
+	AltitudeUnitMetre AltitudeUnit = 1
+
+	VerticalRateSourceGNSS       VerticalRateSource = 0
+	VerticalRateSourceBarometric VerticalRateSource = 1
 )
 
 type (
-	AltitudeUnit byte
+	AltitudeUnit       byte
+	VerticalRateSource byte
 )
 
 var (

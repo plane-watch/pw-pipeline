@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"math"
 )
 
 var (
@@ -82,6 +83,48 @@ func (a AvrFrame) DecodeADSB() (DFADSB, error) {
 		ret.CprLon = int(a.b & 0x01_FF_FF_00_00_00_00_00 >> 40)                                        //nolint:gosec
 
 	case 19:
+		/* Airborne velocity Message */
+		ret.OnGround = false
+		ret.ValidVertical = true
+
+		ret.IntentChange = a.a&0x00_00_00_00_00_80_00_00 > 0 // (f.message[5] & 0x80) >> 7
+		ret.IFRCapable = a.a&0x00_00_00_00_00_40_00_00 > 0   // (f.message[5] & 0x40) >> 6
+		ret.ValidNacV = true
+		ret.NavigationalAccuracyV = byte(a.a & 0x00_00_00_00_00_38_00_00 >> 19) // (f.message[5] & 0x38) >> 3
+
+		switch ret.MessageSubType {
+		case 1, 2:
+			// heading type is ground track
+			ret.Velocity, ret.SuperSonic, ret.ValidVelocity, ret.Heading, ret.ValidHeading = calcAirborneSpeedMT12(
+				ret.MessageSubType,
+				byte(a.a&0x00_00_00_00_00_04_00_00>>18),
+				byte(a.a&0x00_00_00_00_00_00_00_80>>7),
+				int(a.a&0x00_00_00_00_00_03_FF_00>>8), //nolint:gosec
+				int(a.a&0x00_00_00_00_00_00_00_7F<<3|a.b&0xE0_00_00_00_00_00_00_00>>61),
+			)
+		case 3, 4:
+			// heading type is magnetic or true
+			ret.Velocity, ret.SuperSonic, ret.ValidVelocity, ret.Heading, ret.ValidHeading = calcAirborneSpeedMT34(
+				ret.MessageSubType,
+				int(a.a&0x00_00_00_00_00_00_00_7F<<3|a.b&0xE0_00_00_00_00_00_00_00>>61), //nolint:gosec
+				a.a&0x00_00_00_00_00_04_00_00 != 0,
+				float64(a.a&0x00_00_00_00_00_03_F8_00>>11),
+			)
+
+			ret.TrueAirSpeed = a.a&0x00_00_00_00_00_00_00_80 > 0 // false == indicated air speed
+		}
+
+		ret.VerticalRate, ret.VerticalRateSource, ret.ValidVertical = calcAirborneVerticalRate(
+			byte(a.b&0x10_00_00_00_00_00_00_00>>60), // Vertical Rate Source Antenna
+			byte(a.b&0x08_00_00_00_00_00_00_00>>59), // Vertical Rate Direction
+			int(a.b&0x07_FC_00_00_00_00_00_00>>50),  //nolint:gosec,gosec Vertical rate amount
+		)
+
+		ret.HeightAboveEllipsoid, ret.ValidHAE = calcHAE(
+			byte(a.b&0x00_00_80_00_00_00_00_00>>47), // HAE Direction bit
+			byte(a.b&0x00_00_7F_00_00_00_00_00>>40), // HAE Value, rest of byte 10
+		)
+
 	case 23:
 	case 24:
 	case 25, 26:
@@ -159,57 +202,11 @@ func decodeAC12Field(aC12Field int) (int, AltitudeUnit) {
 	// Make N a 13 bit Gillham coded altitude by inserting M=0 at bit 6
 	n = ((aC12Field & 0x0FC0) << 1) | (aC12Field & 0x003F)
 	// log.Printf(format, "Q Bit Clear", strconv.FormatInt(int64(n), 2))
-	n = modeAToModeC(decodeGillhamCodedAltitude(n))
+	n = modeAToModeC(decodeAC13Field(int32(n))) //nolint:gosec
 	if n < -12 {
 		n = 0
 	}
 	return 100 * n, AltitudeUnitFeet
-}
-
-func decodeGillhamCodedAltitude(ID13Field int) int32 {
-	var hexGillham int32
-	// log.Printf(format, "Decoding ID13 Field", strconv.FormatInt(int64(ID13Field), 2))
-
-	if 0 < (ID13Field & 0x1000) {
-		hexGillham |= 0x0010
-	} // Bit 12 = C1
-	if 0 < (ID13Field & 0x0800) {
-		hexGillham |= 0x1000
-	} // Bit 11 = A1
-	if 0 < (ID13Field & 0x0400) {
-		hexGillham |= 0x0020
-	} // Bit 10 = C2
-	if 0 < (ID13Field & 0x0200) {
-		hexGillham |= 0x2000
-	} // Bit  9 = A2
-	if 0 < (ID13Field & 0x0100) {
-		hexGillham |= 0x0040
-	} // Bit  8 = C4
-	if 0 < (ID13Field & 0x0080) {
-		hexGillham |= 0x4000
-	} // Bit  7 = A4
-	// if (ID13Field & 0x0040) {hexGillham |= 0x0800;} // Bit  6 = X  or M
-	if 0 < (ID13Field & 0x0020) {
-		hexGillham |= 0x0100
-	} // Bit  5 = B1
-	if 0 < (ID13Field & 0x0010) {
-		hexGillham |= 0x0001
-	} // Bit  4 = D1 or Q
-	if 0 < (ID13Field & 0x0008) {
-		hexGillham |= 0x0200
-	} // Bit  3 = B2
-	if 0 < (ID13Field & 0x0004) {
-		hexGillham |= 0x0002
-	} // Bit  2 = D2
-	if 0 < (ID13Field & 0x0002) {
-		hexGillham |= 0x0400
-	} // Bit  1 = B4
-	if 0 < (ID13Field & 0x0001) {
-		hexGillham |= 0x0004
-	} // Bit  0 = D4
-	// log.Printf(format, "Decoded ID13 Field", strconv.FormatInt(int64(hexGillham), 2))
-
-	return hexGillham
 }
 
 // ContainmentRadiusLimit calculates the horizontal containment radius limit in meters.
@@ -307,4 +304,119 @@ func (f DFADSB) NavigationIntegrityCategory(nicSupplA bool) (byte, error) {
 	}
 
 	return nic, err
+}
+
+func calcAirborneSpeedMT12(
+	messageSubType byte,
+	eastWestDirection, northSouthDirection byte,
+	eastWestVelocity, northSouthVelocity int,
+) (velocity float64, superSonic, validVelocity bool, heading float64, validHeading bool) {
+	if messageSubType != 1 && messageSubType != 2 {
+		return
+	}
+	// speed over Ground Message
+	/* Compute velocity and angle from the two speed components. */
+
+	if messageSubType == 2 {
+		// supersonic - unit is 4 knots
+		eastWestVelocity <<= 2
+		northSouthVelocity <<= 2
+		superSonic = true
+	}
+
+	velocity = math.Sqrt(float64((northSouthVelocity * northSouthVelocity) + (eastWestVelocity * eastWestVelocity)))
+	validVelocity = true
+
+	if velocity != 0 {
+		eastWestVelocity--
+		northSouthVelocity--
+		if eastWestDirection != 0 {
+			// GO WEST! (0=east, 1=west)
+			eastWestVelocity *= -1
+		}
+		if northSouthDirection != 0 {
+			// Going Down South! (0=north, 1=south)
+			northSouthVelocity *= -1
+		}
+		heading = math.Atan2(float64(eastWestVelocity), float64(northSouthVelocity))
+		/* Convert to degrees. */
+		heading = heading * 360 / (math.Pi * 2)
+		/* We don't want negative values but a 0-360 scale. */
+		if heading < 0 {
+			heading += 360
+		}
+		validHeading = true
+	} else {
+		heading = 0
+	}
+
+	// limit precision to 2 places
+	heading = math.Round(heading*100) / 100
+	velocity = math.Round(velocity*100) / 100
+
+	return
+}
+
+func calcAirborneSpeedMT34(
+	messageSubType byte,
+	airspeed int,
+	hasHeading bool,
+	headingField float64,
+) (velocity float64, superSonic, validVelocity bool, heading float64, validHeading bool) {
+	// Air Speed -- ground speed not available
+
+	if messageSubType != 3 && messageSubType != 4 {
+		return
+	}
+
+	if airspeed > 0 {
+		airspeed--
+		if messageSubType == 4 {
+			// If (supersonic) unit is 4 kts
+			superSonic = true
+			airspeed <<= 2
+		}
+		velocity = float64(airspeed)
+		validVelocity = true
+		velocity = math.Round(velocity*100) / 100
+	}
+
+	if hasHeading {
+		heading = (360.0 / 128.0) * headingField
+		validHeading = true
+		heading = math.Round(heading*100) / 100
+	}
+
+	return
+}
+
+func calcAirborneVerticalRate(
+	verticalRateSource, verticalRateSign byte,
+	verticalRateIn int,
+) (verticalRate float64, vrs VerticalRateSource, validVerticalRate bool) {
+	vrs = VerticalRateSource(verticalRateSource)
+
+	// var verticalRateSign = int((f.message[8] & 0x8) >> 3)
+	verticalRate = float64(verticalRateIn)
+	if verticalRate != 0 {
+		verticalRate--
+		if verticalRateSign != 0 {
+			verticalRate = 0 - verticalRate
+		}
+		verticalRate *= 64
+		validVerticalRate = true
+	}
+	return
+}
+
+func calcHAE(haeDirection byte, haeValue byte) (heightAboveEllipsoidDelta int, validHAE bool) {
+	if haeDirection+haeValue > 0 {
+		validHAE = true
+		var multiplier = -25
+		if haeDirection == 0 {
+			multiplier = 25
+		}
+		heightAboveEllipsoidDelta = multiplier * int(haeValue-1)
+	}
+	return
 }

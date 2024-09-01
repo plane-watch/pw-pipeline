@@ -47,11 +47,12 @@ type (
 	}
 
 	DFADSB struct {
-		FlightNumber      string
-		Heading, Velocity float64
+		FlightNumber                    string
+		Heading, Velocity, VerticalRate float64
 
-		ICAO     int // 24 bit ICAO aircraft code
-		Altitude int
+		ICAO                 int // 24 bit ICAO aircraft code
+		Altitude             int
+		HeightAboveEllipsoid int // Delta above Ellipsoid
 
 		CprLat, CprLon int
 		CprOddEven     byte
@@ -62,15 +63,23 @@ type (
 		MessageSubType byte
 
 		SurveillanceStatus, NicSupplementB byte
+		NavigationalAccuracyV              byte // NACv
+
+		VerticalRateSource VerticalRateSource
 
 		CategoryType, CategorySubType byte
 		CategoryValid                 bool
 
 		Military, Interrogatable bool
 
-		OnGround, ValidVertical     bool
-		ValidHeading, ValidVelocity bool
-		ValidAltitude               bool
+		IntentChange                     bool // aircraft wants to change altitude
+		IFRCapable                       bool // ADSBv1 only, Intrument Flight Rules Capable
+		SuperSonic                       bool // plane go zoom zoom
+		OnGround, ValidVertical          bool
+		ValidHeading                     bool
+		ValidVelocity, TrueAirSpeed      bool
+		ValidAltitude, ValidVerticalRate bool
+		ValidHAE, ValidNacV              bool
 
 		UTCTimeSync bool
 	}
