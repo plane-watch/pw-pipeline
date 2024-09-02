@@ -10,8 +10,8 @@ const ChecksumUnknown uint64 = 0xFF_FF_FF_FF_FF_FF_FF_FF
 
 type AvrFrame struct {
 	a, b     uint64
-	len      int
 	checkSum uint64 // the messages calculated crc check sum  (non zero for msg's that overlay)
+	len      int
 	df       byte
 }
 
@@ -63,17 +63,4 @@ func (a AvrFrame) String() string {
 		return fmt.Sprintf("%014X", a.a>>8)
 	}
 	return fmt.Sprintf("%016X%12X", a.a, a.b>>16)
-}
-
-func main() {
-	f := FromBytes112([]byte{0x8D, 0x76, 0xCE, 0x88, 0x20, 0x4C, 0x90, 0x72, 0xCB, 0x48, 0x20, 0x9A, 0x50, 0x4D})
-
-	if f.ChecksumValid() {
-		println("checksum is valid")
-	} else {
-		println("checksum is invalid")
-	}
-
-	println(f.String())
-	println(f.DownlinkFormat())
 }

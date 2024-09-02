@@ -1,18 +1,7 @@
 package main
 
-import "errors"
-
-const (
-	AltitudeUnitFeet  AltitudeUnit = 0
-	AltitudeUnitMetre AltitudeUnit = 1
-
-	VerticalRateSourceGNSS       VerticalRateSource = 0
-	VerticalRateSourceBarometric VerticalRateSource = 1
-)
-
-type (
-	AltitudeUnit       byte
-	VerticalRateSource byte
+import (
+	"errors"
 )
 
 var (
@@ -41,7 +30,7 @@ func (a AvrFrame) ChecksumValid() bool {
 		// return icao == (a.checkSum ^ a.messageCrc())
 		return false
 	case 11, 17, 18:
-		return a.checkSum == 0
+		return a.checkSum^a.messageCrc() == 0
 	default:
 		return false
 	}
@@ -87,9 +76,9 @@ func (a AvrFrame) ICAO() int {
 		// attempt to get the ICAO from the AP Field
 		// AP is CRC overlaid with the ICAO
 
-		return int(a.checkSum ^ a.messageCrc())
+		return int(a.checkSum ^ a.messageCrc()) //nolint:gosec
 	case 11, 17, 18:
-		return int(a.a >> 32 & 0x00_FF_FF_FF)
+		return int(a.a >> 32 & 0x00_FF_FF_FF) //nolint:gosec
 	default:
 		return 0
 	}

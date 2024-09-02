@@ -115,8 +115,8 @@ func (a AvrFrame) DecodeADSB() (DFADSB, error) {
 		}
 
 		ret.VerticalRate, ret.VerticalRateSource, ret.ValidVertical = calcAirborneVerticalRate(
-			byte(a.b&0x10_00_00_00_00_00_00_00>>60), // Vertical Rate Source Antenna
-			byte(a.b&0x08_00_00_00_00_00_00_00>>59), // Vertical Rate Direction
+			byte(a.b&0x10_00_00_00_00_00_00_00>>60), // Vertical Rate Source
+			byte(a.b&0x08_00_00_00_00_00_00_00>>59), // Vertical Rate Direction (sign +/-)
 			int(a.b&0x07_FC_00_00_00_00_00_00>>50),  //nolint:gosec,gosec Vertical rate amount
 		)
 
@@ -126,14 +126,82 @@ func (a AvrFrame) DecodeADSB() (DFADSB, error) {
 		)
 
 	case 23:
+		switch ret.MessageSubType {
+		case 0: // test message
+		case 1, 2, 3, 4, 5, 6: // Reserved
+		case 7: // Allocated for national use
+			// TEST MESSAGE with  squawk - decode it!
+			ret.Squawk = decodeSquawkIdentity(
+				uint32(a.a&0x00_00_00_00_00_FF_00_00>>16), //nolint:gosec
+				uint32(a.a&0x00_00_00_00_00_00_FF_00>>8),  //nolint:gosec
+			)
+			ret.ValidSquawk = true
+		}
+
 	case 24:
+	// Surface System Status Messages
+	// NoOp
+	// subType=1 is for Multilateration System Status (Allocated for national use)
+	// this is a per system manufacturer message
 	case 25, 26:
+		// RESERVED
 	case 27:
 	case 28:
-	case 29:
-	case 30:
-	case 31:
+		// Aircraft Status
+		switch ret.MessageSubType {
+		case 0: // reserved
+		case 1: // Emergency/priority status (§B.2.3.8)
+			// EMERGENCY (or priority), EMERGENCY, THERE'S AN EMERGENCY GOING ON
+			// ME bits 9,10,11 contain the emergency code (1-8 are TC/SUB) then EID bits (this)
+			// ME starts at byte 5 (TC/SUB), EID is first 3 bits of byte 6
+			ret.Emergency = byte(a.a & 0x00_00_00_00_00_E0_00_00 >> 13)
+			ret.ValidEmergency = ret.Emergency > 0
 
+			ret.Squawk = decodeSquawkIdentity(
+				uint32(a.a&0x00_00_00_00_00_FF_00_00>>16), //nolint:gosec
+				uint32(a.a&0x00_00_00_00_00_00_FF_00>>8),  //nolint:gosec
+			)
+			ret.ValidSquawk = true
+
+			// can get the Mode A Address too
+			// mode_a_code = (short) (msg[2]|((msg[1]&0x1F)<<8));
+		case 2:
+		// ACAS RA broadcast
+		case 3, 4, 5, 6, 7: // RESERVED
+		}
+	case 29:
+		// only 2 bits of message subtype
+		ret.MessageSubType = byte((a.a & 0x00_00_00_00_06_00_00_00) >> 25)
+		ret.ValidADSBVersion = true
+
+		// Aircraft Target Status
+		switch ret.MessageSubType {
+		case 0:
+			ret.ADSBVersion = DO260A
+			// DO-260A
+			ret.TargetD0260A = DO260ATargetInfo(a.a&0x00_00_00_00_FF_FF_FF_FF<<24 | a.b&0xFF_FF_FF_00_00_00_00_00>>40)
+
+			if a.a&0x00_00_00_00_40_00_00_00 == 0 { // backwards compat bit set, we can proceed
+				// target state and status v1
+
+				ret.Emergency = ret.TargetD0260A.Emergency()
+				ret.ValidEmergency = ret.Emergency > 0
+			}
+		case 1:
+			// target state and status v2
+			ret.ADSBVersion = DO260B
+			ret.TargetD0260B = DO260BTargetInfo(a.a&0x00_00_00_00_FF_FF_FF_FF<<24 | a.b&0xFF_FF_FF_00_00_00_00_00>>40)
+		case 2:
+			// ?? Unknown
+		}
+	case 30:
+		//  Aircraft Operational Coordination
+	case 31:
+		// Operational Status
+		switch ret.MessageSubType {
+		case 1, 2:
+			ret.OperationalInfo = OperationalStatusInfo(a.a&0x00_00_00_00_FF_FF_FF_FF<<24 | a.b&0xFF_FF_FF_00_00_00_00_00>>40)
+		}
 	}
 
 	return ret, nil
@@ -419,4 +487,30 @@ func calcHAE(haeDirection byte, haeValue byte) (heightAboveEllipsoidDelta int, v
 		heightAboveEllipsoidDelta = multiplier * int(haeValue-1)
 	}
 	return
+}
+
+// decodeSquawkIdentity takes the index of the 2 bytes needed to decode our identity
+// we require the identity to be in the last 5 bits of the first byte and all of the second byte
+// these bits should contain the identity 0b0001_1111, 0b1111_1111
+func decodeSquawkIdentity(msg2, msg3 uint32) uint32 {
+	var a, b, c, d uint32
+
+	/* In the squawk (identity) field bits are interleaved like that
+	* (message bit 20 to bit 32 - 1 based):
+	*
+	* C1-A1-C2-A2-C4-A4-ZERO-B1-D1-B2-D2-B4-D4
+	*
+	* So every group of three bits A, B, C, D represent an integer
+	* from 0 to 7.
+	*
+	* The actual meaning is just 4 octal numbers, but we convert it
+	* into a base ten number that happens to represent the four
+	* octal numbers.
+	*
+	* For more info: http://en.wikipedia.org/wiki/Gillham_code */
+	a = ((msg3 & 0x80) >> 5) | ((msg2 & 0x02) >> 0) | ((msg2 & 0x08) >> 3)
+	b = ((msg3 & 0x02) << 1) | ((msg3 & 0x08) >> 2) | ((msg3 & 0x20) >> 5)
+	c = ((msg2 & 0x01) << 2) | ((msg2 & 0x04) >> 1) | ((msg2 & 0x10) >> 4)
+	d = ((msg3 & 0x01) << 2) | ((msg3 & 0x04) >> 1) | ((msg3 & 0x10) >> 4)
+	return a*1000 + b*100 + c*10 + d
 }

@@ -236,7 +236,7 @@ func TestAvrFrame_DecodeADSB(t *testing.T) {
 				HeightAboveEllipsoid:  975,
 				ValidNacV:             true,
 				NavigationalAccuracyV: 1,
-				VerticalRateSource:    VerticalRateSourceGNSS,
+				VerticalRateSource:    VerticalRateSourceBarometric,
 			},
 			wantErr: false,
 		},
@@ -259,7 +259,7 @@ func TestAvrFrame_DecodeADSB(t *testing.T) {
 				ValidNacV:             true,
 				NavigationalAccuracyV: 0,
 				IFRCapable:            true,
-				VerticalRateSource:    VerticalRateSourceBarometric,
+				VerticalRateSource:    VerticalRateSourceGNSS,
 			},
 			wantErr: false,
 		},
@@ -290,6 +290,8 @@ func TestAvrFrame_DecodeADSB(t *testing.T) {
 				MessageType:    23,
 				MessageSubType: 07,
 				Interrogatable: true,
+				ValidSquawk:    true,
+				Squawk:         4351,
 			},
 			wantErr: false,
 		},
@@ -301,6 +303,8 @@ func TestAvrFrame_DecodeADSB(t *testing.T) {
 				MessageType:    28,
 				MessageSubType: 01,
 				Interrogatable: true,
+				Squawk:         402,
+				ValidSquawk:    true,
 			},
 			wantErr: false,
 		},
@@ -316,46 +320,58 @@ func TestAvrFrame_DecodeADSB(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:   "DF17 / 29 / 00",
-			fields: []byte{0x8D, 0x7C, 0x6A, 0x54, 0xE8, 0x00, 0x00, 0x2F, 0xD1, 0x38, 0x10, 0x40, 0xC9, 0xA3},
+			name:   "DF17 / 29 / 00 (1)",
+			fields: []byte{0x8D, 0x7C, 0x3F, 0x18, 0xE8, 0x00, 0x00, 0x20, 0x71, 0x38, 0x00, 0xDA, 0x52, 0xFD},
 			want: DFADSB{
-				ICAO:           0x7C6A54,
-				MessageType:    29,
-				MessageSubType: 0,
-				Interrogatable: true,
+				ICAO:             0x7C3F18,
+				MessageType:      29,
+				MessageSubType:   0,
+				Interrogatable:   true,
+				TargetD0260A:     DO260ATargetInfo(0x00E8000020713800),
+				ADSBVersion:      DO260A,
+				ValidADSBVersion: true,
 			},
 			wantErr: false,
 		},
 		{
-			name:   "DF17 / 29 / 01",
+			name:   "DF17 / 29 / 00 (2)",
 			fields: []byte{0x8D, 0x7C, 0x6A, 0x54, 0xE9, 0x98, 0x14, 0x2F, 0xD1, 0x38, 0x10, 0xCA, 0xD2, 0x2F},
 			want: DFADSB{
-				ICAO:           0x7C6A54,
-				MessageType:    29,
-				MessageSubType: 1,
-				Interrogatable: true,
+				ICAO:             0x7C6A54,
+				MessageType:      29,
+				MessageSubType:   0,
+				Interrogatable:   true,
+				TargetD0260A:     DO260ATargetInfo(0x000E998142FD13810),
+				ADSBVersion:      DO260A,
+				ValidADSBVersion: true,
 			},
 			wantErr: false,
 		},
 		{
-			name:   "DF17 / 29 / 02",
+			name:   "DF17 / 29 / 01 (1)",
 			fields: []byte{0x8D, 0x00, 0x81, 0x26, 0xEA, 0x3E, 0x98, 0x58, 0x01, 0x3C, 0x08, 0x12, 0x5A, 0x45},
 			want: DFADSB{
-				ICAO:           0x008126,
-				MessageType:    29,
-				MessageSubType: 2,
-				Interrogatable: true,
+				ICAO:             0x008126,
+				MessageType:      29,
+				MessageSubType:   1,
+				Interrogatable:   true,
+				TargetD0260B:     DO260BTargetInfo(0x00EA3E9858013C08),
+				ADSBVersion:      DO260B,
+				ValidADSBVersion: true,
 			},
 			wantErr: false,
 		},
 		{
-			name:   "DF17 / 29 / 03",
+			name:   "DF17 / 29 / 01 (2)",
 			fields: []byte{0x8D, 0x4B, 0xA8, 0x69, 0xEB, 0x4E, 0x38, 0x60, 0x00, 0x10, 0x08, 0xA8, 0x57, 0x65},
 			want: DFADSB{
-				ICAO:           0x4BA869,
-				MessageType:    29,
-				MessageSubType: 3,
-				Interrogatable: true,
+				ICAO:             0x4BA869,
+				MessageType:      29,
+				MessageSubType:   1,
+				Interrogatable:   true,
+				TargetD0260B:     DO260BTargetInfo(0x00EB4E3860001008),
+				ADSBVersion:      DO260B,
+				ValidADSBVersion: true,
 			},
 			wantErr: false,
 		},
@@ -374,10 +390,11 @@ func TestAvrFrame_DecodeADSB(t *testing.T) {
 			name:   "DF17 / 31 / 1",
 			fields: []byte{0x8C, 0x4A, 0x91, 0xF9, 0xF9, 0x00, 0x26, 0x02, 0x83, 0x49, 0x38, 0x9D, 0xE8, 0x16},
 			want: DFADSB{
-				ICAO:           0x4A91F9,
-				MessageType:    31,
-				MessageSubType: 1,
-				Interrogatable: true,
+				ICAO:            0x4A91F9,
+				MessageType:     31,
+				MessageSubType:  1,
+				Interrogatable:  true,
+				OperationalInfo: 0xF9002602834938,
 			},
 			wantErr: false,
 		},
@@ -446,6 +463,239 @@ func TestAvrFrame_DecodeADSB(t *testing.T) {
 	}
 }
 
+// TestTargetD0260ADecode Tests the RAW data from the field, not the calculated values
+func TestTargetD0260ADecode(t *testing.T) {
+	type wantedVals struct {
+		VerticalDataSource byte
+		TargetAltType      byte
+		TargetAltCap       byte
+		VerticalMode       byte
+		TargetAltitude     byte
+		HorizontalData     byte
+		TargetHeading      byte
+		TargetHeadingSign  byte
+		HorizontalMode     byte
+		NACp               byte
+		NICbaro            byte
+		SIL                byte
+		CapModeCodes       byte
+		Emergency          byte
+	}
+
+	tests := []struct {
+		name    string
+		fields  []byte
+		want    wantedVals
+		wantErr bool
+	}{
+		{
+			name:   "DO260A",
+			fields: []byte{0x8D, 0x7C, 0x3F, 0x18, 0xE8, 0x00, 0x00, 0x20, 0x71, 0x38, 0x00, 0xDA, 0x52, 0xFD},
+			want: wantedVals{
+				HorizontalData: 1,
+				TargetHeading:  7,
+				NACp:           9,
+				NICbaro:        1,
+				SIL:            2,
+			},
+			wantErr: false,
+		},
+		{
+			name:   "DO260A",
+			fields: []byte{0x8D, 0x7C, 0x6A, 0x54, 0xE9, 0x98, 0x14, 0x2F, 0xD1, 0x38, 0x10, 0xCA, 0xD2, 0x2F},
+			want: wantedVals{
+				VerticalDataSource: 3,
+				TargetAltCap:       3,
+				TargetAltitude:     40,
+				HorizontalData:     1,
+				TargetHeading:      253,
+				NACp:               9,
+				NICbaro:            1,
+				SIL:                2,
+				CapModeCodes:       2,
+			},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			frame := FromBytes112(tt.fields)
+			// t.Logf("Frame: %s\n", frame.String())
+
+			df17, err := frame.DecodeADSB()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("DecodeDF17() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			if got := df17.TargetD0260A.VerticalDataSource(); got != tt.want.VerticalDataSource {
+				t.Errorf("Incorrect value for VerticalDataSource(). Expected: %d, got %d", tt.want.VerticalDataSource, got)
+			}
+			if got := df17.TargetD0260A.TargetAltType(); got != tt.want.TargetAltType {
+				t.Errorf("Incorrect value for TargetAltType(). Expected: %d, got %d", tt.want.TargetAltType, got)
+			}
+			if got := df17.TargetD0260A.TargetAltCap(); got != tt.want.TargetAltCap {
+				t.Errorf("Incorrect value for TargetAltCap(). Expected: %d, got %d", tt.want.TargetAltCap, got)
+			}
+			if got := df17.TargetD0260A.VerticalMode(); got != tt.want.VerticalMode {
+				t.Errorf("Incorrect value for VerticalMode(). Expected: %d, got %d", tt.want.VerticalMode, got)
+			}
+			if got := df17.TargetD0260A.TargetAltitude(); got != tt.want.TargetAltitude {
+				t.Errorf("Incorrect value for TargetAltitude(). Expected: %d, got %d", tt.want.TargetAltitude, got)
+			}
+			if got := df17.TargetD0260A.HorizontalData(); got != tt.want.HorizontalData {
+				t.Errorf("Incorrect value for HorizontalData(). Expected: %d, got %d", tt.want.HorizontalData, got)
+			}
+			if got := df17.TargetD0260A.TargetHeading(); got != tt.want.TargetHeading {
+				t.Errorf("Incorrect value for TargetHeading(). Expected: %d, got %d", tt.want.TargetHeading, got)
+			}
+			if got := df17.TargetD0260A.TargetHeadingSign(); got != tt.want.TargetHeadingSign {
+				t.Errorf("Incorrect value for TargetHeadingSign(). Expected: %d, got %d", tt.want.TargetHeadingSign, got)
+			}
+			if got := df17.TargetD0260A.HorizontalMode(); got != tt.want.HorizontalMode {
+				t.Errorf("Incorrect value for HorizontalMode(). Expected: %d, got %d", tt.want.HorizontalMode, got)
+			}
+			if got := df17.TargetD0260A.NACp(); got != tt.want.NACp {
+				t.Errorf("Incorrect value for NACp(). Expected: %d, got %d", tt.want.NACp, got)
+			}
+			if got := df17.TargetD0260A.NICbaro(); got != tt.want.NICbaro {
+				t.Errorf("Incorrect value for NICbaro(). Expected: %d, got %d", tt.want.NICbaro, got)
+			}
+			if got := df17.TargetD0260A.SIL(); got != tt.want.SIL {
+				t.Errorf("Incorrect value for SIL(). Expected: %d, got %d", tt.want.SIL, got)
+			}
+			if got := df17.TargetD0260A.CapModeCodes(); got != tt.want.CapModeCodes {
+				t.Errorf("Incorrect value for CapModeCodes(). Expected: %d, got %d", tt.want.CapModeCodes, got)
+			}
+			if got := df17.TargetD0260A.Emergency(); got != tt.want.Emergency {
+				t.Errorf("Incorrect value for Emergency(). Expected: %d, got %d", tt.want.Emergency, got)
+			}
+		})
+	}
+
+}
+
+func TestTargetD0260BDecode(t *testing.T) {
+	type wantedVals struct {
+		SILSupplement       byte
+		SelectedAltType     byte
+		SelectedAltitude    int
+		BarometricPressure  int
+		Status              byte
+		Sign                byte
+		SelectedHeading     byte
+		NACp                byte
+		NICbaro             byte
+		SIL                 byte
+		MCPFPUStatus        byte
+		AutoPilotEngaged    bool
+		APVNavMode          bool
+		APAltitudeHoldMode  bool
+		ApproachMode        bool
+		TcasAcasOperational bool
+		APLNavMode          bool
+	}
+	tests := []struct {
+		name    string
+		fields  []byte
+		want    wantedVals
+		wantErr bool
+	}{
+		{
+			name:   "First",
+			fields: []byte{0x8D, 0xC0, 0x58, 0x3F, 0xEA, 0x4A, 0x58, 0x58, 0x01, 0x3C, 0x08, 0x50, 0x82, 0xBA},
+			want: wantedVals{
+				SelectedAltitude:    1189,
+				BarometricPressure:  267,
+				NACp:                9,
+				NICbaro:             1,
+				SIL:                 3,
+				TcasAcasOperational: true,
+			},
+			wantErr: false,
+		},
+		{
+			name:   "Autopilot",
+			fields: []byte{0x8D, 0x14, 0x23, 0x2E, 0xEB, 0x42, 0x88, 0x60, 0x00, 0x03, 0x48, 0xA6, 0xDB, 0xBF},
+			want: wantedVals{
+				SelectedAltitude:    1064,
+				BarometricPressure:  268,
+				MCPFPUStatus:        1,
+				AutoPilotEngaged:    true,
+				APAltitudeHoldMode:  true,
+				TcasAcasOperational: true,
+				SILSupplement:       1,
+			},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			frame := FromBytes112(tt.fields)
+			// t.Logf("Frame: %s\n", frame.String())
+
+			df17, err := frame.DecodeADSB()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("DecodeDF17() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			t.Logf("%b\n", df17.TargetD0260B)
+			t.Logf("%X\n", df17.TargetD0260B)
+
+			if got := df17.TargetD0260B.SILSupplement(); got != tt.want.SILSupplement {
+				t.Errorf("Incorrect Value for SILSupplement. Expected %d, got %d", tt.want.SILSupplement, got)
+			}
+			if got := df17.TargetD0260B.SelectedAltType(); got != tt.want.SelectedAltType {
+				t.Errorf("Incorrect Value for SelectedAltType. Expected %d, got %d", tt.want.SelectedAltType, got)
+			}
+			if got := df17.TargetD0260B.SelectedAltitude(); got != tt.want.SelectedAltitude {
+				t.Errorf("Incorrect Value for SelectedAltitude. Expected %d, got %d", tt.want.SelectedAltitude, got)
+			}
+			if got := df17.TargetD0260B.BarometricPressure(); got != tt.want.BarometricPressure {
+				t.Errorf("Incorrect Value for BarometricPressure. Expected %d, got %d", tt.want.BarometricPressure, got)
+			}
+			if got := df17.TargetD0260B.Status(); got != tt.want.Status {
+				t.Errorf("Incorrect Value for Status. Expected %d, got %d", tt.want.Status, got)
+			}
+			if got := df17.TargetD0260B.Sign(); got != tt.want.Sign {
+				t.Errorf("Incorrect Value for Sign. Expected %d, got %d", tt.want.Sign, got)
+			}
+			if got := df17.TargetD0260B.SelectedHeading(); got != tt.want.SelectedHeading {
+				t.Errorf("Incorrect Value for SelectedHeading. Expected %d, got %d", tt.want.SelectedHeading, got)
+			}
+			if got := df17.TargetD0260B.NACp(); got != tt.want.NACp {
+				t.Errorf("Incorrect Value for NACp. Expected %d, got %d", tt.want.NACp, got)
+			}
+			if got := df17.TargetD0260B.NICbaro(); got != tt.want.NICbaro {
+				t.Errorf("Incorrect Value for NICbaro. Expected %d, got %d", tt.want.NICbaro, got)
+			}
+			if got := df17.TargetD0260B.SIL(); got != tt.want.SIL {
+				t.Errorf("Incorrect Value for SIL. Expected %d, got %d", tt.want.SIL, got)
+			}
+			if got := df17.TargetD0260B.MCPFPUStatus(); got != tt.want.MCPFPUStatus {
+				t.Errorf("Incorrect Value for MCPFPUStatus. Expected %d, got %d", tt.want.MCPFPUStatus, got)
+			}
+			if got := df17.TargetD0260B.AutoPilotEngaged(); got != tt.want.AutoPilotEngaged {
+				t.Errorf("Incorrect Value for AutoPilotEngaged. Expected %t, got %t", tt.want.AutoPilotEngaged, got)
+			}
+			if got := df17.TargetD0260B.APVNavMode(); got != tt.want.APVNavMode {
+				t.Errorf("Incorrect Value for APVNavMode. Expected %t, got %t", tt.want.APVNavMode, got)
+			}
+			if got := df17.TargetD0260B.APAltitudeHoldMode(); got != tt.want.APAltitudeHoldMode {
+				t.Errorf("Incorrect Value for APAltitudeHoldMode. Expected %t, got %t", tt.want.APAltitudeHoldMode, got)
+			}
+			if got := df17.TargetD0260B.ApproachMode(); got != tt.want.ApproachMode {
+				t.Errorf("Incorrect Value for ApproachMode. Expected %t, got %t", tt.want.ApproachMode, got)
+			}
+			if got := df17.TargetD0260B.TcasAcasOperational(); got != tt.want.TcasAcasOperational {
+				t.Errorf("Incorrect Value for TcasAcasOperational. Expected %t, got %t", tt.want.TcasAcasOperational, got)
+			}
+			if got := df17.TargetD0260B.APLNavMode(); got != tt.want.APLNavMode {
+				t.Errorf("Incorrect Value for APLNavMode. Expected %t, got %t", tt.want.APLNavMode, got)
+			}
+		})
+	}
+}
 func BenchmarkAvrFrame_DecodeADSB_04(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		f := FromBytes112([]byte{0x8D, 0x3C, 0x64, 0x67, 0x20, 0x0C, 0x61, 0xF9, 0x60, 0xB8, 0x20, 0x28, 0x4E, 0xBF})
