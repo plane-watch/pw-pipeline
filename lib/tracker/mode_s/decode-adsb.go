@@ -119,8 +119,8 @@ func (f *Frame) decodeAdsb() {
 
 			if f.velocity != 0 {
 				var heading float64
-				f.eastWestVelocity -= 1
-				f.northSouthVelocity -= 1
+				f.eastWestVelocity--
+				f.northSouthVelocity--
 				if f.eastWestDirection != 0 {
 					// GO WEST! (0=east, 1=west)
 					f.eastWestVelocity *= -1
@@ -144,11 +144,11 @@ func (f *Frame) decodeAdsb() {
 			// Air Speed -- ground speed not available
 			var airspeed = int(((f.message[7] & 0x7f) << 3) | (f.message[8] >> 5))
 			if airspeed != 0 {
-				airspeed -= 1
+				airspeed--
 				if f.messageSubType == 4 {
 					// If (supersonic) unit is 4 kts
 					f.superSonic = true
-					airspeed = airspeed << 2
+					airspeed <<= 2
 				}
 				f.velocity = float64(airspeed)
 				f.validVelocity = true
@@ -340,7 +340,7 @@ func (f *Frame) decodeInto(bitStream string, t interface{}) error {
 		bits := field.Tag.Get("bits")
 
 		splitBits := strings.SplitN(bits, "-", 2)
-		if 2 != len(splitBits) {
+		if len(splitBits) != 2 {
 			println("Incorrect Struct Tag `bits`")
 		}
 		low, err := strconv.ParseUint(splitBits[0], 10, 8)

@@ -25,48 +25,48 @@ func (f *Frame) decodeAC12Field(aC12Field int32) int32 {
 	return 100 * n
 }
 
-func decodeID13Field(ID13Field int32) int32 {
+func decodeID13Field(id13Field int32) int32 {
 	var hexGillham int32
-	// log.Printf(format, "Decoding ID13 Field", strconv.FormatInt(int64(ID13Field), 2))
+	// log.Printf(format, "Decoding ID13 Field", strconv.FormatInt(int64(id13Field), 2))
 
-	if 0 < (ID13Field & 0x1000) {
+	if 0 < (id13Field & 0x1000) {
 		hexGillham |= 0x0010
 	} // Bit 12 = C1
-	if 0 < (ID13Field & 0x0800) {
+	if 0 < (id13Field & 0x0800) {
 		hexGillham |= 0x1000
 	} // Bit 11 = A1
-	if 0 < (ID13Field & 0x0400) {
+	if 0 < (id13Field & 0x0400) {
 		hexGillham |= 0x0020
 	} // Bit 10 = C2
-	if 0 < (ID13Field & 0x0200) {
+	if 0 < (id13Field & 0x0200) {
 		hexGillham |= 0x2000
 	} // Bit  9 = A2
-	if 0 < (ID13Field & 0x0100) {
+	if 0 < (id13Field & 0x0100) {
 		hexGillham |= 0x0040
 	} // Bit  8 = C4
-	if 0 < (ID13Field & 0x0080) {
+	if 0 < (id13Field & 0x0080) {
 		hexGillham |= 0x4000
 	} // Bit  7 = A4
-	//if (ID13Field & 0x0040) {hexGillham |= 0x0800;} // Bit  6 = X  or M
-	if 0 < (ID13Field & 0x0020) {
+	// if (id13Field & 0x0040) {hexGillham |= 0x0800;} // Bit  6 = X  or M
+	if 0 < (id13Field & 0x0020) {
 		hexGillham |= 0x0100
 	} // Bit  5 = B1
-	if 0 < (ID13Field & 0x0010) {
+	if 0 < (id13Field & 0x0010) {
 		hexGillham |= 0x0001
 	} // Bit  4 = D1 or Q
-	if 0 < (ID13Field & 0x0008) {
+	if 0 < (id13Field & 0x0008) {
 		hexGillham |= 0x0200
 	} // Bit  3 = B2
-	if 0 < (ID13Field & 0x0004) {
+	if 0 < (id13Field & 0x0004) {
 		hexGillham |= 0x0002
 	} // Bit  2 = D2
-	if 0 < (ID13Field & 0x0002) {
+	if 0 < (id13Field & 0x0002) {
 		hexGillham |= 0x0400
 	} // Bit  1 = B4
-	if 0 < (ID13Field & 0x0001) {
+	if 0 < (id13Field & 0x0001) {
 		hexGillham |= 0x0004
 	} // Bit  0 = D4
-	//log.Printf(format, "Decoded ID13 Field", strconv.FormatInt(int64(hexGillham), 2))
+	// log.Printf(format, "Decoded ID13 Field", strconv.FormatInt(int64(hexGillham), 2))
 
 	return hexGillham
 }
@@ -74,9 +74,9 @@ func decodeID13Field(ID13Field int32) int32 {
 // Mode A to Mode C Height/altitude
 func modeAToModeC(ModeA int32) int32 {
 	var OneHundreds, FiveHundreds int32
-	//log.Printf(format, "Mode A -> C", strconv.FormatInt(int64(ModeA), 2))
-	//log.Printf(format, "Mask 1", strconv.FormatInt(int64(0x0FFF8889), 2))
-	//log.Printf(format, "Mask 2", strconv.FormatInt(int64(0x000000F0), 2))
+	// log.Printf(format, "Mode A -> C", strconv.FormatInt(int64(ModeA), 2))
+	// log.Printf(format, "Mask 1", strconv.FormatInt(int64(0x0FFF8889), 2))
+	// log.Printf(format, "Mask 2", strconv.FormatInt(int64(0x000000F0), 2))
 
 	if (ModeA&0x0FFF8889) > 0 || ((ModeA & 0x000000F0) == 0) {
 		// check zero bits are zero, D1 set is illegal || C1,,C4 cannot be Zero

@@ -611,7 +611,7 @@ func (f *Frame) Altitude() (int32, error) {
 	if f.validAltitude {
 		return f.altitude, nil
 	}
-	return 0, fmt.Errorf("altitude is not valid")
+	return 0, errors.New("altitude is not valid")
 }
 func (f *Frame) MustAltitude() int32 {
 	if f.validAltitude {
@@ -626,9 +626,8 @@ func (f *Frame) AltitudeUnits() string {
 	}
 	if f.unit == modesUnitMetres {
 		return "metres"
-	} else {
-		return "feet"
 	}
+	return "feet"
 }
 
 func (f *Frame) AltitudeValid() bool {
@@ -665,7 +664,7 @@ func (f *Frame) Velocity() (float64, error) {
 	if f.validVelocity {
 		return f.velocity, nil
 	}
-	return 0, fmt.Errorf("velocity is not valid")
+	return 0, errors.New("velocity is not valid")
 }
 
 func (f *Frame) MustVelocity() float64 {
@@ -686,7 +685,7 @@ func (f *Frame) Heading() (float64, error) {
 	if f.validHeading {
 		return f.heading, nil
 	}
-	return 0, fmt.Errorf("heading is not valid")
+	return 0, errors.New("heading is not valid")
 }
 func (f *Frame) MustHeading() float64 {
 	if f.validHeading {
@@ -706,7 +705,7 @@ func (f *Frame) VerticalRate() (int, error) {
 	if f.VerticalRateValid() {
 		return f.verticalRate, nil
 	}
-	return 0, fmt.Errorf("vertical rate (VR) is not valid")
+	return 0, errors.New("vertical rate (VR) is not valid")
 }
 func (f *Frame) MustVerticalRate() int {
 	if f.VerticalRateValid() {
@@ -748,7 +747,7 @@ func (f *Frame) OnGround() (bool, error) {
 	if f.VerticalStatusValid() {
 		return f.onGround, nil
 	}
-	return false, fmt.Errorf("vertical status (VS) is not valid")
+	return false, errors.New("vertical status (VS) is not valid")
 }
 func (f *Frame) MustOnGround() bool {
 	if f.VerticalStatusValid() {
@@ -826,7 +825,7 @@ func (f *Frame) isNoOp() bool {
 	if nil == f {
 		return true
 	}
-	if f.full == "" || "*;" == f.full || "*" == f.full {
+	if f.full == "" || f.full == "*;" || f.full == "*" {
 		return true
 	}
 	if f.full == "0000000000000000000000000000" {
@@ -845,11 +844,11 @@ func (f *Frame) ContainmentRadiusLimit(nicSupplA bool) (float64, error) {
 	var radius float64
 	var err error
 	if f.downLinkFormat != 17 {
-		return radius, fmt.Errorf("ContainmentRadiusLimit Only valid for ADS-B Airborne Position Messages")
+		return radius, errors.New("ContainmentRadiusLimit Only valid for ADS-B Airborne Position Messages")
 	}
 	switch f.messageType {
 	case 0, 18, 22:
-		err = fmt.Errorf("unknown containment radius")
+		err = errors.New("unknown containment radius")
 	case 9, 20:
 		radius = 7.5
 	case 10, 21:
@@ -863,11 +862,12 @@ func (f *Frame) ContainmentRadiusLimit(nicSupplA bool) (float64, error) {
 	case 12:
 		radius = 370.4
 	case 13:
-		if 0 == f.nicSupplementB {
+		switch {
+		case 0 == f.nicSupplementB:
 			radius = 926
-		} else if nicSupplA {
+		case nicSupplA:
 			radius = 1111.2
-		} else {
+		default:
 			radius = 555.6
 		}
 	case 14:
@@ -893,11 +893,11 @@ func (f *Frame) NavigationIntegrityCategory(nicSupplA bool) (byte, error) {
 	var nic byte
 	var err error
 	if f.downLinkFormat != 17 {
-		return nic, fmt.Errorf("ContainmentRadiusLimit Only valid for ADS-B Airborne Position Messages")
+		return nic, errors.New("ContainmentRadiusLimit Only valid for ADS-B Airborne Position Messages")
 	}
 	switch f.messageType {
 	case 0, 18, 22:
-		err = fmt.Errorf("unknown navigation integrity category")
+		err = errors.New("unknown navigation integrity category")
 	case 9, 20:
 		nic = 11
 	case 10:

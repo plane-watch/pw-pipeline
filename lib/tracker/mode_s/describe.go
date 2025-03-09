@@ -555,7 +555,7 @@ func (f *Frame) Describe(output io.Writer) {
 		f.showAdsb(output)
 	case 18: // DF_18
 		// f.showCapability() // control field
-		if 0 == f.ca {
+		if f.ca == 0 {
 			f.showCapability(output)
 			f.showICAO(output)
 			f.showAdsb(output)
@@ -618,13 +618,14 @@ func (f *Frame) showAltitude(output io.Writer) {
 
 func (f *Frame) showWakeVortex(output io.Writer) {
 	var wakeType string
-	if 1 == f.messageType {
+	switch {
+	case 1 == f.messageType:
 		wakeType = "Reserved!"
-	} else if f.messageType > 4 {
+	case f.messageType > 4:
 		wakeType = "Unknown"
-	} else if 0 == f.catSubType {
+	case f.catSubType == 0:
 		wakeType = "No Information Provided"
-	} else {
+	default:
 		wakeType = wakeVortex[f.messageType][f.catSubType]
 	}
 	wakeType = fmt.Sprintf("(TC:%d CAT:%d) - %s", f.messageType, f.catSubType, wakeType)
@@ -657,7 +658,7 @@ func (f *Frame) showNavigationIntegrity(output io.Writer) {
 
 func (f *Frame) showFlightStatus(output io.Writer) {
 	fprintf(output, "FS: flight status   : (%d) %s\n", f.fs, flightStatusTable[f.fs])
-	if "" != f.special {
+	if f.special != "" {
 		fprintf(output, "FS: special status  : %s\n", f.special)
 	}
 	f.showAlert(output)
@@ -802,12 +803,12 @@ func (f *Frame) showAdsb(output io.Writer) {
 		f.showHae(output)
 	case 23:
 		f.showAdsbMsgSubType(output)
-		if 7 == f.messageSubType {
+		if f.messageSubType == 7 {
 			f.showIdentity(output)
 		}
 	case 28:
 		f.showAdsbMsgSubType(output)
-		if 1 == f.messageSubType {
+		if f.messageSubType == 1 {
 			f.showIdentity(output)
 			f.showAlert(output)
 		} else if 2 == f.messageSubType {
@@ -944,13 +945,13 @@ func (f *Frame) formatBitString(features []featureBreakdown) string {
 		var feature featureDescriptionType
 		var fieldBitLength = f.end - f.start
 		var suffix string
-		if 1 == fieldBitLength {
+		if fieldBitLength == 1 {
 			suffix = ""
 		} else {
 			suffix = "s"
 		}
 
-		if "" != f.longName {
+		if f.longName != "" {
 			feature.field = f.name
 			feature.meaning = f.longName
 		} else {
@@ -980,7 +981,7 @@ func (f *Frame) formatBitString(features []featureBreakdown) string {
 		}
 		fieldBitCounter = feat.end
 
-		if 0 == len(feat.subFields[sk]) {
+		if len(feat.subFields[sk]) == 0 {
 			// this field does not have any sub field features
 			doMakeBitString(feat)
 			doMakeFooterString(feat, "")
@@ -989,7 +990,7 @@ func (f *Frame) formatBitString(features []featureBreakdown) string {
 			doMakeFooterString(feat, "")
 
 			subFieldBitCounter = feat.start
-			if "" != feat.longName {
+			if feat.longName != "" {
 				feature.field = feat.name
 				feature.meaning = feat.longName
 			} else {
@@ -1005,7 +1006,7 @@ func (f *Frame) formatBitString(features []featureBreakdown) string {
 						Msgf("Describe: Second Level Fields Not Adding up. (%d %s %d). Expected Start=%d, got=%d", f.downLinkFormat, sk, f.messageSubType, sf.start, subFieldBitCounter)
 				}
 				subFieldBitCounter = sf.end
-				if 0 == len(sf.subFields[ssk]) {
+				if len(sf.subFields[ssk]) == 0 {
 					doMakeBitString(sf)
 					doMakeFooterString(sf, " -> ")
 

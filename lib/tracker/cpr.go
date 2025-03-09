@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// meanings: 0 is even frame, 1 is odd frame
+// CprLocation - meanings: 0 is even frame, 1 is odd frame
 type CprLocation struct {
 	time0              time.Time
 	time1              time.Time
@@ -140,9 +140,9 @@ func (cpr *CprLocation) SetOddLocation(lat, lon float64, t time.Time) error {
 	cpr.rwLock.Lock()
 	defer cpr.rwLock.Unlock()
 	// only set the odd frame after the even frame is set
-	//if !p.cprLocation.evenFrame {
-	//	return
-	//}
+	// if !p.cprLocation.evenFrame {
+	// 	return
+	// }
 
 	cpr.oddLat = lat
 	cpr.oddLon = lon
@@ -164,7 +164,7 @@ func (cpr *CprLocation) decode(onGround bool) (*PlaneLocation, error) {
 	var err error
 
 	if onGround {
-		if 0 == cpr.refLat && 0 == cpr.refLon {
+		if cpr.refLat == 0 && cpr.refLon == 0 {
 			return nil, errors.New("unable to decode surface position without reference lat/lon")
 		}
 		loc, err = cpr.decodeSurface(cpr.refLat, cpr.refLon)
@@ -179,7 +179,7 @@ func (cpr *CprLocation) decode(onGround bool) (*PlaneLocation, error) {
 // computeLatitudeIndex computes `j` in the decode algorithm
 func (cpr *CprLocation) computeLatitudeIndex() {
 	cpr.latitudeIndex = int32(math.Floor((((59 * cpr.evenLat) - (60 * cpr.oddLat)) / 131072) + 0.5))
-	//log.Printf("J = %d", cpr.latitudeIndex)
+	// log.Printf("J = %d", cpr.latitudeIndex)
 }
 
 func (cpr *CprLocation) computeAirDLatRLat() {
@@ -187,7 +187,7 @@ func (cpr *CprLocation) computeAirDLatRLat() {
 	cpr.airDLat1 = cpr.globalSurfaceRange / 59.0
 	cpr.rlat0 = cpr.airDLat0 * (cprModFunction(cpr.latitudeIndex, 60) + (cpr.evenLat / 131072))
 	cpr.rlat1 = cpr.airDLat1 * (cprModFunction(cpr.latitudeIndex, 59) + (cpr.oddLat / 131072))
-	//log.Printf("j=%d rlat0=%0.6f rlat1=%0.6f", cpr.latitudeIndex, cpr.rlat0, cpr.rlat1)
+	// log.Printf("j=%d rlat0=%0.6f rlat1=%0.6f", cpr.latitudeIndex, cpr.rlat0, cpr.rlat1)
 }
 
 func (cpr *CprLocation) computeLongitudeZone() error {
@@ -195,9 +195,9 @@ func (cpr *CprLocation) computeLongitudeZone() error {
 	cpr.nl1 = getNumLongitudeZone(cpr.rlat1)
 
 	if cpr.nl0 != cpr.nl1 {
-		return fmt.Errorf("Incorrect NL Calculation %d!=%d (for lat/lon %0.13f / %0.13f)", cpr.nl0, cpr.nl1, cpr.rlat0, cpr.rlat1)
+		return fmt.Errorf("incorrect NL calculation %d!=%d (for lat/lon %0.13f / %0.13f)", cpr.nl0, cpr.nl1, cpr.rlat0, cpr.rlat1)
 	}
-	//log.Printf("nl0: %d, nl1: %d", cpr.nl0, cpr.nl1)
+	// log.Printf("nl0: %d, nl1: %d", cpr.nl0, cpr.nl1)
 	return nil
 }
 
@@ -217,31 +217,31 @@ func (cpr *CprLocation) computeLatLon() (*PlaneLocation, error) {
 	if cpr.time1.Before(cpr.time0) {
 		cpr.oddDecode = true
 		cpr.evenDecode = false
-		//log.Println("Odd Decode")
+		// log.Println("Odd Decode")
 		// this assumes we are using the odd packet to decode
 		/* Compute ni and the longitude index 'm' */
 		ni := cprNFunction(cpr.rlat1, 1)
-		//log.Printf("	ni = %d", ni)
+		// log.Printf("	ni = %d", ni)
 		m := math.Floor((((cpr.evenLon * float64(cpr.nl1-1)) - (cpr.oddLon * float64(cpr.nl1))) / 131072.0) + 0.5)
-		//log.Printf("	m = %0.2f", m)
+		// log.Printf("	m = %0.2f", m)
 
 		loc.longitude = cpr.dlonFunction(cpr.rlat1, 1) * (cprModFunction(int32(m), ni) + (cpr.oddLon / 131072))
 		loc.latitude = cpr.rlat1
-		loc.cprDecodedTs = cpr.time1
+		loc.cprDecodedTS = cpr.time1
 	} else {
 		// do even decode
 		cpr.oddDecode = false
 		cpr.evenDecode = true
-		//log.Println("Even Decode")
+		// log.Println("Even Decode")
 		ni := cprNFunction(cpr.rlat0, 0)
-		//log.Printf("	ni = %d", ni)
+		// log.Printf("	ni = %d", ni)
 		m := math.Floor((((cpr.evenLon * float64(cpr.nl0-1)) - (cpr.oddLon * float64(cpr.nl0))) / 131072.0) + 0.5)
-		//log.Printf("	m = %0.2f", m)
+		// log.Printf("	m = %0.2f", m)
 		loc.longitude = cpr.dlonFunction(cpr.rlat0, 0) * (cprModFunction(int32(m), ni) + cpr.evenLon/131072)
 		loc.latitude = cpr.rlat0
-		loc.cprDecodedTs = cpr.time0
+		loc.cprDecodedTS = cpr.time0
 	}
-	//log.Printf("\tlat = %0.6f, lon = %0.6f\n", loc.latitude, loc.longitude)
+	// log.Printf("\tlat = %0.6f, lon = %0.6f\n", loc.latitude, loc.longitude)
 	return &loc, nil
 }
 
@@ -262,10 +262,10 @@ func (cpr *CprLocation) normaliseLatLon(loc *PlaneLocation) error {
 	if loc.longitude > 180.0 {
 		loc.longitude -= 360.0
 	}
-	//log.Printf("post normalise rlat = %0.6f, rlon = %0.6f\n", loc.latitude, loc.longitude);
+	// log.Printf("post normalise rlat = %0.6f, rlon = %0.6f\n", loc.latitude, loc.longitude);
 
 	if loc.latitude < -90 || loc.latitude > 90 {
-		return fmt.Errorf("Failed to decode CPR Lat %0.13f is out of range", loc.latitude)
+		return fmt.Errorf("failed to decode CPR Lat %0.13f is out of range", loc.latitude)
 	}
 
 	return nil
@@ -275,8 +275,8 @@ func (cpr *CprLocation) decodeSurface(refLat, refLon float64) (*PlaneLocation, e
 	var err error
 	cpr.globalSurfaceRange = 90.0
 
-	if 0 == refLat && 0 == refLon {
-		return nil, fmt.Errorf("invalid Reference location")
+	if refLat == 0 && refLon == 0 {
+		return nil, errors.New("invalid Reference location")
 	}
 
 	// basic check - make sure we have both frames
@@ -366,7 +366,7 @@ func (cpr *CprLocation) surfacePosQuadrantTwiddle(refLat float64) error {
 
 	// Check to see that the latitude is in range: -90 .. +90
 	if cpr.rlat0 < -90 || cpr.rlat0 > 90 || cpr.rlat1 < -90 || cpr.rlat1 > 90 {
-		return fmt.Errorf("Failed to decode CPR. Lat out of bounds")
+		return errors.New("Failed to decode CPR. Lat out of bounds")
 	}
 	return nil
 }
@@ -382,7 +382,7 @@ func (cpr *CprLocation) decodeGlobalAir() (*PlaneLocation, error) {
 		} else {
 			s = "Have Even Frame"
 		}
-		return nil, fmt.Errorf("Need both odd and even frames before decoding, %s", s)
+		return nil, fmt.Errorf("need both odd and even frames before decoding, %s", s)
 	}
 	cpr.globalSurfaceRange = 360.0
 
@@ -394,10 +394,10 @@ func (cpr *CprLocation) decodeGlobalAir() (*PlaneLocation, error) {
 
 	// Note: Southern hemisphere values are 270° to 360°. Subtract 360°.
 	if cpr.rlat0 >= 270 {
-		cpr.rlat0 = cpr.rlat0 - 360
+		cpr.rlat0 -= 360
 	}
 	if cpr.rlat1 >= 270 {
-		cpr.rlat1 = cpr.rlat1 - 360
+		cpr.rlat1 -= 360
 	}
 
 	if err = cpr.computeLongitudeZone(); nil != err {
@@ -444,7 +444,7 @@ func cprNFunction(lat float64, isOdd int32) int32 {
 }
 
 func (cpr *CprLocation) dlonFunction(lat float64, isOdd int32) float64 {
-	//log.Printf("DLON = %0.1f / (n) %d, %0.2f", cpr.globalSurfaceRange, cprNFunction(lat, isOdd), cpr.globalSurfaceRange/float64(cprNFunction(lat, isOdd)))
+	// log.Printf("DLON = %0.1f / (n) %d, %0.2f", cpr.globalSurfaceRange, cprNFunction(lat, isOdd), cpr.globalSurfaceRange/float64(cprNFunction(lat, isOdd)))
 	return cpr.globalSurfaceRange / float64(cprNFunction(lat, isOdd))
 }
 
@@ -454,8 +454,8 @@ func cprModFunction(a, b int32) float64 {
 	if res < 0 {
 		res += float64(b)
 	}
-	//return math.Floor(res)
-	//log.Printf("Mod(%d, %d)=%0.2f", a, b, res)
+	// return math.Floor(res)
+	// log.Printf("Mod(%d, %d)=%0.2f", a, b, res)
 	return res
 }
 

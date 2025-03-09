@@ -44,7 +44,7 @@ func TestCprDecode(t *testing.T) {
 		oddLon         float64
 	}
 	testData := []testDataType{
-		//odd *8d7c4516581f76e48d95e8ab20ca; even *8d7c4516581f6288f83ade534ae1;
+		// odd *8d7c4516581f76e48d95e8ab20ca; even *8d7c4516581f6288f83ade534ae1;
 		{evenLat: 83068, evenLon: 15070, oddLat: 94790, oddLon: 103912, oddRlat: "-32.197483", oddRlon: "+116.028629", evenRlat: "-32.197449", evenRlon: "+116.027820"},
 
 		// odd *8d7c4516580f06fc6d8f25d8669d; even *8d7c4516580df2a168340b32212a;
@@ -255,7 +255,7 @@ func TestPlane_HasLocation(t *testing.T) {
 	if !p.HasLocation() {
 		t.Error("Did not correctly set plane location has updated flag")
 	}
-	if 1 != len(p.locationHistory) {
+	if len(p.locationHistory) != 1 {
 		t.Errorf("Expected plane history to have 1 item. have %d", len(p.locationHistory))
 	}
 }
@@ -468,11 +468,11 @@ func TestBadLocationUpdateRejected(t *testing.T) {
 		t.Error("Wrong Latitude")
 	}
 
-	if -2.553432688993553 != p.location.longitude {
+	if p.location.longitude != -2.553432688993553 {
 		t.Error("Wrong Longitude")
 	}
 
-	if 1 != len(p.locationHistory) {
+	if len(p.locationHistory) != 1 {
 		t.Errorf("Incorrect history, expected: 1, got: %d", len(p.locationHistory))
 	}
 }

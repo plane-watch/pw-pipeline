@@ -190,16 +190,16 @@ func TestCprDecodeExample(t *testing.T) {
 	if err := cpr.SetOddLocation(float64(frame1.Latitude()), float64(frame1.Longitude()), frame1.TimeStamp()); nil != err {
 		t.Error(err)
 	}
-	if 115609 != cpr.evenLat {
+	if cpr.evenLat != 115609 {
 		t.Errorf("incorrect value decoded for CPR Event Lat")
 	}
-	if 116941 != cpr.evenLon {
+	if cpr.evenLon != 116941 {
 		t.Errorf("incorrect value decoded for CPR Event Lon")
 	}
-	if 39199 != cpr.oddLat {
+	if cpr.oddLat != 39199 {
 		t.Errorf("incorrect value decoded for CPR Odd Lat")
 	}
-	if 110269 != cpr.oddLon {
+	if cpr.oddLon != 110269 {
 		t.Errorf("incorrect value decoded for CPR Odd Lon")
 	}
 
@@ -212,10 +212,10 @@ func TestCprDecodeExample(t *testing.T) {
 
 	// step 2: let's decode the even and odd latitudes
 	cpr.computeAirDLatRLat()
-	if 52.323040008544920 != cpr.rlat0 { // even
+	if cpr.rlat0 != 52.323040008544920 { // even
 		t.Errorf("Incorrect value computed for rlat0. got: %0.15f", cpr.rlat0)
 	}
-	if 52.320607072215964 != cpr.rlat1 { // odd
+	if cpr.rlat1 != 52.320607072215964 { // odd
 		t.Errorf("Incorrect value computed for rlat0. got: %0.15f", cpr.rlat1)
 	}
 
