@@ -1,6 +1,9 @@
 package tracker2
 
 import (
+	"fmt"
+	"plane.watch/lib/tracker2/beast"
+	"plane.watch/lib/tracker2/modes2"
 	"sync"
 	"time"
 )
@@ -57,7 +60,27 @@ func (pt *PlaneTracker) getICAO(icao uint32) *plane {
 
 func (pt *PlaneTracker) AddBeastSourceChannel(msgs chan []byte) {
 	for msg := range msgs {
+		f, err := beast.Decode(msg)
+		if err != nil {
+			continue
+		}
 
+		switch f.DF {
+		case modes2.DF00ShortAirToAir:
+			df0, _ := f.DecodeDF0()
+			fmt.Printf("Aircraft [icao] %06X, onGround=%t altitude=%d\n", df0.ICAO, df0.OnGround, df0.Altitude)
+		case modes2.DF04SurveillanceAltitudeReply:
+		case modes2.DF05SurveillanceIdentReply:
+		case modes2.DF11ModeSAllCallReply:
+		case modes2.DF16LongAirToAir:
+		case modes2.DF17ADSBExtendedSquitter:
+		case modes2.DF18ADSBSupplementary:
+		case modes2.DF19ADSBMilitary:
+		case modes2.DF20CommB:
+		case modes2.DF21CommB:
+		case modes2.DF22Military:
+		case modes2.DF24CommD:
+		}
 	}
 }
 
