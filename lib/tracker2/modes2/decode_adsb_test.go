@@ -1,4 +1,4 @@
-package main
+package modes2
 
 import (
 	"fmt"
@@ -470,9 +470,9 @@ func TestTargetD0260ADecode(t *testing.T) {
 		TargetAltType      byte
 		TargetAltCap       byte
 		VerticalMode       byte
-		TargetAltitude     byte
+		TargetAltitude     int
 		HorizontalData     byte
-		TargetHeading      byte
+		TargetHeading      int
 		TargetHeadingSign  byte
 		HorizontalMode     byte
 		NACp               byte

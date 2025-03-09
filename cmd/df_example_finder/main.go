@@ -157,7 +157,7 @@ func showTypes(c *cli.Context) error {
 	export := c.Bool("export")
 
 	tbl := tablewriter.NewWriter(os.Stdout)
-	tbl.SetHeader([]string{"DF", "MT", "ST", "ICAO", "AVR", "DF Desc", "MT Desc", "Flight Number", "Squawk", "Altitude"})
+	tbl.SetHeader([]string{"DF", "MT", "ST", "ICAO", "AVR", "DF Desc", "MT Desc", "Flight Number", "Squawk", "Altitude", "Emergency"})
 	tbl.SetBorder(false)
 	tbl.SetAutoWrapText(false)
 	exportedFrames := make([]string, 0, 1000)
@@ -189,6 +189,11 @@ func showTypes(c *cli.Context) error {
 		var fields []string
 		exportedFrames = append(exportedFrames, frame.RawString())
 
+		onGround := " (airborne)"
+		if og, err := frame.OnGround(); err == nil && og {
+			onGround = " (On Ground)"
+		}
+
 		switch frame.DownLinkType() {
 		case 0, 4, 5, 11:
 			fields = []string{
@@ -201,7 +206,7 @@ func showTypes(c *cli.Context) error {
 				"",
 				frame.FlightNumber(),
 				frame.SquawkIdentityStr(),
-				frame.AltitudeStr(),
+				frame.AltitudeStr() + onGround,
 			}
 		case 17, 18, 19:
 			fields = []string{
@@ -214,7 +219,8 @@ func showTypes(c *cli.Context) error {
 				frame.MessageTypeString(),
 				frame.FlightNumber(),
 				frame.SquawkIdentityStr(),
-				frame.AltitudeStr(),
+				frame.AltitudeStr() + onGround,
+				frame.Emergency(),
 			}
 		case 20, 21:
 			fields = []string{
@@ -227,7 +233,7 @@ func showTypes(c *cli.Context) error {
 				frame.DescribeBds(),
 				frame.FlightNumber(),
 				frame.SquawkIdentityStr(),
-				frame.AltitudeStr(),
+				frame.AltitudeStr() + onGround,
 			}
 		default:
 			fields = []string{
@@ -240,7 +246,7 @@ func showTypes(c *cli.Context) error {
 				frame.MessageTypeString(),
 				frame.FlightNumber(),
 				frame.SquawkIdentityStr(),
-				frame.AltitudeStr(),
+				frame.AltitudeStr() + onGround,
 			}
 		}
 		if !export {

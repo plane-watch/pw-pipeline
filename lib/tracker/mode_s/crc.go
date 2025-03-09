@@ -76,7 +76,7 @@ func (f *Frame) checkCrc() error {
 		return nil
 	case 11, 17, 18: // Field Type PI
 		f.checkSum = f.decodeModeSChecksum()
-		if 0 == f.checkSum {
+		if f.checkSum == 0 {
 			return nil
 		}
 		return fmt.Errorf("invalid checksum for DF %d (%s)", f.downLinkFormat, f.raw)

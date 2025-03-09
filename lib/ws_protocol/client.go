@@ -4,10 +4,10 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"github.com/coder/websocket"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
 	"net/http"
-	"nhooyr.io/websocket"
 	"time"
 )
 

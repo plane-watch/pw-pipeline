@@ -6,6 +6,7 @@ import (
 	"os"
 	"plane.watch/lib/tile_grid"
 	"plane.watch/lib/tracker/mode_s"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -359,7 +360,7 @@ func (p *Plane) String() string {
 		}
 	}
 
-	if "" != p.Special() {
+	if p.Special() != "" {
 		if colourOutput {
 			special = " " + red + p.Special() + white + ", "
 		} else {
@@ -370,9 +371,8 @@ func (p *Plane) String() string {
 	ret := id + alt + position + direction + special + strength
 	if colourOutput {
 		return ret + "\033[0m"
-	} else {
-		return ret
 	}
+	return ret
 }
 
 // setAltitude puts our plane in the sky
@@ -533,7 +533,7 @@ func (p *Plane) SquawkIdentity() uint32 {
 func (p *Plane) SquawkIdentityStr() string {
 	p.rwLock.RLock()
 	defer p.rwLock.RUnlock()
-	return fmt.Sprint(p.squawk)
+	return strconv.FormatUint(uint64(p.squawk), 10)
 }
 
 // setAirFrameCategory is the type of airframe for this aircraft

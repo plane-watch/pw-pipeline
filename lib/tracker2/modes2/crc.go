@@ -1,4 +1,4 @@
-package main
+package modes2
 
 var (
 	modesChecksumTable [256]uint64

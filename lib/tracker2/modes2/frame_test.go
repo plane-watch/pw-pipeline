@@ -1,5 +1,5 @@
 // package modes2
-package main
+package modes2
 
 import (
 	"fmt"
@@ -85,7 +85,7 @@ func TestFromBytes112(t *testing.T) {
 				b:        0b11001011_01001000_00100000_10011010_01010000_01001101_00000000_00000000,
 				len:      14,
 				checkSum: 0x9a504d,
-				df:       17,
+				DF:       17,
 			},
 			wantStr: "8D76CE88204C9072CB48209A504D",
 			wantDF:  17,
@@ -129,7 +129,7 @@ func TestFromBytes56(t *testing.T) {
 				b:        0,
 				len:      7,
 				checkSum: 0xd7f778,
-				df:       0,
+				DF:       0,
 			},
 			wantStr: "00050319AB8C22",
 			wantDF:  0,

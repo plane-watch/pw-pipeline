@@ -225,7 +225,7 @@ var asdbFeatures = map[string][]featureBreakdown{
 				{name: "??", start: 40, end: 88, longName: "RESERVED"},
 			},
 			"1": { // EMERGENCY (or priority), status
-				{name: "EID", start: 40, end: 43}, //3
+				{name: "EID", start: 40, end: 43}, // 3
 				{name: "ID", start: 43, end: 56},  // 5 + 8
 				{name: "  ", start: 56, end: 88},
 			},
@@ -275,22 +275,22 @@ var asdbFeatures = map[string][]featureBreakdown{
 			"1": {
 				{name: "  ", start: 39, end: 40, longName: "SIL Supplement"},
 				{name: "  ", start: 40, end: 41, longName: "Selected Altitude Type"},
-				{name: "  ", start: 41, end: 52, longName: "MCP / FCU | FMS Selected Altitude"},
-				{name: "  ", start: 52, end: 61, longName: "Barometric Pressure Setting"},
+				{name: "alt", start: 41, end: 52, longName: "MCP / FCU | FMS Selected Altitude"},
+				{name: "baro", start: 52, end: 61, longName: "Barometric Pressure Setting"},
 				{name: "  ", start: 61, end: 62, longName: "Status"},
 				{name: "  ", start: 62, end: 63, longName: "Sign"},
-				{name: "  ", start: 63, end: 71, longName: "Selected Heading"},
-				{name: "  ", start: 71, end: 75, longName: "Navigation Accuracy Category for Position (NACp)"},
-				{name: "  ", start: 75, end: 76, longName: "Navigation Integrity Category for Baro (NICbaro)"},
-				{name: "  ", start: 76, end: 78, longName: "Source Integrity Level (SIL)"},
+				{name: "hdg", start: 63, end: 71, longName: "Selected Heading"},
+				{name: "NACp", start: 71, end: 75, longName: "Navigation Accuracy Category for Position (NACp)"},
+				{name: "NICb", start: 75, end: 76, longName: "Navigation Integrity Category for Baro (NICbaro)"},
+				{name: "SIL", start: 76, end: 78, longName: "Source Integrity Level (SIL)"},
 				{name: "  ", start: 78, end: 79, longName: "Status of MCP / FCU Mode Bits"},
 				{name: "ap", start: 79, end: 80, longName: "Autopilot Engaged"},
-				{name: "  ", start: 80, end: 81, longName: "VNAV Mode Engaged"},
+				{name: "vnav", start: 80, end: 81, longName: "VNAV Mode Engaged"},
 				{name: "ah", start: 81, end: 82, longName: "Altitude Hold Mode"},
 				{name: "  ", start: 82, end: 83, longName: "Reserved for ADS-R Flag"},
 				{name: "  ", start: 83, end: 84, longName: "Approach Mode"},
-				{name: "  ", start: 84, end: 85, longName: "TCAS/ACAS Operational"},
-				{name: "  ", start: 85, end: 86, longName: "LNAV Mode"},
+				{name: "tcas", start: 84, end: 85, longName: "TCAS/ACAS Operational"},
+				{name: "lnav", start: 85, end: 86, longName: "LNAV Mode"},
 				{name: "  ", start: 86, end: 88, longName: "Reserved"},
 			},
 			"2": {
@@ -319,7 +319,7 @@ var asdbFeatures = map[string][]featureBreakdown{
 				{name: "   ", start: 86, end: 87, longName: "SIL Supplement"},
 				{name: "   ", start: 87, end: 88, longName: "Reserved"},
 			},
-			"1": { //surface
+			"1": { // surface
 				{name: "CC", start: 40, end: 52, longName: "Surface Capability Class Codes"},
 				{name: "APLW", start: 52, end: 56, longName: "Length/Width Codes"},
 				{name: "OM  ", start: 56, end: 72, longName: "Surface Operational Mode Codes"},
@@ -553,8 +553,8 @@ func (f *Frame) Describe(output io.Writer) {
 		f.showCapability(output)
 		f.showICAO(output)
 		f.showAdsb(output)
-	case 18: //DF_18
-		//f.showCapability() // control field
+	case 18: // DF_18
+		// f.showCapability() // control field
 		if 0 == f.ca {
 			f.showCapability(output)
 			f.showICAO(output)
@@ -562,13 +562,13 @@ func (f *Frame) Describe(output io.Writer) {
 		} else {
 			fprintln(output, "Unable to decode DF18 Capability:", f.ca)
 		}
-	case 20: //DF_20
+	case 20: // DF_20
 		f.showFlightStatus(output)
 		f.showAltitude(output)
 		f.showFlightNumber(output)
 		f.showBdsData(output)
 		f.showICAO(output)
-	case 21: //DF_21
+	case 21: // DF_21
 		f.showFlightStatus(output)
 		f.showIdentity(output) // gillham encoded squawk
 		f.showFlightNumber(output)
@@ -665,10 +665,10 @@ func (f *Frame) showFlightStatus(output io.Writer) {
 }
 
 //
-//func (f *Frame) showFlightId(output io.Writer) {
+// func (f *Frame) showFlightId(output io.Writer) {
 //	fprintf(output, "flight          : %s", f.flight())
 //	fprintln(output, "")
-//}
+// }
 
 func (f *Frame) showICAO(output io.Writer) {
 	fprintf(output, "AA: ICAO            : %6X", f.icao)
@@ -814,6 +814,9 @@ func (f *Frame) showAdsb(output io.Writer) {
 			// TCAS RA
 		}
 	case 29:
+		f.showAdsbMsgSubType(output)
+		f.showAlert(output)
+
 	case 31:
 		f.showAdsbMsgSubType(output)
 		f.showCapabilityClassInfo(output)
@@ -993,7 +996,7 @@ func (f *Frame) formatBitString(features []featureBreakdown) string {
 				feature = featureDescription[feat.name]
 			}
 
-			//footer += fmt.Sprintf("-- Field=%s -- SubFields -- %s: %s \n", feat.name, feature.field, feature.meaning)
+			// footer += fmt.Sprintf("-- Field=%s -- SubFields -- %s: %s \n", feat.name, feature.field, feature.meaning)
 			ssk := strconv.Itoa(int(f.messageSubType))
 			for _, sf := range feat.subFields[sk] {
 				if subFieldBitCounter != sf.start {
@@ -1033,9 +1036,9 @@ func (f *Frame) formatBitString(features []featureBreakdown) string {
 
 func fprintf(output io.Writer, line string, params ...interface{}) {
 	line = strings.TrimRight(line, "\n") + "\n"
-	//if "\n" != line[len(line)-1:1] {
+	// if "\n" != line[len(line)-1:1] {
 	//	line += "\n"
-	//}
+	// }
 	_, _ = fmt.Fprintf(output, line, params...)
 }
 

@@ -103,7 +103,7 @@ func modeAToModeC(ModeA int32) int32 {
 		return -9999
 	}
 
-	//if (ModeA & 0x0001) {FiveHundreds ^= 0x1FF;} // D1 never used for altitude
+	// if (ModeA & 0x0001) {FiveHundreds ^= 0x1FF;} // D1 never used for altitude
 	if (ModeA & 0x0002) > 0 {
 		FiveHundreds ^= 0x0FF
 	} // D2
@@ -137,6 +137,6 @@ func modeAToModeC(ModeA int32) int32 {
 	}
 
 	result := (FiveHundreds * 5) + OneHundreds - 13
-	//log.Printf(format, "Converted", strconv.FormatInt(int64(result), 2))
+	// log.Printf(format, "Converted", strconv.FormatInt(int64(result), 2))
 	return result
 }

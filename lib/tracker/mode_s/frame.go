@@ -722,13 +722,13 @@ func (f *Frame) VerticalRateValid() bool {
 	return f.validVerticalRate
 }
 
-//func (f *Frame) flight() string {
+// func (f *Frame) flight() string {
 //	flight := string(f.flightId)
 //	if "" == flight {
 //		flight = "??????"
 //	}
 //	return strings.Trim(flight, " ")
-//}
+// }
 
 func (f *Frame) SquawkIdentity() uint32 {
 	if nil == f {

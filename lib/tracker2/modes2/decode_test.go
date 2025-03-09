@@ -1,4 +1,4 @@
-package main
+package modes2
 
 import (
 	"reflect"
@@ -96,8 +96,8 @@ func TestAvrFrame_DecodeDF4(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			a := FromBytes56(tt.fields)
-			if a.df != 4 {
-				t.Errorf("Incorrect DF type, got=%d, want=%d", a.df, 4)
+			if a.DF != 4 {
+				t.Errorf("Incorrect DF type, got=%d, want=%d", a.DF, 4)
 				return
 			}
 			got, err := a.DecodeDF4()
@@ -165,8 +165,8 @@ func TestAvrFrame_DecodeDF5(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			a := FromBytes56(tt.fields)
-			if a.df != 5 {
-				t.Errorf("Incorrect DF type, got=%d, want=%d", a.df, 5)
+			if a.DF != 5 {
+				t.Errorf("Incorrect DF type, got=%d, want=%d", a.DF, 5)
 				return
 			}
 
@@ -179,19 +179,6 @@ func TestAvrFrame_DecodeDF5(t *testing.T) {
 				t.Errorf("DecodeDF5() got = %v, want %v", got, tt.want)
 			}
 		})
-	}
-}
-
-func BenchmarkAvrFrame_DecodeDF0(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		f := FromBytes56([]byte{0x00, 0x05, 0x03, 0x19, 0xAB, 0x8C, 0x22})
-		df0, err := f.DecodeDF0()
-		if err != nil {
-			b.Error(err)
-		}
-		if df0.OnGround {
-			b.Error("on ground?")
-		}
 	}
 }
 
@@ -221,8 +208,8 @@ func TestAvrFrame_DecodeDF11(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			a := FromBytes56(tt.fields)
-			if a.df != 11 {
-				t.Errorf("Incorrect DF type, got=%d, want=%d", a.df, 11)
+			if a.DF != 11 {
+				t.Errorf("Incorrect DF type, got=%d, want=%d", a.DF, 11)
 				return
 			}
 			got, err := a.DecodeDF11()
@@ -290,8 +277,8 @@ func TestAvrFrame_DecodeDF16(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			a := FromBytes112(tt.fields)
-			if a.df != 16 {
-				t.Errorf("Incorrect DF type, got=%d, want=%d", a.df, 16)
+			if a.DF != 16 {
+				t.Errorf("Incorrect DF type, got=%d, want=%d", a.DF, 16)
 				return
 			}
 			got, err := a.DecodeDF16()

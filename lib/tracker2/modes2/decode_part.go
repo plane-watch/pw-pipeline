@@ -1,4 +1,4 @@
-package main
+package modes2
 
 import (
 	"errors"
@@ -22,7 +22,7 @@ func (a AvrFrame) DownlinkFormat() byte {
 }
 
 func (a AvrFrame) ChecksumValid() bool {
-	switch a.df {
+	switch a.DF {
 	case 0, 4, 5, 16, 20, 21:
 		// attempt to get the ICAO from the AP Field
 		// AP is CRC overlaid with the ICAO
@@ -71,7 +71,7 @@ func (a AvrFrame) Checksum() uint64 {
 
 // ICAO gets the ICAO address from the message
 func (a AvrFrame) ICAO() int {
-	switch a.df {
+	switch a.DF {
 	case 0, 4, 5, 16, 20, 21:
 		// attempt to get the ICAO from the AP Field
 		// AP is CRC overlaid with the ICAO

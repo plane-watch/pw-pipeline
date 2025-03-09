@@ -1,4 +1,4 @@
-package main
+package modes2
 
 import (
 	"bytes"
@@ -10,13 +10,16 @@ var (
 	aisCharset = "@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_ !\"#$%&'()*+,-./0123456789:;<=>?"
 )
 
+// DecodeADSB is long for performance reasons, no need to copy memory around on stacks
+//
+//nolint:funlen
 func (a AvrFrame) DecodeADSB() (DFADSB, error) {
 	ret := DFADSB{
 		ICAO:           a.ICAO(),
 		MessageType:    byte((a.a & 0x00_00_00_00_F8_00_00_00) >> 27),
 		MessageSubType: byte((a.a & 0x00_00_00_00_07_00_00_00) >> 24),
-		Military:       a.df == 19,
-		Interrogatable: a.df == 17,
+		Military:       a.DF == 19,
+		Interrogatable: a.DF == 17,
 	}
 
 	switch ret.MessageType {
@@ -147,7 +150,7 @@ func (a AvrFrame) DecodeADSB() (DFADSB, error) {
 		// RESERVED
 	case 27:
 	case 28:
-		// Aircraft Status
+		// Aircraft Status - // At least ADSB 1
 		switch ret.MessageSubType {
 		case 0: // reserved
 		case 1: // Emergency/priority status (§B.2.3.8)
@@ -169,7 +172,7 @@ func (a AvrFrame) DecodeADSB() (DFADSB, error) {
 		// ACAS RA broadcast
 		case 3, 4, 5, 6, 7: // RESERVED
 		}
-	case 29:
+	case 29: // ES Target Status
 		// only 2 bits of message subtype
 		ret.MessageSubType = byte((a.a & 0x00_00_00_00_06_00_00_00) >> 25)
 		ret.ValidADSBVersion = true
@@ -205,6 +208,12 @@ func (a AvrFrame) DecodeADSB() (DFADSB, error) {
 	}
 
 	return ret, nil
+}
+
+func (a AvrFrame) DecodeDF18() (DF18, error) {
+	return DF18{
+		ICAO: a.ICAO(),
+	}, nil
 }
 
 var busted = []byte("@@@@@@@@")
@@ -514,3 +523,8 @@ func decodeSquawkIdentity(msg2, msg3 uint32) uint32 {
 	d = ((msg3 & 0x01) << 2) | ((msg3 & 0x04) >> 1) | ((msg3 & 0x10) >> 4)
 	return a*1000 + b*100 + c*10 + d
 }
+
+// // OperationalStatusInfo
+
+// Version gets the type of into we are dealing with
+func (t OperationalStatusInfo) Version() byte { return byte(t & 0x00_00_00_00_00_00_E0_00 >> 13) }
