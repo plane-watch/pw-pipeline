@@ -485,7 +485,7 @@ func decodeFlightNumber(b []byte) []byte {
 		panic(fmt.Sprintf("attempting to decode a flight number/callsign with too many bytes (%d)", len(b)))
 	}
 	callsign := make([]byte, 8)
-	callsign[0] = aisCharset[b[0]>>2]
+	callsign[0] = aisCharset[b[0]>>2] // 6 bits
 	callsign[1] = aisCharset[((b[0]&3)<<4)|(b[1]>>4)]
 	callsign[2] = aisCharset[((b[1]&15)<<2)|(b[2]>>6)]
 	callsign[3] = aisCharset[b[2]&63]
@@ -494,9 +494,20 @@ func decodeFlightNumber(b []byte) []byte {
 	callsign[6] = aisCharset[((b[4]&15)<<2)|(b[5]>>6)]
 	callsign[7] = aisCharset[b[5]&63]
 
+	score := 0
+	for i := 0; i < 8; i++ {
+		if (callsign[i] > 'A' && callsign[i] < 'Z') || callsign[i] == '-' || callsign[i] == ' ' || (callsign[i] > '0' && callsign[i] < '9') {
+			score++
+		}
+	}
+	if score < 4 {
+		// do not trust a callsign with fewer than 4 A-Z0-9 chars
+		callsign = nil
+	}
+
 	// because planes have sent us things like A90004A0200000000000007D8DB4
 	// we need
-	if string(callsign) == "@@@@@@@@" {
+	if string(callsign) == "@@@@@@@@" || string(callsign) == "--------" {
 		callsign = nil
 	}
 	return callsign

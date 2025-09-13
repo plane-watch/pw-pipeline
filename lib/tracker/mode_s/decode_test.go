@@ -1,6 +1,7 @@
 package mode_s
 
 import (
+	"reflect"
 	//"fmt"
 	"testing"
 	"time"
@@ -484,7 +485,7 @@ func TestFrame_decode13bitAltitudeCode(t *testing.T) {
 func BenchmarkFrame_DecodeDF0(b *testing.B) {
 	t := time.Now()
 	var ok bool
-	for b.Loop() {
+	for i := 0; i < b.N; i++ {
 		f := NewFrameFromBytes(0, []byte{0x00, 0x05, 0x03, 0x19, 0xAB, 0x8C, 0x22}, t)
 		err := f.Decode()
 		if err != nil {
@@ -493,5 +494,108 @@ func BenchmarkFrame_DecodeDF0(b *testing.B) {
 		if ok, err = f.OnGround(); ok || err != nil {
 			b.Error("on ground?", ok, err)
 		}
+	}
+}
+
+func encodeFlightNumber(chars string) []byte {
+	var ret int64
+
+	if len(chars) != 8 {
+		panic("Incorrect number of chars to encode")
+	}
+
+	for _, l := range chars {
+		for idx, aisChar := range aisCharset {
+			if l == aisChar {
+				ret = ret | int64(idx)
+				break
+			}
+		}
+		ret <<= 6
+	}
+	ret >>= 6
+
+	retB := []byte{
+		byte(ret >> 40),
+		byte(ret >> 32),
+		byte(ret >> 24),
+		byte(ret >> 16),
+		byte(ret >> 8),
+		byte(ret),
+	}
+
+	return retB
+}
+
+func Test_encodeFlightNumber(t *testing.T) {
+	tests := []struct {
+		name string
+		args string
+		want []byte
+	}{
+		{
+			name: "SIA224",
+			args: "SIA224  ",
+			want: []byte{0b01001100, 0b10010000, 0b01110010, 0b11001011, 0b01001000, 0b00100000},
+		},
+		{
+			name: "WPF",
+			args: "WPF     ",
+			want: []byte{0b01011101, 0b00000001, 0b10100000, 0b10000010, 0b00001000, 0b00100000},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := encodeFlightNumber(tt.args); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("encodeFlightNumber(%s) = %v (%s), want %v", tt.args, got, decodeFlightNumber(got), tt.want)
+			}
+		})
+	}
+}
+
+func Test_decodeFlightNumber(t *testing.T) {
+
+	tests := []struct {
+		name string
+		args []byte
+		want []byte
+	}{
+		{
+			name: "@@@@@@@@ is invalid",
+			args: []byte{0, 0, 0, 0, 0, 0},
+			want: nil,
+		},
+		{
+			name: "-------- is invalid",
+			args: encodeFlightNumber("--------"),
+			want: nil,
+		},
+		{
+			name: "\"#$%&'() is invalid as it has no normal flight number chars",
+			args: encodeFlightNumber("\"#$%&'()"),
+			want: nil,
+		},
+		{
+			name: "*+,-./01 is invalid because it only has 3 normal flight number chars",
+			args: encodeFlightNumber("*+,-./01"),
+			want: nil,
+		},
+		{
+			name: "SIA224 is a valid flight number",
+			args: []byte{0b01001100, 0b10010000, 0b01110010, 0b11001011, 0b01001000, 0b00100000},
+			want: []byte{'S', 'I', 'A', '2', '2', '4', ' ', ' '},
+		},
+		{
+			name: "CPKSM1",
+			args: encodeFlightNumber("CPKSM1  "),
+			want: []byte{'C', 'P', 'K', 'S', 'M', '1', ' ', ' '},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := decodeFlightNumber(tt.args); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("decodeFlightNumber() = %v (%s), want %v (%s)", got, string(got), tt.want, string(tt.want))
+			}
+		})
 	}
 }

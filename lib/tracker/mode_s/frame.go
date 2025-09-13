@@ -371,6 +371,7 @@ var (
 		"TCAS sensitivity level 7.",
 	}
 
+	// aisCharset is the character set we use for flight numbers, we have 64 chars which is what we get from 6 bits
 	aisCharset = "@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_ !\"#$%&'()*+,-./0123456789:;<=>?"
 
 	downlinkRequestField = []string{
