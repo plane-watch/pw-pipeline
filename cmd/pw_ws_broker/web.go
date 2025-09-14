@@ -23,8 +23,8 @@ import (
 	"github.com/rs/zerolog"
 	"plane.watch/lib/dedupe/forgetfulmap"
 
+	"github.com/coder/websocket"
 	"github.com/rs/zerolog/log"
-	"nhooyr.io/websocket"
 	"plane.watch/lib/export"
 	"plane.watch/lib/tile_grid"
 	"plane.watch/lib/ws_protocol"

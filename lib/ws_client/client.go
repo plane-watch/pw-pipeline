@@ -3,11 +3,11 @@ package ws_client
 import (
 	"context"
 	"encoding/json"
+	"github.com/coder/websocket"
+	"github.com/coder/websocket/wsjson"
 	"github.com/rs/zerolog/log"
 	"io"
 	"net/http"
-	"nhooyr.io/websocket"
-	"nhooyr.io/websocket/wsjson"
 	"plane.watch/lib/export"
 	"plane.watch/lib/tile_grid"
 	"plane.watch/lib/ws_protocol"
