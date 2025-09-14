@@ -19,7 +19,7 @@ func init() {
 			if c&0x800000 != 0 {
 				c = (c << 1) ^ modesGeneratorPoly
 			} else {
-				c = c << 1
+				c <<= 1
 			}
 		}
 
@@ -35,7 +35,7 @@ func (f *Frame) decodeModeSChecksum() uint32 {
 	for i = 0; i < n-3; i++ {
 		index = uint32(f.message[i]) ^ ((f.checkSum & 0xff0000) >> 16)
 		f.checkSum = (f.checkSum << 8) ^ modesChecksumTable[index]
-		f.checkSum = f.checkSum & 0xffffff
+		f.checkSum &= 0xffffff
 	}
 
 	f.checkSum = f.checkSum ^ (uint32(f.message[n-3]) << 16) ^ (uint32(f.message[n-2]) << 8) ^ uint32(f.message[n-1])
@@ -55,7 +55,7 @@ func (f *Frame) decodeModeSChecksumAddr() uint32 {
 	for i = 0; i < n-3; i++ {
 		index = uint32(msg[i]) ^ ((checkSum & 0xff_00_00) >> 16)
 		checkSum = (checkSum << 8) ^ modesChecksumTable[index]
-		checkSum = checkSum & 0xff_ff_ff
+		checkSum &= 0xff_ff_ff
 	}
 
 	checkSum = checkSum ^ (uint32(msg[n-3]) << 16) ^ (uint32(msg[n-2]) << 8) ^ uint32(msg[n-1])
@@ -76,7 +76,7 @@ func (f *Frame) checkCrc() error {
 		return nil
 	case 11, 17, 18: // Field Type PI
 		f.checkSum = f.decodeModeSChecksum()
-		if 0 == f.checkSum {
+		if f.checkSum == 0 {
 			return nil
 		}
 		return fmt.Errorf("invalid checksum for DF %d (%s)", f.downLinkFormat, f.raw)

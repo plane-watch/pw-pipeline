@@ -119,8 +119,8 @@ func (f *Frame) decodeAdsb() {
 
 			if f.velocity != 0 {
 				var heading float64
-				f.eastWestVelocity -= 1
-				f.northSouthVelocity -= 1
+				f.eastWestVelocity--
+				f.northSouthVelocity--
 				if f.eastWestDirection != 0 {
 					// GO WEST! (0=east, 1=west)
 					f.eastWestVelocity *= -1
@@ -144,11 +144,11 @@ func (f *Frame) decodeAdsb() {
 			// Air Speed -- ground speed not available
 			var airspeed = int(((f.message[7] & 0x7f) << 3) | (f.message[8] >> 5))
 			if airspeed != 0 {
-				airspeed -= 1
+				airspeed--
 				if f.messageSubType == 4 {
 					// If (supersonic) unit is 4 kts
 					f.superSonic = true
-					airspeed = airspeed << 2
+					airspeed <<= 2
 				}
 				f.velocity = float64(airspeed)
 				f.validVelocity = true
@@ -173,14 +173,14 @@ func (f *Frame) decodeAdsb() {
 		switch f.messageSubType {
 		case 0: // test message
 		case 1, 2, 3, 4, 5, 6: // Reserved
-		case 7: //Allocated for national use
+		case 7: // Allocated for national use
 			// TEST MESSAGE with  squawk - decode it!
 			f.decodeSquawkIdentity(5, 6)
 		}
 
 	case 24:
 	// Surface System Status Messages
-	//NoOp
+	// NoOp
 	// subType=1 is for Multilateration System Status (Allocated for national use)
 	// this is a per system manufacturer message
 	case 25, 26:
@@ -204,16 +204,37 @@ func (f *Frame) decodeAdsb() {
 			// mode_a_code = (short) (msg[2]|((msg[1]&0x1F)<<8));
 		case 2:
 		// ACAS RA broadcast
-		case 3, 4, 5, 6, 7: //RESERVED
+		case 3, 4, 5, 6, 7: // RESERVED
 		}
 	case 29:
 		// Target State and Status Message
 		// DO-260 - unused
 		// DO-260A = Target State and Status Information Message
 		// DO-260B =
+		f.messageSubType = f.message[4] & 6 >> 1
 
 		if f.messageSubType == 0 {
 			// DO-260A
+			// bit 39-41  Vertical Data Available / Source Indicator
+			// bit 41-42  Target Altitude Type
+			// bit 42-43  Backward Compatibility Flag - must be 0
+			// bit 43-45  Target Altitude Capability
+			// bit 45-47  Vertical Mode Indicator
+			// bit 47-57  Target Altitude
+			// bit 57-59  Horizontal Data Available
+			// bit 59-68  Target Heading / Track Angle
+			// bit 68-69  Target Heading / Track Indicator
+			// bit 69-71  Horizontal Mode Indicator
+			// bit 71-75  Navigation Accuracy Category — Position (NACP)
+			// bit 75-76  Navigation Integrity Category — Baro (NICBARO)
+			// bit 76-78  Surveillance Integrity Level (SIL)
+			// bit 78-83  Reserved
+			// bit 83-85  Capability / Mode Codes
+			// bit 85-88  Emergency / Priority Status
+			f.emergencyID = int(f.message[10] & 0x7)
+			f.alert = f.emergencyID != 0
+			f.emergency = emergencyStateTable[f.emergencyID]
+
 		} else if f.messageSubType == 1 {
 			// DO-260B
 			// bit 40    SIL supplement (SIL Per Hour or Per Sample)
@@ -319,7 +340,7 @@ func (f *Frame) decodeInto(bitStream string, t interface{}) error {
 		bits := field.Tag.Get("bits")
 
 		splitBits := strings.SplitN(bits, "-", 2)
-		if 2 != len(splitBits) {
+		if len(splitBits) != 2 {
 			println("Incorrect Struct Tag `bits`")
 		}
 		low, err := strconv.ParseUint(splitBits[0], 10, 8)
@@ -419,7 +440,7 @@ func calcSurfaceSpeed(value uint64) (float64, bool) {
 		} else if value > 38 { // 39 - 93 | 15kt - <70kt | 1kt step
 			gSpeed = float64(value-39) + 15
 
-		} else if value > 12 { //13-38 |  2 kt - <15kt | 0.5 kt steps
+		} else if value > 12 { // 13-38 |  2 kt - <15kt | 0.5 kt steps
 			gSpeed = float64(value-13)*0.5 + 2
 
 		} else if value > 8 { // 9-12 | 1kt - < 2kt | 0.25 kt steps

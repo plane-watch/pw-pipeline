@@ -37,7 +37,7 @@ func TestFunkyLatLon(t *testing.T) {
 }
 
 func TestGetPlane(t *testing.T) {
-	//fmt.Println("TestGetPlane")
+	// fmt.Println("TestGetPlane")
 
 	var plane *Plane
 	var err error
@@ -49,7 +49,7 @@ func TestGetPlane(t *testing.T) {
 		t.Error("Plane List should be longer")
 	}
 
-	if 1234 != plane.IcaoIdentifier() {
+	if plane.IcaoIdentifier() != 1234 {
 		t.Errorf("Expected planes ICAO identifier to be moo, got %d", plane.IcaoIdentifier())
 	}
 
@@ -60,11 +60,11 @@ func TestGetPlane(t *testing.T) {
 		t.Errorf("Unexpected error When decoding CPR: %s", err)
 	}
 
-	if 88385 != plane.cprLocation.oddLat {
+	if plane.cprLocation.oddLat != 88385 {
 		t.Errorf("Even Lat not recorded properly. expected 88385, got: %0.2f", plane.cprLocation.oddLat)
 	}
 
-	if 125818 != plane.cprLocation.oddLon {
+	if plane.cprLocation.oddLon != 125818 {
 		t.Errorf("Even Lon not recorded properly. expected 125818, got: %0.2f", plane.cprLocation.oddLon)
 	}
 
@@ -74,11 +74,11 @@ func TestGetPlane(t *testing.T) {
 		t.Errorf("Unexpected error When decoding CPR: %s", err)
 	}
 
-	if 92095 != plane.cprLocation.evenLat {
+	if plane.cprLocation.evenLat != 92095 {
 		t.Errorf("Even Lat not recorded properly. expected 92095, got: %0.2f", plane.cprLocation.evenLat)
 	}
 
-	if 39846 != plane.cprLocation.evenLon {
+	if plane.cprLocation.evenLon != 39846 {
 		t.Errorf("Even Lon not recorded properly. expected 39846, got: %0.2f", plane.cprLocation.evenLon)
 	}
 
@@ -87,15 +87,15 @@ func TestGetPlane(t *testing.T) {
 
 	// ensure the intermediary calculations are correct
 
-	if 1 != plane.cprLocation.latitudeIndex {
+	if plane.cprLocation.latitudeIndex != 1 {
 		t.Errorf("Incorrect latitude index, expected 1 got %d", plane.cprLocation.latitudeIndex)
 	}
 
-	if "10.2157745361328" != fmt.Sprintf("%0.13f", plane.cprLocation.rlat0) {
+	if fmt.Sprintf("%0.13f", plane.cprLocation.rlat0) != "10.2157745361328" {
 		t.Errorf("Incorrect RLAT(0) calc, expected 10.2157745361328 - got: %0.13f", plane.cprLocation.rlat0)
 	}
 
-	if "10.2162144547802" != fmt.Sprintf("%0.13f", plane.cprLocation.rlat1) {
+	if fmt.Sprintf("%0.13f", plane.cprLocation.rlat1) != "10.2162144547802" {
 		t.Errorf("Incorrect RLAT(1) calc, expected 10.2162144547802 - got: %0.13f", plane.cprLocation.rlat1)
 	}
 
@@ -104,10 +104,10 @@ func TestGetPlane(t *testing.T) {
 		t.Errorf("Unexpected error When decoding CPR: %s", err)
 	}
 
-	if "123.889128586342" != fmt.Sprintf("%0.12f", location.longitude) {
+	if fmt.Sprintf("%0.12f", location.longitude) != "123.889128586342" {
 		t.Errorf("longitude Calculation was incorrect: expected 123.889128586342, got %0.12f", location.longitude)
 	}
-	if "10.2162144547802" != fmt.Sprintf("%0.13f", location.latitude) {
+	if fmt.Sprintf("%0.13f", location.latitude) != "10.2162144547802" {
 		t.Errorf("latitude Calculation was incorrect: expected 10.2162144547802, got %0.13f", location.latitude)
 	}
 
@@ -120,9 +120,9 @@ func Test_headingInfo_getCompassLabel(t *testing.T) {
 	}
 	tests := []struct {
 		name string
+		want string
 		hi   headingInfo
 		args args
-		want string
 	}{
 		{name: "T0", hi: headingLookup, args: args{heading: 0}, want: "N"},
 		{name: "T1", hi: headingLookup, args: args{heading: 1}, want: "N"},

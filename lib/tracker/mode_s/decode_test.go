@@ -480,3 +480,18 @@ func TestFrame_decode13bitAltitudeCode(t *testing.T) {
 		})
 	}
 }
+
+func BenchmarkFrame_DecodeDF0(b *testing.B) {
+	t := time.Now()
+	var ok bool
+	for i := 0; i < b.N; i++ {
+		f := NewFrameFromBytes(0, []byte{0x00, 0x05, 0x03, 0x19, 0xAB, 0x8C, 0x22}, t)
+		err := f.Decode()
+		if err != nil {
+			b.Error(err)
+		}
+		if ok, err = f.OnGround(); ok || err != nil {
+			b.Error("on ground?", ok, err)
+		}
+	}
+}

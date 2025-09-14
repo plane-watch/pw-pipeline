@@ -126,10 +126,8 @@ func TestFrame_VerticalRate(t *testing.T) {
 		t.Errorf("valid vertical rate on nil frame")
 	}
 	f = &Frame{
-		Position: Position{
-			verticalRate:      1,
-			validVerticalRate: false,
-		},
+		verticalRate:      1,
+		validVerticalRate: false,
 	}
 	if f.VerticalRateValid() {
 		t.Errorf("valid vertical rate when not set")
@@ -138,7 +136,7 @@ func TestFrame_VerticalRate(t *testing.T) {
 	if nil == err {
 		t.Errorf("did not get an error when I should have")
 	}
-	if 0 != v {
+	if v != 0 {
 		t.Errorf("Got invalid value for invalid vertical rate. expected 0, got :%d", v)
 	}
 
@@ -148,7 +146,7 @@ func TestFrame_VerticalRate(t *testing.T) {
 	if nil != err {
 		t.Errorf("got an error when I should have not")
 	}
-	if 1 != v {
+	if v != 1 {
 		t.Errorf("Got wrong value for vertical rate")
 	}
 }

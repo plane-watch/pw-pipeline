@@ -225,7 +225,7 @@ var asdbFeatures = map[string][]featureBreakdown{
 				{name: "??", start: 40, end: 88, longName: "RESERVED"},
 			},
 			"1": { // EMERGENCY (or priority), status
-				{name: "EID", start: 40, end: 43}, //3
+				{name: "EID", start: 40, end: 43}, // 3
 				{name: "ID", start: 43, end: 56},  // 5 + 8
 				{name: "  ", start: 56, end: 88},
 			},
@@ -275,22 +275,22 @@ var asdbFeatures = map[string][]featureBreakdown{
 			"1": {
 				{name: "  ", start: 39, end: 40, longName: "SIL Supplement"},
 				{name: "  ", start: 40, end: 41, longName: "Selected Altitude Type"},
-				{name: "  ", start: 41, end: 52, longName: "MCP / FCU | FMS Selected Altitude"},
-				{name: "  ", start: 52, end: 61, longName: "Barometric Pressure Setting"},
+				{name: "alt", start: 41, end: 52, longName: "MCP / FCU | FMS Selected Altitude"},
+				{name: "baro", start: 52, end: 61, longName: "Barometric Pressure Setting"},
 				{name: "  ", start: 61, end: 62, longName: "Status"},
 				{name: "  ", start: 62, end: 63, longName: "Sign"},
-				{name: "  ", start: 63, end: 71, longName: "Selected Heading"},
-				{name: "  ", start: 71, end: 75, longName: "Navigation Accuracy Category for Position (NACp)"},
-				{name: "  ", start: 75, end: 76, longName: "Navigation Integrity Category for Baro (NICbaro)"},
-				{name: "  ", start: 76, end: 78, longName: "Source Integrity Level (SIL)"},
+				{name: "hdg", start: 63, end: 71, longName: "Selected Heading"},
+				{name: "NACp", start: 71, end: 75, longName: "Navigation Accuracy Category for Position (NACp)"},
+				{name: "NICb", start: 75, end: 76, longName: "Navigation Integrity Category for Baro (NICbaro)"},
+				{name: "SIL", start: 76, end: 78, longName: "Source Integrity Level (SIL)"},
 				{name: "  ", start: 78, end: 79, longName: "Status of MCP / FCU Mode Bits"},
 				{name: "ap", start: 79, end: 80, longName: "Autopilot Engaged"},
-				{name: "  ", start: 80, end: 81, longName: "VNAV Mode Engaged"},
+				{name: "vnav", start: 80, end: 81, longName: "VNAV Mode Engaged"},
 				{name: "ah", start: 81, end: 82, longName: "Altitude Hold Mode"},
 				{name: "  ", start: 82, end: 83, longName: "Reserved for ADS-R Flag"},
 				{name: "  ", start: 83, end: 84, longName: "Approach Mode"},
-				{name: "  ", start: 84, end: 85, longName: "TCAS/ACAS Operational"},
-				{name: "  ", start: 85, end: 86, longName: "LNAV Mode"},
+				{name: "tcas", start: 84, end: 85, longName: "TCAS/ACAS Operational"},
+				{name: "lnav", start: 85, end: 86, longName: "LNAV Mode"},
 				{name: "  ", start: 86, end: 88, longName: "Reserved"},
 			},
 			"2": {
@@ -319,7 +319,7 @@ var asdbFeatures = map[string][]featureBreakdown{
 				{name: "   ", start: 86, end: 87, longName: "SIL Supplement"},
 				{name: "   ", start: 87, end: 88, longName: "Reserved"},
 			},
-			"1": { //surface
+			"1": { // surface
 				{name: "CC", start: 40, end: 52, longName: "Surface Capability Class Codes"},
 				{name: "APLW", start: 52, end: 56, longName: "Length/Width Codes"},
 				{name: "OM  ", start: 56, end: 72, longName: "Surface Operational Mode Codes"},
@@ -553,22 +553,22 @@ func (f *Frame) Describe(output io.Writer) {
 		f.showCapability(output)
 		f.showICAO(output)
 		f.showAdsb(output)
-	case 18: //DF_18
-		//f.showCapability() // control field
-		if 0 == f.ca {
+	case 18: // DF_18
+		// f.showCapability() // control field
+		if f.ca == 0 {
 			f.showCapability(output)
 			f.showICAO(output)
 			f.showAdsb(output)
 		} else {
 			fprintln(output, "Unable to decode DF18 Capability:", f.ca)
 		}
-	case 20: //DF_20
+	case 20: // DF_20
 		f.showFlightStatus(output)
 		f.showAltitude(output)
 		f.showFlightNumber(output)
 		f.showBdsData(output)
 		f.showICAO(output)
-	case 21: //DF_21
+	case 21: // DF_21
 		f.showFlightStatus(output)
 		f.showIdentity(output) // gillham encoded squawk
 		f.showFlightNumber(output)
@@ -618,13 +618,14 @@ func (f *Frame) showAltitude(output io.Writer) {
 
 func (f *Frame) showWakeVortex(output io.Writer) {
 	var wakeType string
-	if 1 == f.messageType {
+	switch {
+	case 1 == f.messageType:
 		wakeType = "Reserved!"
-	} else if f.messageType > 4 {
+	case f.messageType > 4:
 		wakeType = "Unknown"
-	} else if 0 == f.catSubType {
+	case f.catSubType == 0:
 		wakeType = "No Information Provided"
-	} else {
+	default:
 		wakeType = wakeVortex[f.messageType][f.catSubType]
 	}
 	wakeType = fmt.Sprintf("(TC:%d CAT:%d) - %s", f.messageType, f.catSubType, wakeType)
@@ -657,7 +658,7 @@ func (f *Frame) showNavigationIntegrity(output io.Writer) {
 
 func (f *Frame) showFlightStatus(output io.Writer) {
 	fprintf(output, "FS: flight status   : (%d) %s\n", f.fs, flightStatusTable[f.fs])
-	if "" != f.special {
+	if f.special != "" {
 		fprintf(output, "FS: special status  : %s\n", f.special)
 	}
 	f.showAlert(output)
@@ -665,10 +666,10 @@ func (f *Frame) showFlightStatus(output io.Writer) {
 }
 
 //
-//func (f *Frame) showFlightId(output io.Writer) {
+// func (f *Frame) showFlightId(output io.Writer) {
 //	fprintf(output, "flight          : %s", f.flight())
 //	fprintln(output, "")
-//}
+// }
 
 func (f *Frame) showICAO(output io.Writer) {
 	fprintf(output, "AA: ICAO            : %6X", f.icao)
@@ -802,18 +803,21 @@ func (f *Frame) showAdsb(output io.Writer) {
 		f.showHae(output)
 	case 23:
 		f.showAdsbMsgSubType(output)
-		if 7 == f.messageSubType {
+		if f.messageSubType == 7 {
 			f.showIdentity(output)
 		}
 	case 28:
 		f.showAdsbMsgSubType(output)
-		if 1 == f.messageSubType {
+		if f.messageSubType == 1 {
 			f.showIdentity(output)
 			f.showAlert(output)
 		} else if 2 == f.messageSubType {
 			// TCAS RA
 		}
 	case 29:
+		f.showAdsbMsgSubType(output)
+		f.showAlert(output)
+
 	case 31:
 		f.showAdsbMsgSubType(output)
 		f.showCapabilityClassInfo(output)
@@ -941,13 +945,13 @@ func (f *Frame) formatBitString(features []featureBreakdown) string {
 		var feature featureDescriptionType
 		var fieldBitLength = f.end - f.start
 		var suffix string
-		if 1 == fieldBitLength {
+		if fieldBitLength == 1 {
 			suffix = ""
 		} else {
 			suffix = "s"
 		}
 
-		if "" != f.longName {
+		if f.longName != "" {
 			feature.field = f.name
 			feature.meaning = f.longName
 		} else {
@@ -977,7 +981,7 @@ func (f *Frame) formatBitString(features []featureBreakdown) string {
 		}
 		fieldBitCounter = feat.end
 
-		if 0 == len(feat.subFields[sk]) {
+		if len(feat.subFields[sk]) == 0 {
 			// this field does not have any sub field features
 			doMakeBitString(feat)
 			doMakeFooterString(feat, "")
@@ -986,14 +990,14 @@ func (f *Frame) formatBitString(features []featureBreakdown) string {
 			doMakeFooterString(feat, "")
 
 			subFieldBitCounter = feat.start
-			if "" != feat.longName {
+			if feat.longName != "" {
 				feature.field = feat.name
 				feature.meaning = feat.longName
 			} else {
 				feature = featureDescription[feat.name]
 			}
 
-			//footer += fmt.Sprintf("-- Field=%s -- SubFields -- %s: %s \n", feat.name, feature.field, feature.meaning)
+			// footer += fmt.Sprintf("-- Field=%s -- SubFields -- %s: %s \n", feat.name, feature.field, feature.meaning)
 			ssk := strconv.Itoa(int(f.messageSubType))
 			for _, sf := range feat.subFields[sk] {
 				if subFieldBitCounter != sf.start {
@@ -1002,7 +1006,7 @@ func (f *Frame) formatBitString(features []featureBreakdown) string {
 						Msgf("Describe: Second Level Fields Not Adding up. (%d %s %d). Expected Start=%d, got=%d", f.downLinkFormat, sk, f.messageSubType, sf.start, subFieldBitCounter)
 				}
 				subFieldBitCounter = sf.end
-				if 0 == len(sf.subFields[ssk]) {
+				if len(sf.subFields[ssk]) == 0 {
 					doMakeBitString(sf)
 					doMakeFooterString(sf, " -> ")
 
@@ -1033,9 +1037,9 @@ func (f *Frame) formatBitString(features []featureBreakdown) string {
 
 func fprintf(output io.Writer, line string, params ...interface{}) {
 	line = strings.TrimRight(line, "\n") + "\n"
-	//if "\n" != line[len(line)-1:1] {
+	// if "\n" != line[len(line)-1:1] {
 	//	line += "\n"
-	//}
+	// }
 	_, _ = fmt.Fprintf(output, line, params...)
 }
 
