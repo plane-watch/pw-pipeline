@@ -1,4 +1,4 @@
-FROM golang:1.21 AS build
+FROM golang:1.25 AS build
 
 # Set necessary environmet variables needed for our image
 ENV GO111MODULE=on \
@@ -12,7 +12,8 @@ WORKDIR /app
 # prefill the build steps
 COPY go.mod /app
 COPY go.sum /app
-RUN go mod verify && go mod download
+RUN go mod download
+RUN go mod verify
 
 # Copy the code into the container
 COPY . /app/
@@ -25,17 +26,7 @@ RUN set -x && go build -buildvcs=false -ldflags="-X main.version=${IMAGE_VERSION
 # test binary (make sure it will run on this arch)
 RUN ./pw_router --help
 
-FROM alpine:latest as compressor
-WORKDIR /app
-COPY --from=build /app/pw_router /app
-
-RUN apk --no-cache add upx=4.2.1-r0
-RUN upx --brute -9 /app/pw_router
-
-# test binary (make sure it runs after compressing)
-RUN ./pw_router --help
-
-FROM alpine:latest as dev
+FROM alpine:latest AS dev
 LABEL org.opencontainers.image.description="Plane.Watch Router"
 
 WORKDIR /app
@@ -50,7 +41,7 @@ FROM alpine:latest
 LABEL org.opencontainers.image.description="Plane.Watch Router"
 
 WORKDIR /app
-COPY --from=compressor /app/pw_router /app
+COPY --from=build /app/pw_router /app
 
 HEALTHCHECK --interval=15s --timeout=3s CMD wget --spider http://localhost:9601/status
 
