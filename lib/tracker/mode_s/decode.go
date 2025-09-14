@@ -496,7 +496,7 @@ func decodeFlightNumber(b []byte) []byte {
 
 	score := 0
 	for i := 0; i < 8; i++ {
-		if (callsign[i] > 'A' && callsign[i] < 'Z') || callsign[i] == '-' || callsign[i] == ' ' || (callsign[i] > '0' && callsign[i] < '9') {
+		if (callsign[i] >= 'A' && callsign[i] <= 'Z') || callsign[i] == '-' || callsign[i] == ' ' || (callsign[i] >= '0' && callsign[i] <= '9') {
 			score++
 		}
 	}

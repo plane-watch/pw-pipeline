@@ -590,6 +590,26 @@ func Test_decodeFlightNumber(t *testing.T) {
 			args: encodeFlightNumber("CPKSM1  "),
 			want: []byte{'C', 'P', 'K', 'S', 'M', '1', ' ', ' '},
 		},
+		{
+			name: "AAAAAAAA",
+			args: encodeFlightNumber("AAAAAAAA"),
+			want: []byte{'A', 'A', 'A', 'A', 'A', 'A', 'A', 'A'},
+		},
+		{
+			name: "ZZZZZZZZ",
+			args: encodeFlightNumber("ZZZZZZZZ"),
+			want: []byte{'Z', 'Z', 'Z', 'Z', 'Z', 'Z', 'Z', 'Z'},
+		},
+		{
+			name: "00000000",
+			args: encodeFlightNumber("00000000"),
+			want: []byte{'0', '0', '0', '0', '0', '0', '0', '0'},
+		},
+		{
+			name: "99999999",
+			args: encodeFlightNumber("99999999"),
+			want: []byte{'9', '9', '9', '9', '9', '9', '9', '9'},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -598,4 +618,14 @@ func Test_decodeFlightNumber(t *testing.T) {
 			}
 		})
 	}
+}
+
+func BenchmarkDecodeFlightNumber(b *testing.B) {
+
+	flightNumber := encodeFlightNumber("ABCD1234")
+
+	for b.Loop() {
+		decodeFlightNumber(flightNumber)
+	}
+
 }
