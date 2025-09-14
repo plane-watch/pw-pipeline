@@ -2,18 +2,21 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"strings"
+	"sync"
+	"time"
+
 	"github.com/olekukonko/tablewriter"
+	"github.com/olekukonko/tablewriter/renderer"
+	"github.com/olekukonko/tablewriter/tw"
 	"github.com/rs/zerolog/log"
 	"github.com/urfave/cli/v2"
-	"os"
 	"plane.watch/lib/logging"
 	"plane.watch/lib/setup"
 	"plane.watch/lib/tracker"
 	"plane.watch/lib/tracker/beast"
 	"plane.watch/lib/tracker/mode_s"
-	"strings"
-	"sync"
-	"time"
 )
 
 func incoming(c *cli.Context) (chan tracker.Frame, error) {
@@ -156,10 +159,32 @@ func showTypes(c *cli.Context) error {
 	}
 	export := c.Bool("export")
 
-	tbl := tablewriter.NewWriter(os.Stdout)
-	tbl.SetHeader([]string{"DF", "MT", "ST", "ICAO", "AVR", "DF Desc", "MT Desc", "Flight Number", "Squawk", "Altitude"})
-	tbl.SetBorder(false)
-	tbl.SetAutoWrapText(false)
+	tbl := tablewriter.NewTable(
+		os.Stdout,
+		tablewriter.WithRenderer(
+			renderer.NewBlueprint(
+				tw.Rendition{
+					Borders: tw.BorderNone,
+					Symbols: tw.NewSymbols(tw.StyleASCII),
+					Settings: tw.Settings{
+						Separators: tw.Separators{
+							ShowHeader:     tw.On,
+							ShowFooter:     tw.Off,
+							BetweenRows:    tw.Off,
+							BetweenColumns: tw.On,
+						},
+						Lines: tw.Lines{
+							ShowTop:        tw.On,
+							ShowBottom:     tw.Off,
+							ShowHeaderLine: tw.On,
+							ShowFooterLine: tw.Off,
+						},
+						CompactMode: tw.Off,
+					},
+					Streaming: false,
+				})),
+	)
+	tbl.Header([]string{"DF", "MT", "ST", "ICAO", "AVR", "DF Desc", "MT Desc", "Flight Number", "Squawk", "Altitude"})
 	exportedFrames := make([]string, 0, 1000)
 
 	for iframe := range incomingChan {
@@ -244,7 +269,10 @@ func showTypes(c *cli.Context) error {
 			}
 		}
 		if !export {
-			tbl.Append(fields)
+			err = tbl.Append(fields)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	if export {
@@ -252,7 +280,10 @@ func showTypes(c *cli.Context) error {
 			fmt.Println(f)
 		}
 	} else {
-		tbl.Render()
+		err = tbl.Render()
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
