@@ -1,8 +1,9 @@
 package export
 
 import (
-	"github.com/google/uuid"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -77,6 +78,7 @@ type (
 		Label         string    `db:"label"`
 		MlatEnabled   bool      `db:"mlat_enabled"`
 		Mux           string    `db:"container_name"`
+		FeederCode    string    `db:"feeder_code"`
 	}
 
 	FeederUpdates []FeederUpdate

@@ -18,31 +18,31 @@ jobs:
         name: pw_discord_bot
         with:
           dockerfile: docker/pw_discord_bot/Dockerfile
-          ignore: [DL3007, DL3059]
+          ignore: DL3007, DL3059
           format: tty
       - uses: hadolint/hadolint-action@v1.6.0
         name: pw_atc_api
         with:
           dockerfile: docker/pw_atc_api/Dockerfile
-          ignore: [DL3007, DL3059]
+          ignore: DL3007, DL3059
           format: tty
       - uses: hadolint/hadolint-action@v1.6.0
         name: pw_ingest
         with:
           dockerfile: docker/pw_ingest/Dockerfile
-          ignore: [DL3007, DL3059]
+          ignore: DL3007, DL3059
           format: tty
       - uses: hadolint/hadolint-action@v1.6.0
         name: pw_router
         with:
           dockerfile: docker/pw_router/Dockerfile
-          ignore: [DL3007, DL3059]
+          ignore: DL3007, DL3059
           format: tty
       - uses: hadolint/hadolint-action@v1.6.0
         name: pw_ws_broker
         with:
           dockerfile: docker/pw_ws_broker/Dockerfile
-          ignore: [DL3007, DL3059]
+          ignore: DL3007, DL3059
           format: tty
 
   gochecks:

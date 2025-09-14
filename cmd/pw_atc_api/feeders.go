@@ -2,10 +2,11 @@ package main
 
 import (
 	"fmt"
+	"time"
+
 	jsoniter "github.com/json-iterator/go"
 	"github.com/nats-io/nats.go"
 	"plane.watch/lib/export"
-	"time"
 )
 
 type (
@@ -61,6 +62,7 @@ SELECT
 	f.feed_protocol,
 	f.label,
 	f.mlat_enabled,
+	f.feeder_code,
 	concat('mux-#', LOWER(fm.name)) as container_name
 FROM feeders f
     LEFT JOIN users u on f.user_id = u.id
