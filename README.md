@@ -7,7 +7,6 @@ We typically develop against the latest version of Golang.
 ## Info
  The `pw_ingest`, `pw_router` and `pw_ws_broker` commands are connected together with a message queue. We currently
 support:
-* RabbitMQ
 * Redis PubSub
 * Nats.io
 
@@ -19,31 +18,29 @@ You can find commands in the `cmd/` directory
 #### Filtering and Finding
 There are some small programs to help find examples of ADSB messages
 
-* plane.filter
 * df_example_finder
 * recorder
 
 #### Displaying
 
-* website_decode
+##### website_decode
 
-You can find it running at http://jasonplayne.com:8080/. Throw in your ADSB message and it'll show you want it can about
+You can find it running at http://jasonplayne.com:8080/. Throw in your ADSB message and it'll show you what it can about
 the message.
+
+##### ingest_tap
+
+used to view stuff going on in the nats pipeline
 
 #### Processing
 
 * pw_ingest
 * pw_router
 * pw_ws_broker
+* pw_atc_api
 
 These three components are used to take incoming ADSB messages (beast, avr, sbs1) decode them, turn them into plane
 tracking json blobs and make them available via websocket to a website.
-
-#### Integration
-
-* pw_discord_bot
-
-Allows for basic integration with discord and alerting.
 
 ### Libraries
 
