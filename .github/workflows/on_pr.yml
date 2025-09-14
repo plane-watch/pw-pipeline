@@ -96,7 +96,7 @@ jobs:
 
       # Test Build
       - name: Test Build - ${{ matrix.image }}
-        uses: docker/build-push-action@v2
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: docker/${{ matrix.image }}/Dockerfile
