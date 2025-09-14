@@ -29,7 +29,6 @@ jobs:
     strategy:
       matrix:
         image:
-          - pw_discord_bot
           - pw_atc_api
           - pw_ingest
           - pw_router

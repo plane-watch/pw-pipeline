@@ -3,10 +3,6 @@ version: 2
 
 updates:
   - package-ecosystem: "docker"
-    directory: "/docker/pw_discord_bot"
-    schedule:
-      interval: "daily"
-  - package-ecosystem: "docker"
     directory: "/docker/pw_ingest"
     schedule:
       interval: "daily"
