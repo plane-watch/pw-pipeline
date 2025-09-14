@@ -26,39 +26,55 @@ var (
 	version = "dev"
 	db      *sqlx.DB
 
+	ErrUnsupportedResponse = `{"error":"Unsupported Request","Type":"%s"}`
+	ErrRequestFailed       = `{"error":"Something went wrong with the request","Type":"%s"}`
+
 	prometheusCounterSearch = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "pw_atc_api_search_count",
-		Help: "The number of searches handled",
+		Namespace: "pw_atc_api",
+		Name:      "search_count",
+		Help:      "The number of searches handled",
 	})
 
 	prometheusCounterSearchSummary = promauto.NewSummary(prometheus.SummaryOpts{
-		Name: "pw_atc_api_search_summary",
-		Help: "A Summary of the search times in milliseconds",
+		Namespace: "pw_atc_api",
+		Name:      "search_summary",
+		Help:      "A Summary of the search times in milliseconds",
 	})
 
 	prometheusCounterEnrich = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "pw_atc_api_enrich_count",
-		Help: "The number of enrichments handled",
+		Namespace: "pw_atc_api",
+		Name:      "enrich_count",
+		Help:      "The number of enrichments handled",
 	})
 
 	prometheusCounterEnrichSummary = promauto.NewSummary(prometheus.SummaryOpts{
-		Name: "pw_atc_api_enrich_summary",
-		Help: "A Summary of the enrich times in milliseconds",
+		Namespace: "pw_atc_api",
+		Name:      "enrich_summary",
+		Help:      "A Summary of the enrich times in milliseconds",
 	})
 
 	prometheusCounterFeeder = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "pw_atc_api_feeder_count",
-		Help: "The number of requests for feeder information and feeder updates",
+		Namespace: "pw_atc_api",
+		Name:      "feeder_count",
+		Help:      "The number of requests for feeder information and feeder updates",
 	})
 
 	prometheusCounterFeederSummary = promauto.NewSummary(prometheus.SummaryOpts{
-		Name: "pw_atc_api_feeder_summary",
-		Help: "A Summary of the feeder request times in milliseconds",
+		Namespace: "pw_atc_api",
+		Name:      "feeder_summary",
+		Help:      "A Summary of the feeder request times in milliseconds",
 	})
 
-	ErrUnsupportedResponse = `{"error":"Unsupported Request","Type":"%s"}`
-	ErrRequestFailed       = `{"error":"Something went wrong with the request","Type":"%s"}`
+	prometheusAppVer = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "pw_atc_api",
+		Name:      "info",
+		Help:      "Application Info/Metadata",
+	}, []string{"version"})
 )
+
+func init() {
+	prometheusAppVer.With(prometheus.Labels{"version": version}).Set(1)
+}
 
 func main() {
 	app := cli.NewApp()

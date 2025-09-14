@@ -26,18 +26,30 @@ const (
 var (
 	version                        = "dev"
 	prometheusCounterFramesDecoded = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "pw_ingest_num_decoded_frames",
-		Help: "The number of AVR frames decoded",
+		Namespace: "pw_ingest",
+		Name:      "num_decoded_frames",
+		Help:      "The number of AVR frames decoded",
 	})
 	prometheusGaugeCurrentPlanes = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "pw_ingest_current_tracked_planes_count",
-		Help: "The number of planes this instance is currently tracking",
+		Namespace: "pw_ingest",
+		Name:      "current_tracked_planes_count",
+		Help:      "The number of planes this instance is currently tracking",
 	})
 	prometheusOutputFrameDedupe = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "pw_ingest_output_frame_dedupe_total",
-		Help: "The total number of deduped frames not output.",
+		Namespace: "pw_ingest",
+		Name:      "output_frame_dedupe_total",
+		Help:      "The total number of deduped frames not output.",
 	})
+	prometheusAppVer = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "pw_ingest",
+		Name:      "info",
+		Help:      "Application Info/Metadata",
+	}, []string{"version"})
 )
+
+func init() {
+	prometheusAppVer.With(prometheus.Labels{"version": version}).Set(1)
+}
 
 func main() {
 	app := cli.NewApp()

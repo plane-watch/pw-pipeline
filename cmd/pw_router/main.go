@@ -40,38 +40,55 @@ type (
 var (
 	version          = "dev"
 	updatesProcessed = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "pw_router_updates_processed_total",
-		Help: "The total number of messages processed.",
+		Namespace: "pw_router",
+		Name:      "updates_processed_total",
+		Help:      "The total number of messages processed.",
 	})
 	updatesSignificant = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "pw_router_updates_significant_total",
-		Help: "The total number of messages determined to be significant.",
+		Namespace: "pw_router",
+		Name:      "updates_significant_total",
+		Help:      "The total number of messages determined to be significant.",
 	})
 	updatesInsignificant = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "pw_router_updates_insignificant_total",
-		Help: "The total number of messages determined to be insignificant.",
+		Namespace: "pw_router",
+		Name:      "updates_insignificant_total",
+		Help:      "The total number of messages determined to be insignificant.",
 	})
 	updatesIgnored = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "pw_router_updates_ignored_total",
-		Help: "The total number of messages determined to be insignificant and thus ignored.",
+		Namespace: "pw_router",
+		Name:      "updates_ignored_total",
+		Help:      "The total number of messages determined to be insignificant and thus ignored.",
 	})
 	updatesPublished = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "pw_router_updates_published_total",
-		Help: "The total number of messages published to the output queue.",
+		Namespace: "pw_router",
+		Name:      "updates_published_total",
+		Help:      "The total number of messages published to the output queue.",
 	})
 	updatesError = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "pw_router_updates_error_total",
-		Help: "The total number of messages that could not be processed due to an error.",
+		Namespace: "pw_router",
+		Name:      "updates_error_total",
+		Help:      "The total number of messages that could not be processed due to an error.",
 	})
 	cacheEntries = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "pw_router_cache_planes_count",
-		Help: "The number of planes in the reducer cache.",
+		Namespace: "pw_router",
+		Name:      "cache_planes_count",
+		Help:      "The number of planes in the reducer cache.",
 	})
 	cacheEvictions = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "pw_router_cache_eviction_total",
-		Help: "The number of cache evictions made from the cache.",
+		Namespace: "pw_router",
+		Name:      "cache_eviction_total",
+		Help:      "The number of cache evictions made from the cache.",
 	})
+	prometheusAppVer = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "pw_router",
+		Name:      "info",
+		Help:      "Application Info/Metadata",
+	}, []string{"version"})
 )
+
+func init() {
+	prometheusAppVer.With(prometheus.Labels{"version": version}).Set(1)
+}
 
 func main() {
 	app := cli.NewApp()

@@ -18,42 +18,51 @@ var (
 	version = "dev"
 
 	prometheusNumClients = promauto.NewGauge(prometheus.GaugeOpts{
-		Subsystem: "pw_ws_broker",
+		Namespace: "pw_ws_broker",
 		Name:      "num_clients",
 		Help:      "The current number of websocket clients we are currently serving",
 	})
 	prometheusIncomingMessages = promauto.NewCounterVec(
 		prometheus.CounterOpts{
-			Subsystem: "pw_ws_broker",
+			Namespace: "pw_ws_broker",
 			Name:      "incoming_messages",
 			Help:      "The number of messages from the queue",
 		},
 		[]string{"rate"},
 	)
 	prometheusKnownPlanes = promauto.NewGauge(prometheus.GaugeOpts{
-		Subsystem: "pw_ws_broker",
+		Namespace: "pw_ws_broker",
 		Name:      "known_planes",
 		Help:      "The number of planes we know about",
 	})
 	prometheusMessagesSent = promauto.NewCounter(prometheus.CounterOpts{
-		Subsystem: "pw_ws_broker",
+		Namespace: "pw_ws_broker",
 		Name:      "messages_sent",
 		Help:      "The number of messages sent to clients over websockets",
 	})
 	prometheusMessagesSize = promauto.NewCounter(prometheus.CounterOpts{
-		Subsystem: "pw_ws_broker",
+		Namespace: "pw_ws_broker",
 		Name:      "messages_size",
 		Help:      "the raw size of messages sent (before compression)",
 	})
 	prometheusSubscriptions = promauto.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Subsystem: "pw_ws_broker",
+			Namespace: "pw_ws_broker",
 			Name:      "subscriptions",
 			Help:      "which tiles people are subscribed to",
 		},
 		[]string{"tile"},
 	)
+	prometheusAppVer = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "pw_ws_broker",
+		Name:      "info",
+		Help:      "Application Info/Metadata",
+	}, []string{"version"})
 )
+
+func init() {
+	prometheusAppVer.With(prometheus.Labels{"version": version}).Set(1)
+}
 
 func main() {
 	app := cli.NewApp()
