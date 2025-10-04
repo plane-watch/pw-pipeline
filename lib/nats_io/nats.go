@@ -2,13 +2,14 @@ package nats_io
 
 import (
 	"errors"
+	"net"
+	"net/url"
+	"time"
+
 	"github.com/nats-io/nats.go"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"net"
-	"net/url"
-	"time"
 )
 
 const DefaultQueueDepth = 2048

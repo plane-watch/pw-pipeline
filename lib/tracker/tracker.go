@@ -2,10 +2,11 @@ package tracker
 
 import (
 	"fmt"
-	"plane.watch/lib/tile_grid"
 	"strconv"
 	"sync"
 	"time"
+
+	"plane.watch/lib/tile_grid"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
@@ -35,6 +36,8 @@ type (
 		pruneAfter          time.Duration
 		pruneTick           time.Duration
 		finishDone          bool
+
+		muProducers sync.Mutex
 	}
 
 	dummySink struct {

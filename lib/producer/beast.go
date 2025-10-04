@@ -3,8 +3,9 @@ package producer
 import (
 	"bufio"
 	"bytes"
-	"plane.watch/lib/tracker/beast"
 	"time"
+
+	"plane.watch/lib/tracker/beast"
 )
 
 const tokenBufSize = 1000

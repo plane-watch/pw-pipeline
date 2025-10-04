@@ -2,15 +2,16 @@ package setup
 
 import (
 	"fmt"
+	"net/url"
+	"strings"
+	"time"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/rs/zerolog/log"
 	"github.com/urfave/cli/v2"
-	"net/url"
 	"plane.watch/lib/sink"
 	"plane.watch/lib/tracker"
-	"strings"
-	"time"
 )
 
 const (
@@ -32,15 +33,17 @@ var (
 func IncludeSinkFlags(app *cli.App) {
 	app.Flags = append(app.Flags, []cli.Flag{
 		&cli.StringFlag{
-			Name:    Sink,
-			Usage:   "The place to send decoded JSON in URL Form. nats://user:pass@host:port/vhost?ttl=60",
-			EnvVars: []string{"SINK"},
+			Category: "Sink",
+			Name:     Sink,
+			Usage:    "The place to send decoded JSON in URL Form. nats://user:pass@host:port/vhost?ttl=60",
+			EnvVars:  []string{"SINK"},
 		},
 		&cli.DurationFlag{
-			Name:    SinkCollectDelay,
-			Value:   300 * time.Millisecond,
-			Usage:   "Instead of emitting an update for every update we get, collect updates and send a deduplicated list (based on icao) every period",
-			EnvVars: []string{"SINK_COLLECT_DELAY"},
+			Category: "Sink",
+			Name:     SinkCollectDelay,
+			Value:    300 * time.Millisecond,
+			Usage:    "Instead of emitting an update for every update we get, collect updates and send a deduplicated list (based on icao) every period",
+			EnvVars:  []string{"SINK_COLLECT_DELAY"},
 		},
 	}...)
 }

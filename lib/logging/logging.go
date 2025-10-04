@@ -1,12 +1,13 @@
 package logging
 
 import (
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
-	"github.com/urfave/cli/v2"
 	"os"
 	"runtime/pprof"
 	"time"
+
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
+	"github.com/urfave/cli/v2"
 )
 
 const (
@@ -19,22 +20,26 @@ const (
 func IncludeVerbosityFlags(app *cli.App) {
 	app.Flags = append(app.Flags,
 		&cli.BoolFlag{
-			Name:  VeryVerbose,
-			Usage: "Enable trace level debugging",
+			Category: "Logging",
+			Name:     VeryVerbose,
+			Usage:    "Enable trace level debugging",
 		},
 		&cli.BoolFlag{
-			Name:    Debug,
-			Usage:   "Show Extra Debug Information",
-			EnvVars: []string{"DEBUG"},
+			Category: "Logging",
+			Name:     Debug,
+			Usage:    "Show Extra Debug Information",
+			EnvVars:  []string{"DEBUG"},
 		},
 		&cli.BoolFlag{
-			Name:    Quiet,
-			Usage:   "Only show important messages",
-			EnvVars: []string{"QUIET"},
+			Category: "Logging",
+			Name:     Quiet,
+			Usage:    "Only show important messages",
+			EnvVars:  []string{"QUIET"},
 		},
 		&cli.StringFlag{
-			Name:  CPUProfile,
-			Usage: "Specifying this parameter causes a CPU Profile to be generated",
+			Category: "Logging",
+			Name:     CPUProfile,
+			Usage:    "Specifying this parameter causes a CPU Profile to be generated",
 		},
 	)
 	// append our after func to stop profiling

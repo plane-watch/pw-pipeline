@@ -2,15 +2,16 @@ package setup
 
 import (
 	"fmt"
+	"net/url"
+	"strconv"
+	"strings"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/rs/zerolog/log"
 	"github.com/urfave/cli/v2"
-	"net/url"
 	"plane.watch/lib/producer"
 	"plane.watch/lib/tracker"
-	"strconv"
-	"strings"
 )
 
 const (

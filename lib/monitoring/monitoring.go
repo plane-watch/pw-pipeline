@@ -2,11 +2,12 @@ package monitoring
 
 import (
 	"fmt"
+	"net/http"
+	"sync"
+
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog/log"
 	"github.com/urfave/cli/v2"
-	"net/http"
-	"sync"
 )
 
 type (

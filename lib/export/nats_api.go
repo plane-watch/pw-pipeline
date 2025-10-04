@@ -66,19 +66,22 @@ type (
 	}
 
 	Feeders []Feeder
-	Feeder  struct { // part of schema for /api/v1/feeders.json atc endpoint
+
+	// Feeder is part of schema for /api/v1/feeders.json atc endpoint
+	// we keep the field types organised for memory alignment reasons
+	Feeder struct { //
+		MlatEnabled   bool      `db:"mlat_enabled"`
 		Id            int       `db:"id"`
-		User          string    `db:"name"`
 		Latitude      float64   `db:"latitude" json:",string"`
 		Longitude     float64   `db:"longitude" json:",string"`
 		Altitude      float64   `db:"altitude" json:",string"`
-		ApiKey        uuid.UUID `db:"api_key"`
+		User          string    `db:"name"`
 		FeedDirection string    `db:"feed_direction"`
 		FeedProtocol  string    `db:"feed_protocol"`
 		Label         string    `db:"label"`
-		MlatEnabled   bool      `db:"mlat_enabled"`
 		Mux           string    `db:"container_name"`
 		FeederCode    string    `db:"feeder_code"`
+		ApiKey        uuid.UUID `db:"api_key"`
 	}
 
 	FeederUpdates []FeederUpdate

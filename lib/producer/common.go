@@ -6,17 +6,18 @@ import (
 	"compress/gzip"
 	"errors"
 	"fmt"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 	"io"
 	"math/rand"
 	"net"
 	"os"
-	"plane.watch/lib/tracker"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
+	"plane.watch/lib/tracker"
 )
 
 const (
@@ -165,6 +166,23 @@ func WithFetcher(host, port string) Option {
 				scan.Split(p.splitter)
 				return p.readFromScanner(scan)
 			})
+		}
+	}
+}
+
+func WithConnection(conn net.Conn) Option {
+	return func(p *Producer) {
+		p.FrameSource.OriginIdentifier = conn.RemoteAddr().String()
+		p.run = func() {
+			p.addInfo("Fetching From Host: %s", p.FrameSource.OriginIdentifier)
+			go func(c net.Conn) {
+				scan := bufio.NewScanner(c)
+				scan.Split(p.splitter)
+				errRead := p.readFromScanner(scan)
+				if nil != errRead {
+					p.log.Error().Err(errRead).Msg("No more reading")
+				}
+			}(conn)
 		}
 	}
 }

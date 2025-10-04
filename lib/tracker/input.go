@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"golang.org/x/exp/slices"
 	"plane.watch/lib/monitoring"
 	"plane.watch/lib/tracker/beast"
 	"plane.watch/lib/tracker/mode_s"
@@ -105,6 +106,9 @@ func (t *Tracker) AddProducer(p Producer) {
 	}
 	monitoring.AddHealthCheck(p)
 
+	t.muProducers.Lock()
+	defer t.muProducers.Unlock()
+
 	t.log.Debug().Str("producer", p.String()).Msg("Adding producer")
 	t.producers = append(t.producers, p)
 	t.producerWaiter.Add(1)
@@ -120,6 +124,7 @@ func (t *Tracker) AddProducer(p Producer) {
 		}
 		close(doneChan)
 		t.producerWaiter.Done()
+		t.removeProducer(p)
 	}()
 	for i := 0; i < t.decodeWorkerCount; i++ {
 		go t.decodeQueue(p.Listen(), doneChan)
@@ -128,6 +133,21 @@ func (t *Tracker) AddProducer(p Producer) {
 		Int("num workers", t.decodeWorkerCount).
 		Str("source", p.String()).
 		Msg("Just added a producer")
+}
+
+func (t *Tracker) removeProducer(toRemove Producer) {
+	if nil == toRemove {
+		return
+	}
+	t.muProducers.Lock()
+	defer t.muProducers.Unlock()
+	for idx, p := range t.producers {
+		if toRemove == p {
+			t.producers = slices.Delete(t.producers, idx, 1)
+			return
+		}
+	}
+
 }
 
 // AddMiddleware wires up a Middleware which each message will go through before being added to the tracker
@@ -144,10 +164,10 @@ func (t *Tracker) AddMiddleware(m Middleware) {
 
 // SetSink wires up a Sink in the tracker. Whenever an event happens it gets sent to each Sink
 func (t *Tracker) SetSink(s Sink) {
-	t.log.Debug().Str("name", s.HealthCheckName()).Msg("Set Sink")
 	if nil == s {
 		return
 	}
+	t.log.Debug().Str("name", s.HealthCheckName()).Msg("Set Sink")
 	t.sink = s
 	monitoring.AddHealthCheck(s)
 }
