@@ -8,7 +8,7 @@ require (
 	github.com/coder/websocket v1.8.14
 	github.com/cpuguy83/go-md2man/v2 v2.0.7 // indirect
 	github.com/kpawlik/geojson v0.0.0-20171201195549-1a4f120c6b41
-	github.com/nats-io/nats.go v1.45.0
+	github.com/nats-io/nats.go v1.47.0
 	github.com/olekukonko/tablewriter v1.0.9
 	github.com/prometheus/client_golang v1.23.2
 	github.com/rs/zerolog v1.34.0
