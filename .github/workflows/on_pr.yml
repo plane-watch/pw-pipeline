@@ -62,6 +62,7 @@ jobs:
     strategy:
       matrix:
         image:
+          - borderforce
           - pw_atc_api
           - pw_ingest
           - pw_router
