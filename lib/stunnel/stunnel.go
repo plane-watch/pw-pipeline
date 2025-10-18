@@ -11,6 +11,7 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"plane.watch/lib/timing"
 )
 
 type (
@@ -23,7 +24,6 @@ type (
 		certPath, keyPath string
 		cert              *tls.Certificate
 		muCert            sync.Mutex
-		certTicker        *time.Ticker
 
 		connHandler ConnectionHandler
 		authHandler AuthenticationHandler
@@ -66,8 +66,7 @@ func WithAuthenticator(h AuthenticationHandler) Option {
 // New creates a new Listener
 func New(opts ...Option) (*Listener, error) {
 	l := &Listener{
-		log:        log.With().Str("Section", "stunnel").Logger(),
-		certTicker: nil,
+		log: log.With().Str("Section", "stunnel").Logger(),
 	}
 
 	for _, opt := range opts {
@@ -110,19 +109,11 @@ func (l *Listener) Listen(ctx context.Context) error {
 	}
 
 	// reload our certificate once a minute
-	l.certTicker = time.NewTicker(time.Minute)
-	go func() {
-		for {
-			select {
-			case <-l.certTicker.C:
-				l.log.Debug().Msg("reloading certificate....")
-				err := l.ReloadCertificate()
-				if err != nil {
-					l.log.Error().Err(err).Msg("Did not reload certificate")
-				}
-			}
-		}
-	}()
+	timing.PerformOnTicker(
+		l.log.With().Str("what", "stunnel reloading certificate").Logger(),
+		5*time.Minute,
+		l.ReloadCertificate,
+	)
 
 	l.log.Debug().Msg("starting to listen...")
 	netListener, err := tls.Listen("tcp", l.hostPort, config)

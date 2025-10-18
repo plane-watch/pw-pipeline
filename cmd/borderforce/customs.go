@@ -18,6 +18,7 @@ import (
 	"plane.watch/lib/nats_io"
 	"plane.watch/lib/producer"
 	"plane.watch/lib/stunnel"
+	"plane.watch/lib/timing"
 	"plane.watch/lib/tracker"
 )
 
@@ -34,8 +35,6 @@ type (
 
 		feeders   map[string]export.Feeder
 		muFeeders sync.Mutex
-
-		feederFetchTicker *time.Ticker
 
 		natsServer *nats_io.Server
 		natsURL    string
@@ -110,17 +109,11 @@ func ListenForIncomingPlaneWatchBeast(ctx context.Context, opts ...Option) (*Man
 	}
 
 	// and now refresh our api keyed feeder list every 5 minutes
-	manifest.feederFetchTicker = time.NewTicker(5 * time.Minute)
-	go func() {
-		for {
-			select {
-			case <-manifest.feederFetchTicker.C:
-				if err = manifest.fetchFeeders(); err != nil {
-					manifest.log.Error().Err(err).Msg("failed to update feeder api list")
-				}
-			}
-		}
-	}()
+	timing.PerformOnTicker(
+		manifest.log.With().Str("what", "fetching feeders").Logger(),
+		5*time.Minute,
+		manifest.fetchFeeders,
+	)
 
 	// now let's start listening for connections!
 
