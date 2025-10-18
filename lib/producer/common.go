@@ -104,13 +104,14 @@ func New(opts ...Option) *Producer {
 		go p.repeater.processor(p)
 	}
 
+	// TODO(mikenye): migrate to timing.PerformOnTicker!
 	if p.poisonPill != nil {
 		go func() {
 			select {
 			case <-p.poisonPillTimer.C:
 				if p.poisonPill() {
 					log.Warn().Msg("took poison pill")
-					p.cmdChan <- cmdExit
+					p.Stop()
 				}
 			}
 		}()
