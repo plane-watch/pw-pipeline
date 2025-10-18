@@ -131,7 +131,8 @@ func runDaemon(c *cli.Context) error {
 
 	trk.AddMiddleware(dedupe.NewFilter(dedupe.WithDedupeCounter(prometheusOutputFrameDedupe)))
 
-	sinkDest, err := setup.HandleSinkFlag(c, "border-force")
+	// TODO(mikenye): command below fails as at this stage we have no tag
+	sinkDest, err := setup.HandleSinkFlagWithoutTag(c, "border-force")
 	if nil != err {
 		return err
 	}
