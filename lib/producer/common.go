@@ -75,7 +75,7 @@ func New(opts ...Option) *Producer {
 		cmdChan: make(chan int),
 		run: func() {
 			println("You did not specify any sources")
-			os.Exit(1)
+			os.Exit(1) // TODO(mikenye): something more graceful?
 		},
 	}
 	p.log = log.With().Logger()

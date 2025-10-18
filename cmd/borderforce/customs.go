@@ -110,7 +110,6 @@ func ListenForIncomingPlaneWatchBeast(ctx context.Context, opts ...Option) (*Man
 	}
 
 	// and now refresh our api keyed feeder list every 5 minutes
-	// TODO: kick feeders with API Keys that were once valid but no longer so!
 	manifest.feederFetchTicker = time.NewTicker(5 * time.Minute)
 	go func() {
 		for {
@@ -136,6 +135,7 @@ func ListenForIncomingPlaneWatchBeast(ctx context.Context, opts ...Option) (*Man
 	}
 
 	go func() {
+		// TODO(mikenye): Should this be wrapped in a for loop so it runs forever?
 		err = manifest.listener.Listen(ctx)
 		if err != nil {
 			manifest.log.Error().Err(err).Msg("failed to listen for plane.watch beast")
@@ -221,6 +221,7 @@ func (m *Manifest) fetchFeeders() error {
 		Int("new-feeder-count", len(m.feeders)).
 		Msg("Updating Feeders")
 
+	// TODO(mikenye): Could re-use existing map instead of reallocating?
 	m.feeders = make(map[string]export.Feeder, len(feeders))
 	for _, feeder := range feeders {
 		m.feeders[feeder.ApiKey.String()] = feeder

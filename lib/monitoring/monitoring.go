@@ -43,6 +43,7 @@ func RunWebServer(c *cli.Context) {
 		mux.Handle("/metrics", promhttp.Handler())
 		mux.HandleFunc("/status", healthCheck)
 
+		// TODO(MikeNye): Do we want to add error handling around this?
 		_ = http.ListenAndServe(fmt.Sprintf(":%d", monitoringPort), mux)
 	}()
 }
