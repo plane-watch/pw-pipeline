@@ -206,6 +206,9 @@ func (m *Manifest) fetchFeeders() error {
 	}
 	json := jsoniter.ConfigFastest
 
+	// TODO(mikenye): Temp debugging code
+	log.Debug().Str("ret", string(ret)).Msg("got feeder list data")
+
 	feeders := make(export.Feeders, 0, 1000)
 
 	err = json.Unmarshal(ret, &feeders)
@@ -223,6 +226,11 @@ func (m *Manifest) fetchFeeders() error {
 	clear(m.feeders) // keeps capacity, prevent unnecessary alloc
 	for _, feeder := range feeders {
 		m.feeders[feeder.ApiKey.String()] = feeder
+	}
+
+	// TODO(mikenye): Temp debugging code
+	for x := range m.feeders {
+		log.Info().Str("apiKey", x).Msg("contents of m.feeders")
 	}
 
 	return nil
