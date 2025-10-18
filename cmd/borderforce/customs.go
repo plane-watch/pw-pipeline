@@ -110,6 +110,7 @@ func ListenForIncomingPlaneWatchBeast(ctx context.Context, opts ...Option) (*Man
 	}
 
 	// and now refresh our api keyed feeder list every 5 minutes
+	// TODO: kick feeders with API Keys that were once valid but no longer so!
 	manifest.feederFetchTicker = time.NewTicker(5 * time.Minute)
 	go func() {
 		if err = manifest.fetchFeeders(); err != nil {
@@ -167,6 +168,9 @@ func (m *Manifest) handler(conn net.Conn, apiKey string) error {
 		},
 	})
 
+	// TODO: handle stats updates to ATC
+	// TODO: jam stats into clicks for received packets per second (needs to be done before dedupe)
+	// TODO: Jam distance/heading info into clicks so we can produce a coverage map
 	p := producer.New(
 		producer.WithConnection(conn),
 		producer.WithType(producer.Beast),

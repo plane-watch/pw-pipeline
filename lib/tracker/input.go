@@ -147,7 +147,6 @@ func (t *Tracker) removeProducer(toRemove Producer) {
 			return
 		}
 	}
-
 }
 
 // AddMiddleware wires up a Middleware which each message will go through before being added to the tracker

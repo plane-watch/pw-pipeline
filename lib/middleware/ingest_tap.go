@@ -1,6 +1,9 @@
 package middleware
 
 import (
+	"strconv"
+	"sync"
+
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog/log"
 	"plane.watch/lib/nats_io"
@@ -9,8 +12,6 @@ import (
 	"plane.watch/lib/tracker/beast"
 	"plane.watch/lib/tracker/mode_s"
 	"plane.watch/lib/tracker/sbs1"
-	"strconv"
-	"sync"
 )
 
 const NatsAPIv1PwIngestTap = "v1.pw-ingest.tap" //nolint:gosec
