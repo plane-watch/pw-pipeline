@@ -34,7 +34,7 @@ type (
 		listener *stunnel.Listener
 
 		feeders   map[string]export.Feeder
-		muFeeders sync.Mutex
+		muFeeders sync.RWMutex
 
 		natsServer *nats_io.Server
 		natsURL    string
@@ -140,9 +140,8 @@ func ListenForIncomingPlaneWatchBeast(ctx context.Context, opts ...Option) (*Man
 }
 
 func (m *Manifest) authenticator(apiKey string) (bool, error) {
-	// TODO(mikenye): might be a good idea to use RWMutex, so this can use RLock/RUnlock
-	m.muFeeders.Lock()
-	defer m.muFeeders.Unlock()
+	m.muFeeders.RLock()
+	defer m.muFeeders.RUnlock()
 	if _, ok := m.feeders[apiKey]; ok {
 		return true, nil
 	}
@@ -150,10 +149,9 @@ func (m *Manifest) authenticator(apiKey string) (bool, error) {
 }
 
 func (m *Manifest) handler(conn net.Conn, apiKey string) error {
-	// TODO(mikenye): might be a good idea to use RWMutex, so this can use RLock/RUnlock
-	m.muFeeders.Lock()
+	m.muFeeders.RLock()
 	feeder, ok := m.feeders[apiKey]
-	m.muFeeders.Unlock()
+	m.muFeeders.RUnlock()
 
 	if !ok {
 		return fmt.Errorf("failed to get feeder info for authorised feeder key")
@@ -181,9 +179,8 @@ func (m *Manifest) handler(conn net.Conn, apiKey string) error {
 		producer.WithPrometheusCounters(nil, prometheusInputBeastFrames, nil),
 		producer.WithPoisonPill(
 			func() bool {
-				// TODO(mikenye): might be a good idea to use RWMutex, so this can use RLock/RUnlock
-				m.muFeeders.Lock()
-				defer m.muFeeders.Unlock()
+				m.muFeeders.RLock()
+				defer m.muFeeders.RUnlock()
 				_, ok := m.feeders[apiKey]
 				if !ok {
 					log.Warn().
