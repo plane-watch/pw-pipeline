@@ -60,3 +60,18 @@ services:
       - POSTGRES_PASSWORD=test
       - POSTGRES_USER=test
       - POSTGRES_DB=test
+
+  stunnel:
+    build:
+      context: ./stunnel
+    restart: always
+    depends_on:
+      borderforce:
+        condition: service_healthy
+
+  readsb:
+    build:
+      context: ./readsb
+    depends_on:
+      stunnel:
+        condition: service_healthy
