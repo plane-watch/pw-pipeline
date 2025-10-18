@@ -182,7 +182,17 @@ func (m *Manifest) handler(conn net.Conn, apiKey string) error {
 		producer.WithOriginName(feeder.Label),
 		producer.WithReferenceLatLon(feeder.Latitude, feeder.Longitude),
 		producer.WithSourceTag(feeder.FeederCode),
-		producer.WithPrometheusCounters(nil, prometheusInputBeastFrames, nil))
+		producer.WithPrometheusCounters(nil, prometheusInputBeastFrames, nil),
+		producer.WithPoisonPill(
+			func() bool {
+				m.muFeeders.Lock()
+				defer m.muFeeders.Unlock()
+				_, ok := m.feeders[apiKey]
+				return ok
+			},
+			time.Minute,
+		),
+	)
 
 	m.trk.AddProducer(p)
 

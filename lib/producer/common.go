@@ -53,6 +53,9 @@ type (
 		hasFetcher, fetcherConnected bool
 
 		repeater *keepAliveRepeater
+
+		poisonPill      func() bool
+		poisonPillTimer *time.Ticker
 	}
 
 	Option func(*Producer)
@@ -99,6 +102,17 @@ func New(opts ...Option) *Producer {
 		p.log.Debug().Msg("Setting up repeater")
 		p.repeater = newKeepAliveRepeater()
 		go p.repeater.processor(p)
+	}
+
+	if p.poisonPill != nil {
+		go func() {
+			select {
+			case <-p.poisonPillTimer.C:
+				if p.poisonPill() {
+					p.cmdChan <- cmdExit
+				}
+			}
+		}()
 	}
 
 	return p
@@ -265,6 +279,13 @@ func WithReferenceLatLon(lat, lon float64) Option {
 func WithKeepAliveRepeater() Option {
 	return func(p *Producer) {
 		p.keepAliveRepeater = true
+	}
+}
+
+func WithPoisonPill(poisonPill func() bool, t time.Duration) Option {
+	return func(p *Producer) {
+		p.poisonPill = poisonPill
+		p.poisonPillTimer = time.NewTicker(t)
 	}
 }
 
