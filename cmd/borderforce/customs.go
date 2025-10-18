@@ -113,8 +113,13 @@ func ListenForIncomingPlaneWatchBeast(ctx context.Context, opts ...Option) (*Man
 	// TODO: kick feeders with API Keys that were once valid but no longer so!
 	manifest.feederFetchTicker = time.NewTicker(5 * time.Minute)
 	go func() {
-		if err = manifest.fetchFeeders(); err != nil {
-			manifest.log.Error().Err(err).Msg("failed to update feeder api list")
+		for {
+			select {
+			case <-manifest.feederFetchTicker.C:
+				if err = manifest.fetchFeeders(); err != nil {
+					manifest.log.Error().Err(err).Msg("failed to update feeder api list")
+				}
+			}
 		}
 	}()
 
