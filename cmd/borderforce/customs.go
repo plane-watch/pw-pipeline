@@ -213,15 +213,14 @@ func (m *Manifest) fetchFeeders() error {
 		return fmt.Errorf("failed to decode feeder list: %w", err)
 	}
 
-	m.muFeeders.Lock()
-	defer m.muFeeders.Unlock()
 	m.log.Info().
 		Int("prev-feeder-count", len(m.feeders)).
 		Int("new-feeder-count", len(m.feeders)).
 		Msg("Updating Feeders")
 
-	// TODO(mikenye): Could re-use existing map instead of reallocating?
-	m.feeders = make(map[string]export.Feeder, len(feeders))
+	m.muFeeders.Lock()
+	defer m.muFeeders.Unlock()
+	clear(m.feeders) // keeps capacity, prevent unnecessary alloc
 	for _, feeder := range feeders {
 		m.feeders[feeder.ApiKey.String()] = feeder
 	}
