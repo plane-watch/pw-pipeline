@@ -146,6 +146,7 @@ func ListenForIncomingPlaneWatchBeast(ctx context.Context, opts ...Option) (*Man
 }
 
 func (m *Manifest) authenticator(apiKey string) (bool, error) {
+	// TODO(mikenye): might be a good idea to use RWMutex, so this can use RLock/RUnlock
 	m.muFeeders.Lock()
 	defer m.muFeeders.Unlock()
 	if _, ok := m.feeders[apiKey]; ok {
@@ -155,6 +156,7 @@ func (m *Manifest) authenticator(apiKey string) (bool, error) {
 }
 
 func (m *Manifest) handler(conn net.Conn, apiKey string) error {
+	// TODO(mikenye): might be a good idea to use RWMutex, so this can use RLock/RUnlock
 	m.muFeeders.Lock()
 	feeder, ok := m.feeders[apiKey]
 	m.muFeeders.Unlock()
@@ -185,6 +187,7 @@ func (m *Manifest) handler(conn net.Conn, apiKey string) error {
 		producer.WithPrometheusCounters(nil, prometheusInputBeastFrames, nil),
 		producer.WithPoisonPill(
 			func() bool {
+				// TODO(mikenye): might be a good idea to use RWMutex, so this can use RLock/RUnlock
 				m.muFeeders.Lock()
 				defer m.muFeeders.Unlock()
 				_, ok := m.feeders[apiKey]
