@@ -112,10 +112,15 @@ func (l *Listener) Listen(ctx context.Context) error {
 	// reload our certificate once a minute
 	l.certTicker = time.NewTicker(time.Minute)
 	go func() {
-		l.log.Debug().Msg("reloading certificate....")
-		err := l.ReloadCertificate()
-		if err != nil {
-			l.log.Error().Err(err).Msg("Did not reload certificate")
+		for {
+			select {
+			case <-l.certTicker.C:
+				l.log.Debug().Msg("reloading certificate....")
+				err := l.ReloadCertificate()
+				if err != nil {
+					l.log.Error().Err(err).Msg("Did not reload certificate")
+				}
+			}
 		}
 	}()
 
