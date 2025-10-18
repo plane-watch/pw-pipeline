@@ -109,11 +109,12 @@ func (l *Listener) Listen(ctx context.Context) error {
 	}
 
 	// reload our certificate once a minute
-	timing.PerformOnTicker(
+	cancelTicker := timing.RunOnTicker(
 		l.log.With().Str("what", "stunnel reloading certificate").Logger(),
 		5*time.Minute,
 		l.ReloadCertificate,
 	)
+	defer cancelTicker()
 
 	l.log.Debug().Msg("starting to listen...")
 	netListener, err := tls.Listen("tcp", l.hostPort, config)

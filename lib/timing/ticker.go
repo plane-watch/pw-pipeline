@@ -1,15 +1,16 @@
 package timing
 
 import (
+	"context"
 	"time"
 
 	"github.com/rs/zerolog"
 )
 
-// PerformOnTicker runs function f ever t duration
-func PerformOnTicker(logger zerolog.Logger, t time.Duration, f func() error) func() {
+// RunOnTicker runs function f ever t duration, until the returned function is called.
+func RunOnTicker(logger zerolog.Logger, t time.Duration, f func() error) func() {
+	ctx, cancel := context.WithCancel(context.Background())
 	ticker := time.NewTicker(t)
-	tickerFinished := make(chan struct{})
 	go func() {
 		for {
 			select {
@@ -17,13 +18,11 @@ func PerformOnTicker(logger zerolog.Logger, t time.Duration, f func() error) fun
 				if err := f(); err != nil {
 					logger.Error().Err(err).Msg("Failed to perform on ticker")
 				}
-			case <-tickerFinished:
+			case <-ctx.Done():
+				ticker.Stop()
 				return
 			}
 		}
 	}()
-	return func() {
-		ticker.Stop()
-		tickerFinished <- struct{}{}
-	}
+	return cancel
 }

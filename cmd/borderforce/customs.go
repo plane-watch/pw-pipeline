@@ -109,11 +109,12 @@ func ListenForIncomingPlaneWatchBeast(ctx context.Context, opts ...Option) (*Man
 	}
 
 	// and now refresh our api keyed feeder list every 5 minutes
-	timing.PerformOnTicker(
+	cancelTicker := timing.RunOnTicker(
 		manifest.log.With().Str("what", "fetching feeders").Logger(),
 		5*time.Minute,
 		manifest.fetchFeeders,
 	)
+	defer cancelTicker()
 
 	// now let's start listening for connections!
 
