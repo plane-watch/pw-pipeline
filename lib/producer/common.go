@@ -109,6 +109,7 @@ func New(opts ...Option) *Producer {
 			select {
 			case <-p.poisonPillTimer.C:
 				if p.poisonPill() {
+					log.Warn().Msg("took poison pill")
 					p.cmdChan <- cmdExit
 				}
 			}

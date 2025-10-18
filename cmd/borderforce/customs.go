@@ -188,6 +188,11 @@ func (m *Manifest) handler(conn net.Conn, apiKey string) error {
 				m.muFeeders.Lock()
 				defer m.muFeeders.Unlock()
 				_, ok := m.feeders[apiKey]
+				if !ok {
+					log.Warn().
+						Str("apiKey", apiKey).
+						Msg("feeder api key no longer valid, poisoning")
+				}
 				return ok
 			},
 			time.Minute,
