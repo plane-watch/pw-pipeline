@@ -218,7 +218,7 @@ func (l *Listener) Listen(ctx context.Context) error {
 }
 
 func (l *Listener) ReloadCertificate() error {
-	l.log.Info().Str("certPath", l.certPath).Str("keyPat", l.keyPath).Msg("Loading TLS Certificate")
+	l.log.Info().Str("certPath", l.certPath).Str("keyPath", l.keyPath).Msg("Loading TLS Certificate")
 
 	cert, err := tls.LoadX509KeyPair(l.certPath, l.keyPath)
 	if err != nil {
