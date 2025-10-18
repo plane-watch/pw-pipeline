@@ -128,13 +128,13 @@ func ListenForIncomingPlaneWatchBeast(ctx context.Context, opts ...Option) (*Man
 		return nil, fmt.Errorf("failed to setup stunnel listener: %w", err)
 	}
 
-	go func() {
-		// TODO(mikenye): Should this be wrapped in a for loop so it runs forever?
-		err = manifest.listener.Listen(ctx)
-		if err != nil {
-			manifest.log.Error().Err(err).Msg("failed to listen for plane.watch beast")
-		}
-	}()
+	//go func() {
+	// TODO(mikenye): Should this be wrapped in a for loop so it runs forever?
+	err = manifest.listener.Listen(ctx)
+	if err != nil {
+		manifest.log.Error().Err(err).Msg("failed to listen for plane.watch beast")
+	}
+	//}()
 
 	return manifest, nil
 }

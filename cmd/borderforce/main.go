@@ -9,6 +9,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/rs/zerolog/log"
 	"github.com/urfave/cli/v2"
+	"golang.org/x/sync/errgroup"
 	"plane.watch/lib/dedupe"
 	"plane.watch/lib/logging"
 	"plane.watch/lib/middleware"
@@ -147,17 +148,26 @@ func runDaemon(c *cli.Context) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	_, err = ListenForIncomingPlaneWatchBeast(
-		ctx,
-		WithListenHostPort(c.String("listen-beast")),
-		WithTLSCertificate(c.String("cert"), c.String("key")),
-		WithTracker(trk),
-		WithNatsURL(c.String("sink")),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to listen for beast: %w", err)
-	}
+	wg := errgroup.Group{}
+	wg.Go(func() error {
+		defer cancel()
+		m, err := ListenForIncomingPlaneWatchBeast(
+			ctx,
+			WithListenHostPort(c.String("listen-beast")),
+			WithTLSCertificate(c.String("cert"), c.String("key")),
+			WithTracker(trk),
+			WithNatsURL(c.String("sink")),
+		)
+		if err != nil {
+			return fmt.Errorf("failed to listen for beast: %w", err)
+		}
+		defer func() {
+			clear(m.feeders)
+		}()
+		return nil
+	})
 	//ListenForIncomingPlaneWatchMLAT(c.String("listen-mlat"), trk)
+	err = wg.Wait()
 
 	go trk.StopOnCancel()
 	trk.Wait()
