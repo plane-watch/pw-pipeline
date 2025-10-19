@@ -43,7 +43,7 @@ services:
       - DATABASE_HOST=db
       - DATABASE_USER=test
       - DATABASE_PASSWORD=test
-      - DATABASE_NAME=test
+      - DATABASE_NAME=atc_test
       - NATS=nats://nats:4222
     depends_on:
       nats:
@@ -59,7 +59,6 @@ services:
     environment:
       - POSTGRES_PASSWORD=test
       - POSTGRES_USER=test
-      - POSTGRES_DB=test
 
   stunnel:
     build:
