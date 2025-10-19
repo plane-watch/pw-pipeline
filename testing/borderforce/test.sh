@@ -3,7 +3,7 @@
 set -euo pipefail
 
 # Create a temporary directory
-TESTDIR="$(mktemp -d -p ./)"
+TESTDIR="$(mktemp -d)"
 echo "Using temp dir: $TESTDIR"
 
 # Define a cleanup function
