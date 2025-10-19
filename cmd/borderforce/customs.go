@@ -158,6 +158,10 @@ func (m *Manifest) handler(conn net.Conn, apiKey string) error {
 		return fmt.Errorf("failed to get feeder info for authorised feeder key")
 	}
 
+	// TODO(mikenye): This causes a panic if the client reconnects.
+	//                `panic: duplicate metrics collector registration attempted`
+	//                Replacing "promauto.NewCounter" with "prometheus.NewCounter" stops panic,
+	//                but I'm unsure if this is the correct fix.
 	prometheusInputBeastFrames := promauto.NewCounter(prometheus.CounterOpts{
 		Namespace: "border-force",
 		Subsystem: "beast",
