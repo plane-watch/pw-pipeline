@@ -34,6 +34,13 @@ services:
         source: ${TESTDIR}
         target: /test
 
+  nats-client:
+    build:
+      context: ./nats-client
+    depends_on:
+      nats:
+        condition: service_started
+
   pw_atc_api:
     build:
       context: ../../
