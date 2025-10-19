@@ -210,6 +210,8 @@ func (m *Manifest) fetchFeeders() error {
 	// TODO(mikenye): Temp debugging code
 	log.Debug().Str("ret", string(ret)).Msg("got feeder list data")
 
+	// TODO(mikenye): It would be good for the NATS query to return the number of feeders,
+	//                so we can allocate once, rather than over allocate or under allocate and grow (more alloc).
 	feeders := make(export.Feeders, 0, 1000)
 
 	err = json.Unmarshal(ret, &feeders)
@@ -219,7 +221,7 @@ func (m *Manifest) fetchFeeders() error {
 
 	m.log.Info().
 		Int("prev-feeder-count", len(m.feeders)).
-		Int("new-feeder-count", len(m.feeders)).
+		Int("new-feeder-count", len(feeders)).
 		Msg("Updating Feeders")
 
 	m.muFeeders.Lock()
@@ -227,6 +229,22 @@ func (m *Manifest) fetchFeeders() error {
 	clear(m.feeders) // keeps capacity, prevent unnecessary alloc
 	for _, feeder := range feeders {
 		m.feeders[feeder.ApiKey.String()] = feeder
+
+		// TODO(mikenye): Temp debugging code
+		log.Debug().
+			Float64("Altitude", feeder.Altitude).
+			Str("ApiKey", feeder.ApiKey.String()).
+			Str("FeedDirection", feeder.FeedDirection).
+			Str("FeedProtocol", feeder.FeedProtocol).
+			Str("FeederCode", feeder.FeederCode).
+			Int("Id", feeder.Id).
+			Str("Label", feeder.Label).
+			Float64("Latitude", feeder.Latitude).
+			Float64("Longitude", feeder.Longitude).
+			Str("Mux", feeder.Mux).
+			Str("User", feeder.User).
+			Bool("MlatEnabled", feeder.MlatEnabled).
+			Msg("feeder detail")
 	}
 
 	// TODO(mikenye): Temp debugging code
