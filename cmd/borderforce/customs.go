@@ -78,7 +78,8 @@ func ListenForIncomingPlaneWatchBeast(ctx context.Context, opts ...Option) (*Man
 
 	// create our Manifest and apply our options to it
 	manifest := &Manifest{
-		log: log.With().Str("Section", "IncomingBeast").Logger(),
+		log:     log.With().Str("Section", "IncomingBeast").Logger(),
+		feeders: make(map[string]export.Feeder),
 	}
 
 	for _, opt := range opts {
