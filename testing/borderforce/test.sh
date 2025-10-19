@@ -63,7 +63,7 @@ cat "$ENVFILE"
 docker compose --env-file "$ENVFILE" up --build -d
 
 # === TESTS GO HERE ===
-read -p "press enter when done"
+read -p "perform any testing required, press enter when done to bring environment down"
 
 # === BRING DOWN TEST ENVIRONMENT ===
 docker compose --env-file "$ENVFILE" down
