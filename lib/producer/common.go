@@ -195,7 +195,7 @@ func WithConnection(conn net.Conn) Option {
 				scan := bufio.NewScanner(c)
 				scan.Split(p.splitter)
 				errRead := p.readFromScanner(scan)
-				if nil != errRead {
+				if errRead != nil {
 					p.log.Error().Err(errRead).Msg("No more reading")
 				}
 			}(conn)
