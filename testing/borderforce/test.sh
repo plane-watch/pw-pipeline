@@ -30,6 +30,7 @@ default_bits       = 2048
 prompt             = no
 default_md         = sha256
 distinguished_name = dn
+req_extensions     = req_ext
 
 [ dn ]
 C  = AU
@@ -38,6 +39,13 @@ L  = Perth
 O  = Plane.Watch
 OU = Testing Department
 CN = dev.plane.watch
+
+[ req_ext ]
+subjectAltName = @alt_names
+
+[ alt_names ]
+DNS.1 = dev.plane.watch
+IP.1  = 127.0.0.1
 EOF
 echo "Generated: $CNFFILE"
 
@@ -63,6 +71,8 @@ cat "$ENVFILE"
 docker compose --env-file "$ENVFILE" up --build -d
 
 # === TESTS GO HERE ===
+echo ""
+echo "Test using api key: ad84bf99-f24b-4b4c-83e3-28bfc331f7ad"
 read -p "perform any testing required, press enter when done to bring environment down"
 
 # === BRING DOWN TEST ENVIRONMENT ===
