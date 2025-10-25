@@ -126,15 +126,17 @@ func (l *Listener) Listen(ctx context.Context) error {
 	go func() {
 		for {
 			l.log.Debug().Msg("Top of loop")
-			serverConn, errAccept := netListener.Accept()
+
+			l.log.Debug().Msg("accepting tcp connection")
+			conn, errAccept := netListener.Accept()
 			if errAccept != nil {
-				if serverConn == nil {
+				if conn == nil {
 					l.log.Error().
 						Err(errAccept).
 						Msg("connection accept failure")
 				} else {
 					l.log.Error().
-						Str("RemoteAddr", serverConn.RemoteAddr().String()).
+						Str("RemoteAddr", conn.RemoteAddr().String()).
 						Err(errAccept).
 						Msg("connection accept failure")
 				}
@@ -144,29 +146,34 @@ func (l *Listener) Listen(ctx context.Context) error {
 				return
 			}
 
-			l.log.Debug().Msg("before accepting handshake")
-			if err = serverConn.(*tls.Conn).Handshake(); err != nil {
+			l.log = l.log.With().Str("RemoteAddr ", conn.RemoteAddr().String()).Logger()
+
+			// TODO(mikenye): implement security features here:
+			//		- limit number of connections from source IP
+			//		- limit connection rate, eg: 1x connection per IP every 10 seconds
+
+			l.log.Debug().Msg("before handshake")
+			if err = conn.(*tls.Conn).Handshake(); err != nil {
 				l.log.Error().
 					Err(err).
-					Str("RemoteAddr", serverConn.RemoteAddr().String()).
 					Msg("Failed to complete TLS handshake with client")
-				_ = serverConn.Close()
+				_ = conn.Close()
 				continue
 			}
 
-			l.log.Debug().Msg("before testing handshake complete")
-			if serverConn.(*tls.Conn).ConnectionState().HandshakeComplete == false {
+			l.log.Debug().Msg("testing handshake complete")
+			if conn.(*tls.Conn).ConnectionState().HandshakeComplete == false {
 				l.log.Error().
 					Err(err).
-					Str("RemoteAddr", serverConn.RemoteAddr().String()).
 					Msg("Handshake is not complete, bailing")
-				_ = serverConn.Close()
+				_ = conn.Close()
 				continue
 			}
-			l.log.Debug().Msg("Accepting...")
 
-			go func(nc net.Conn) {
-				apiKey := nc.(*tls.Conn).ConnectionState().ServerName
+			l.log.Debug().Msg("tls connection established")
+
+			go func(conn net.Conn) {
+				apiKey := conn.(*tls.Conn).ConnectionState().ServerName
 				l.log.Debug().Str("APIKey", apiKey).Msg("client api key")
 
 				// there is some potential issues here with blocking calls that should be sorted out
@@ -175,7 +182,6 @@ func (l *Listener) Listen(ctx context.Context) error {
 				valid, errAuth := l.authHandler(apiKey)
 				if errAuth != nil {
 					l.log.Error().
-						Str("RemoteAddr", nc.RemoteAddr().String()).
 						Str("APIKey", apiKey).
 						Err(errAuth).
 						Msg("authentication failure")
@@ -185,23 +191,23 @@ func (l *Listener) Listen(ctx context.Context) error {
 				l.log = l.log.With().Str("APIKey", apiKey).Logger()
 
 				if !valid {
-					l.log.Debug().Str("APIKey", apiKey).Msg("API Key is not valid, closing")
-					_ = nc.Close()
+					l.log.Debug().Msg("API Key is not valid, closing")
+					_ = conn.Close()
 					return
 				}
 
 				l.log.Debug().Str("APIKey", apiKey).Msg("Handling connection")
-				errConn := l.connHandler(nc, apiKey)
+				errConn := l.connHandler(conn, apiKey)
 				if errConn != nil {
 					l.log.Error().
-						Str("RemoteAddr", nc.RemoteAddr().String()).
-						Str("APIKey", apiKey).
 						Err(errConn).
 						Msg("connection failure")
 				}
 
-				_ = nc.Close()
-			}(serverConn)
+				// todo(mikenye): commented below as we shouldn't be closing the connection here
+				//l.log.Debug().Msg("closing connection")
+				//_ = conn.Close()
+			}(conn)
 		}
 	}()
 

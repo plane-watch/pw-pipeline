@@ -190,14 +190,19 @@ func WithConnection(conn net.Conn) Option {
 		p.FrameSource.OriginIdentifier = conn.RemoteAddr().String()
 		p.run = func() {
 			p.addInfo("Fetching From Host: %s", p.FrameSource.OriginIdentifier)
-			go func(c net.Conn) {
-				scan := bufio.NewScanner(c)
-				scan.Split(p.splitter)
+			go func() {
+				defer func() {
+					p.log.Debug().Msg("closing connection")
+					_ = conn.Close()
+				}()
+				scan := bufio.NewScanner(conn)
+				p.log.Debug().Msg("start reading from scanner")
 				errRead := p.readFromScanner(scan)
 				if errRead != nil {
-					p.log.Error().Err(errRead).Msg("No more reading")
+					p.log.Error().Err(errRead).Msg("error reading from scanner")
 				}
-			}(conn)
+				p.log.Debug().Msg("finish reading from scanner")
+			}()
 		}
 	}
 }
