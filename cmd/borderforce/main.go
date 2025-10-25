@@ -129,12 +129,9 @@ func runDaemon(c *cli.Context) error {
 		tracker.WithDecodeWorkerCount(1), // only need a single decoder per source
 	)
 	trk := tracker.NewTracker(trackerOpts...)
-
 	trk.AddMiddleware(dedupe.NewFilter(dedupe.WithDedupeCounter(prometheusOutputFrameDedupe)))
-
-	// TODO(mikenye): command below fails as at this stage we have no tag
 	sinkDest, err := setup.HandleSinkFlagWithoutTag(c, "border-force")
-	if nil != err {
+	if err != nil {
 		return err
 	}
 	trk.SetSink(sinkDest)
