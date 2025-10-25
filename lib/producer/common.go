@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"compress/bzip2"
 	"compress/gzip"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +18,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"plane.watch/lib/timing"
 	"plane.watch/lib/tracker"
 )
 
@@ -54,8 +56,8 @@ type (
 
 		repeater *keepAliveRepeater
 
-		poisonPill      func() bool
-		poisonPillTimer *time.Ticker
+		poisonPill       func() bool
+		poisonPillCancel context.CancelFunc
 	}
 
 	Option func(*Producer)
@@ -106,15 +108,13 @@ func New(opts ...Option) *Producer {
 
 	// TODO(mikenye): migrate to timing.PerformOnTicker!
 	if p.poisonPill != nil {
-		go func() {
-			select {
-			case <-p.poisonPillTimer.C:
-				if p.poisonPill() {
-					log.Warn().Msg("took poison pill")
-					p.Stop()
-				}
+		p.poisonPillCancel = timing.RunOnTicker(p.log, time.Second*5, func() error {
+			if p.poisonPill() {
+				log.Warn().Msg("took poison pill")
+				p.Stop()
 			}
-		}()
+			return nil
+		})
 	}
 
 	return p
@@ -287,7 +287,6 @@ func WithKeepAliveRepeater() Option {
 func WithPoisonPill(poisonPill func() bool, t time.Duration) Option {
 	return func(p *Producer) {
 		p.poisonPill = poisonPill
-		p.poisonPillTimer = time.NewTicker(t)
 	}
 }
 
@@ -351,6 +350,12 @@ func (p *Producer) AddEvent(e tracker.FrameEvent) {
 }
 
 func (p *Producer) Cleanup() {
+
+	// if using poison pill, then make sure the RunOnTicker instance is cancelled
+	if p.poisonPillCancel != nil {
+		p.poisonPillCancel()
+	}
+
 	defer func() {
 		if r := recover(); nil != r {
 			p.log.Error().Interface("recover", r).Msg("Cleanup() had a panic")
