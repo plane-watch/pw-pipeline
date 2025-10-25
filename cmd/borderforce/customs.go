@@ -5,13 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"strconv"
 	"sync"
 	"time"
 
 	jsoniter "github.com/json-iterator/go"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"plane.watch/lib/export"
@@ -162,15 +159,15 @@ func (m *Manifest) handler(conn net.Conn, apiKey string) error {
 	//                `panic: duplicate metrics collector registration attempted`
 	//                Replacing "promauto.NewCounter" with "prometheus.NewCounter" stops panic,
 	//                but I'm unsure if this is the correct fix.
-	prometheusInputBeastFrames := promauto.NewCounter(prometheus.CounterOpts{
-		Namespace: "border-force",
-		Subsystem: "beast",
-		Name:      "input-total",
-		Help:      "The total number of beast frames processed.",
-		ConstLabels: map[string]string{
-			"feeder_id": strconv.FormatInt(int64(feeder.Id), 10),
-		},
-	})
+	//prometheusInputBeastFrames := promauto.NewCounter(prometheus.CounterOpts{
+	//	Namespace: "border-force",
+	//	Subsystem: "beast",
+	//	Name:      "input-total",
+	//	Help:      "The total number of beast frames processed.",
+	//	ConstLabels: map[string]string{
+	//		"feeder_id": strconv.FormatInt(int64(feeder.Id), 10),
+	//	},
+	//})
 
 	// TODO: handle stats updates to ATC
 	// TODO: jam stats into clicks for received packets per second (needs to be done before dedupe)
@@ -181,7 +178,8 @@ func (m *Manifest) handler(conn net.Conn, apiKey string) error {
 		producer.WithOriginName(feeder.Label),
 		producer.WithReferenceLatLon(feeder.Latitude, feeder.Longitude),
 		producer.WithSourceTag(feeder.FeederCode),
-		producer.WithPrometheusCounters(nil, prometheusInputBeastFrames, nil),
+		// TODO(mikenye): re-enable when panic fixed
+		//producer.WithPrometheusCounters(nil, prometheusInputBeastFrames, nil),
 		producer.WithPoisonPill(
 			func() bool {
 				m.muFeeders.RLock()
@@ -194,7 +192,7 @@ func (m *Manifest) handler(conn net.Conn, apiKey string) error {
 				}
 				return ok
 			},
-			time.Minute,
+			time.Second*5,
 		),
 	)
 
