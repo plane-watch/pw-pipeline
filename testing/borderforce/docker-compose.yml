@@ -17,6 +17,9 @@ services:
       - KEY_FILE=/test/server.key
       - DEBUG=true
       - SINK=nats://nats:4222
+    ports:
+      - "12345:12345"
+      - "12346:12346"
     volumes:
       - type: bind
         source: ${TESTDIR}
