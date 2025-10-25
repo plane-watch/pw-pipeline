@@ -86,7 +86,7 @@ func New(opts ...Option) (*Listener, error) {
 		return nil, fmt.Errorf("%w: could not load certificate: %w", MissingOption, err)
 	}
 
-	if nil == l.connHandler {
+	if l.connHandler == nil {
 		return nil, fmt.Errorf("%w: Connection Handler is not configured", MissingOption)
 	}
 

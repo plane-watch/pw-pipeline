@@ -478,7 +478,7 @@ func (p *Producer) fetcher(host, port string, read func(net.Conn) error) {
 				p.addDebug("Got Cmd Exit")
 				wLock.Lock()
 				working = false
-				if nil != conn {
+				if conn != nil {
 					if err := conn.Close(); err != nil {
 						p.log.Error().Err(err).Msg("Err when closing socket")
 					}
