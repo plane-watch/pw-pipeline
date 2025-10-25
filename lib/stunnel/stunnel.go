@@ -182,6 +182,8 @@ func (l *Listener) Listen(ctx context.Context) error {
 					return
 				}
 
+				l.log = l.log.With().Str("APIKey", apiKey).Logger()
+
 				if !valid {
 					l.log.Debug().Str("APIKey", apiKey).Msg("API Key is not valid, closing")
 					_ = nc.Close()

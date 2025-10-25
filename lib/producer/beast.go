@@ -15,12 +15,19 @@ func (p *Producer) beastScanner(scan *bufio.Scanner) error {
 	lastTimeStamp := time.Duration(0)
 	// make our best lib allocate out of a sync.Pool
 	beast.UsePoolAllocator = true
+	p.log.Debug().Msg("entering scan.Scan() loop")
 	for scan.Scan() {
 		msg := bytes.Clone(scan.Bytes())
+
+		// TODO(mikenye): Temp debugging code, remove eventually
+		p.log.Debug().Bytes("msg", msg).Msg("received message")
+
 		frame, err := beast.NewFrame(msg, false)
 		if nil != err {
 			continue
 		}
+
+		// TODO(mikenye): Ask Boxie what this does.
 		if p.beastDelay {
 			currentTs := frame.BeastTicksNs()
 			if lastTimeStamp > 0 && lastTimeStamp < currentTs {
@@ -34,6 +41,7 @@ func (p *Producer) beastScanner(scan *bufio.Scanner) error {
 			p.stats.beast.Inc()
 		}
 	}
+	p.log.Debug().Msg("exited scan.Scan() loop")
 	return scan.Err()
 }
 

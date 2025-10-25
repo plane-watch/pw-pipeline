@@ -106,11 +106,10 @@ func New(opts ...Option) *Producer {
 		go p.repeater.processor(p)
 	}
 
-	// TODO(mikenye): migrate to timing.PerformOnTicker!
 	if p.poisonPill != nil {
 		p.poisonPillCancel = timing.RunOnTicker(p.log, time.Second*5, func() error {
 			if p.poisonPill() {
-				log.Warn().Msg("took poison pill")
+				log.Debug().Msg("took poison pill")
 				p.Stop()
 			}
 			return nil
@@ -260,10 +259,13 @@ func (p *Producer) readFromScanner(scan *bufio.Scanner) error {
 
 	switch p.producerType {
 	case Avr:
+		p.log = p.log.With().Str("type", "avr").Logger()
 		return p.avrScanner(scan)
 	case Sbs1:
+		p.log = p.log.With().Str("type", "sbs1").Logger()
 		return p.sbsScanner(scan)
 	case Beast:
+		p.log = p.log.With().Str("type", "beast").Logger()
 		return p.beastScanner(scan)
 	default:
 		return errors.New("unknown Producer type")
@@ -295,6 +297,7 @@ func (p *Producer) String() string {
 }
 
 func (p *Producer) Listen() chan tracker.FrameEvent {
+	p.log.Debug().Msg("Listening")
 	p.runningLock.Lock()
 	defer p.runningLock.Unlock()
 	if !p.running {
