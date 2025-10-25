@@ -8,7 +8,7 @@ import (
 )
 
 // RunOnTicker runs function f ever t duration, until the returned function is called.
-func RunOnTicker(logger zerolog.Logger, t time.Duration, f func() error) func() {
+func RunOnTicker(logger zerolog.Logger, t time.Duration, f func() error) context.CancelFunc {
 	ctx, cancel := context.WithCancel(context.Background())
 	ticker := time.NewTicker(t)
 	go func() {
