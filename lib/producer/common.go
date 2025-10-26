@@ -58,6 +58,8 @@ type (
 
 		poisonPill       func() bool
 		poisonPillCancel context.CancelFunc
+
+		cleanUpTasks []func() error
 	}
 
 	Option func(*Producer)
@@ -79,6 +81,7 @@ func New(opts ...Option) *Producer {
 			println("You did not specify any sources")
 			os.Exit(1) // TODO(mikenye): something more graceful?
 		},
+		cleanUpTasks: make([]func() error, 0),
 	}
 	p.log = log.With().Logger()
 
@@ -133,6 +136,12 @@ func producerType(in int) string {
 }
 
 // Producer.New(WithFetcher(host, port), WithType(Producer.Avr), WithRefLatLon(lat, lon))
+
+func WithCleanUpTasks(tasks ...func() error) Option {
+	return func(p *Producer) {
+		p.cleanUpTasks = append(p.cleanUpTasks, tasks...)
+	}
+}
 
 func WithListener(host, port string) Option {
 	return func(p *Producer) {
@@ -362,6 +371,13 @@ func (p *Producer) Cleanup() {
 	// if using poison pill, then make sure the RunOnTicker instance is cancelled
 	if p.poisonPillCancel != nil {
 		p.poisonPillCancel()
+	}
+
+	for _, cleanUpFunc := range p.cleanUpTasks {
+		err := cleanUpFunc()
+		if err != nil {
+			p.log.Error().Err(err).Msg("error cleaning up producer")
+		}
 	}
 
 	defer func() {
