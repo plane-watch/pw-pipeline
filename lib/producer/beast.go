@@ -19,9 +19,6 @@ func (p *Producer) beastScanner(scan *bufio.Scanner) error {
 	for scan.Scan() {
 		msg := bytes.Clone(scan.Bytes())
 
-		// TODO(mikenye): Temp debugging code, remove eventually
-		p.log.Debug().Bytes("msg", msg).Msg("received message")
-
 		frame, err := beast.NewFrame(msg, false)
 		if nil != err {
 			continue

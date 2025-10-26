@@ -149,7 +149,7 @@ func (l *Listener) Listen(ctx context.Context) error {
 			l.log = l.log.With().Str("RemoteAddr ", conn.RemoteAddr().String()).Logger()
 
 			// TODO(mikenye): implement security features here:
-			//		- limit number of connections from source IP
+			//		- limit number of connections to one per api key
 			//		- limit connection rate, eg: 1x connection per IP every 10 seconds
 
 			l.log.Debug().Msg("before handshake")
@@ -176,8 +176,8 @@ func (l *Listener) Listen(ctx context.Context) error {
 				apiKey := conn.(*tls.Conn).ConnectionState().ServerName
 				l.log.Debug().Str("APIKey", apiKey).Msg("client api key")
 
-				// there is some potential issues here with blocking calls that should be sorted out
-				// context with a timeout?
+				// TODO: there is some potential issues here with blocking calls that should be sorted out
+				//  context with a timeout?
 
 				valid, errAuth := l.authHandler(apiKey)
 				if errAuth != nil {
