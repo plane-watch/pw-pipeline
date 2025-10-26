@@ -146,11 +146,15 @@ func (l *Listener) Listen(ctx context.Context) error {
 				return
 			}
 
-			l.log = l.log.With().Str("RemoteAddr ", conn.RemoteAddr().String()).Logger()
+			// set a 10-second deadline for tls handshake
+			err = conn.SetDeadline(time.Now().Add(10 * time.Second))
+			if err != nil {
+				l.log.Error().Msg("failed to set deadline on connection")
+				_ = conn.Close()
+				continue
+			}
 
-			// TODO(mikenye): implement security features here:
-			//		- limit number of connections to one per api key
-			//		- limit connection rate, eg: 1x connection per IP every 10 seconds
+			l.log = l.log.With().Str("RemoteAddr ", conn.RemoteAddr().String()).Logger()
 
 			l.log.Debug().Msg("before handshake")
 			if err = conn.(*tls.Conn).Handshake(); err != nil {
@@ -201,12 +205,11 @@ func (l *Listener) Listen(ctx context.Context) error {
 				if errConn != nil {
 					l.log.Error().
 						Err(errConn).
-						Msg("connection failure")
+						Msg("connection failure, closing")
+					_ = conn.Close()
 				}
 
 				// todo(mikenye): commented below as we shouldn't be closing the connection here
-				//l.log.Debug().Msg("closing connection")
-				//_ = conn.Close()
 			}(conn)
 		}
 	}()

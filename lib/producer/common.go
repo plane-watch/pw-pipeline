@@ -204,6 +204,9 @@ func WithConnection(conn net.Conn) Option {
 					p.log.Debug().Msg("closing connection")
 					_ = conn.Close()
 				}()
+
+				// TODO: im not sure if we can use bufio.Scanner here, as we need the ability to set a read deadline
+				//       on the connection.
 				scan := bufio.NewScanner(conn)
 				p.log.Debug().Msg("start reading from scanner")
 				errRead := p.readFromScanner(scan)

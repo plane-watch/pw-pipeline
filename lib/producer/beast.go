@@ -16,7 +16,7 @@ func (p *Producer) beastScanner(scan *bufio.Scanner) error {
 	// make our best lib allocate out of a sync.Pool
 	beast.UsePoolAllocator = true
 	p.log.Debug().Msg("entering scan.Scan() loop")
-	for scan.Scan() {
+	for scan.Scan() && scan.Err() == nil {
 		msg := bytes.Clone(scan.Bytes())
 
 		frame, err := beast.NewFrame(msg, false)
