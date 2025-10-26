@@ -35,6 +35,17 @@ type (
 
 		natsServer *nats_io.Server
 		natsURL    string
+
+		// feedersConnected map has a key for each connected feeder. The key is the feeder's api key.
+		// This is used to limit the number of connections per feeder to one.
+		feedersConnected   map[string]struct{}
+		muFeedersConnected sync.RWMutex
+
+		// feederConnectionTime map has a key for each connected feeder.
+		// The key is the feeder's api key. The value is the last connection time.
+		// This is used to limit the rate of connections per feeder to one per 30 sec.
+		feederConnectionTime   map[string]time.Time
+		muFeederConnectionTime sync.RWMutex
 	}
 
 	Option func(manifest *Manifest)
@@ -75,8 +86,10 @@ func ListenForIncomingPlaneWatchBeast(ctx context.Context, opts ...Option) (*Man
 
 	// create our Manifest and apply our options to it
 	manifest := &Manifest{
-		log:     log.With().Str("Section", "IncomingBeast").Logger(),
-		feeders: make(map[string]export.Feeder),
+		log:                  log.With().Str("Section", "IncomingBeast").Logger(),
+		feeders:              make(map[string]export.Feeder),
+		feedersConnected:     make(map[string]struct{}),
+		feederConnectionTime: make(map[string]time.Time),
 	}
 
 	for _, opt := range opts {
@@ -145,10 +158,33 @@ func (m *Manifest) authenticator(apiKey string) (bool, error) {
 }
 
 func (m *Manifest) handler(conn net.Conn, apiKey string) error {
+
+	// todo(mikenye): when returning an error here, it does not cause the connection to close
+
+	// check if feeder already connected
+	m.muFeedersConnected.RLock()
+	_, ok := m.feedersConnected[apiKey]
+	m.muFeedersConnected.RUnlock()
+	if ok {
+		return fmt.Errorf("feeder already connected: %s", apiKey)
+	}
+	m.feedersConnected[apiKey] = struct{}{}
+
+	// check for too frequent connections (one connection per 30 seconds)
+	m.muFeederConnectionTime.RLock()
+	lastConnTime, ok := m.feederConnectionTime[apiKey]
+	m.muFeederConnectionTime.RUnlock()
+	if ok && lastConnTime.Before(time.Now().Add(-30*time.Second)) {
+		return fmt.Errorf("feeder connecting too frequently: %s", apiKey)
+	}
+	m.muFeederConnectionTime.Lock()
+	m.feederConnectionTime[apiKey] = time.Now()
+	m.muFeederConnectionTime.Unlock()
+
+	// get feeder info from api key
 	m.muFeeders.RLock()
 	feeder, ok := m.feeders[apiKey]
 	m.muFeeders.RUnlock()
-
 	if !ok {
 		return fmt.Errorf("failed to get feeder info for authorised feeder key")
 	}
@@ -191,6 +227,15 @@ func (m *Manifest) handler(conn net.Conn, apiKey string) error {
 				return ok
 			},
 			time.Second*5,
+		),
+		producer.WithCleanUpTasks(
+			// remove feeder's api key from map of connected feeders
+			func() error {
+				m.muFeedersConnected.Lock()
+				defer m.muFeedersConnected.Unlock()
+				delete(m.feedersConnected, apiKey)
+				return nil
+			},
 		),
 	)
 
