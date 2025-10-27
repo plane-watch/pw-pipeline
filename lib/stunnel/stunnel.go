@@ -133,15 +133,15 @@ func (l *Listener) Listen(ctx context.Context) error {
 				if conn == nil {
 					l.log.Error().
 						Err(errAccept).
-						Msg("connection accept failure")
+						Msg("connection accept failure (nil connection)")
 				} else {
 					l.log.Error().
 						Str("RemoteAddr", conn.RemoteAddr().String()).
 						Err(errAccept).
 						Msg("connection accept failure")
 				}
-
 				// TODO: are there any errors we can tolerate when accepting a conn?
+				// todo(mikenye): i dont think we want to return here, we want to keep listening...?
 				chDone <- struct{}{}
 				return
 			}
@@ -153,8 +153,6 @@ func (l *Listener) Listen(ctx context.Context) error {
 				_ = conn.Close()
 				continue
 			}
-
-			l.log = l.log.With().Str("RemoteAddr ", conn.RemoteAddr().String()).Logger()
 
 			l.log.Debug().Msg("before handshake")
 			if err = conn.(*tls.Conn).Handshake(); err != nil {
@@ -191,8 +189,6 @@ func (l *Listener) Listen(ctx context.Context) error {
 						Msg("authentication failure")
 					return
 				}
-
-				l.log = l.log.With().Str("APIKey", apiKey).Logger()
 
 				if !valid {
 					l.log.Debug().Msg("API Key is not valid, closing")
