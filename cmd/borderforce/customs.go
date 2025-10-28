@@ -5,17 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"sync"
 	"time"
 
-	jsoniter "github.com/json-iterator/go"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"plane.watch/lib/export"
+	"plane.watch/lib/feedercache"
 	"plane.watch/lib/nats_io"
 	"plane.watch/lib/producer"
 	"plane.watch/lib/stunnel"
-	"plane.watch/lib/timing"
 	"plane.watch/lib/tracker"
 )
 
@@ -30,22 +27,10 @@ type (
 
 		listener *stunnel.Listener
 
-		feeders   map[string]export.Feeder
-		muFeeders sync.RWMutex
-
 		natsServer *nats_io.Server
 		natsURL    string
 
-		// feedersConnected map has a key for each connected feeder. The key is the feeder's api key.
-		// This is used to limit the number of connections per feeder to one.
-		feedersConnected   map[string]struct{}
-		muFeedersConnected sync.RWMutex
-
-		// feederConnectionTime map has a key for each connected feeder.
-		// The key is the feeder's api key. The value is the last connection time.
-		// This is used to limit the rate of connections per feeder to one per 30 sec.
-		feederConnectionTime   map[string]time.Time
-		muFeederConnectionTime sync.RWMutex
+		feeders *feedercache.FeederCache
 	}
 
 	Option func(manifest *Manifest)
@@ -54,6 +39,12 @@ type (
 var (
 	MissingOption = errors.New("option is required")
 )
+
+func WithFeederCache(feeders *feedercache.FeederCache) Option {
+	return func(manifest *Manifest) {
+		manifest.feeders = feeders
+	}
+}
 
 func WithListenHostPort(listen string) Option {
 	return func(manifest *Manifest) {
@@ -86,12 +77,8 @@ func ListenForIncomingPlaneWatchBeast(ctx context.Context, opts ...Option) (*Man
 
 	// create our Manifest and apply our options to it
 	manifest := &Manifest{
-		log:                  log.With().Str("Section", "IncomingBeast").Logger(),
-		feeders:              make(map[string]export.Feeder),
-		feedersConnected:     make(map[string]struct{}),
-		feederConnectionTime: make(map[string]time.Time),
+		log: log.With().Str("Section", "IncomingBeast").Logger(),
 	}
-
 	for _, opt := range opts {
 		opt(manifest)
 	}
@@ -104,8 +91,11 @@ func ListenForIncomingPlaneWatchBeast(ctx context.Context, opts ...Option) (*Man
 	if manifest.natsURL == "" {
 		return nil, fmt.Errorf("%w: Please specify the Nats URL (sink)", MissingOption)
 	}
+	if manifest.feeders == nil {
+		return nil, fmt.Errorf("%w: You need to configure the *feederauth.FeederCache", MissingOption)
+	}
 
-	// setup our nats connection, get our initial feeder list and start the refresher
+	// setup our nats connection
 	manifest.natsServer, err = nats_io.NewServer(
 		nats_io.WithConnections(false, true),
 		nats_io.WithServer(manifest.natsURL, "borderforce-atc-client"),
@@ -113,19 +103,6 @@ func ListenForIncomingPlaneWatchBeast(ctx context.Context, opts ...Option) (*Man
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup nats connection: %w", err)
 	}
-
-	// and fetch our initial feeder list - this fails if nats is not up and running
-	if err = manifest.fetchFeeders(); err != nil {
-		return nil, fmt.Errorf("failed to fetch feeders: %w", err)
-	}
-
-	// and now refresh our api keyed feeder list every 5 minutes
-	cancelTicker := timing.RunOnTicker(
-		manifest.log.With().Str("what", "fetching feeders").Logger(),
-		5*time.Minute,
-		manifest.fetchFeeders,
-	)
-	defer cancelTicker()
 
 	// now let's start listening for connections!
 
@@ -139,7 +116,6 @@ func ListenForIncomingPlaneWatchBeast(ctx context.Context, opts ...Option) (*Man
 		return nil, fmt.Errorf("failed to setup stunnel listener: %w", err)
 	}
 
-	// TODO(mikenye): Should this be wrapped in a for loop so it runs forever?
 	err = manifest.listener.Listen(ctx)
 	if err != nil {
 		manifest.log.Error().Err(err).Msg("failed to listen for plane.watch beast")
@@ -149,45 +125,16 @@ func ListenForIncomingPlaneWatchBeast(ctx context.Context, opts ...Option) (*Man
 }
 
 func (m *Manifest) authenticator(apiKey string) (bool, error) {
-	m.muFeeders.RLock()
-	defer m.muFeeders.RUnlock()
-	if _, ok := m.feeders[apiKey]; ok {
-		return true, nil
-	}
-	return false, nil
+	return m.feeders.Authenticate(apiKey, feedercache.BEAST)
 }
 
 func (m *Manifest) handler(conn net.Conn, apiKey string) error {
 
-	// todo(mikenye): when returning an error here, it does not cause the connection to close
-
-	// check if feeder already connected
-	m.muFeedersConnected.RLock()
-	_, ok := m.feedersConnected[apiKey]
-	m.muFeedersConnected.RUnlock()
-	if ok {
-		return fmt.Errorf("feeder already connected: %s", apiKey)
+	feeder, err := m.feeders.Get(apiKey)
+	if err != nil {
+		return fmt.Errorf("failed to get feeder for %s: %w", apiKey, err)
 	}
-	m.feedersConnected[apiKey] = struct{}{}
-
-	// check for too frequent connections (one connection per 30 seconds)
-	m.muFeederConnectionTime.RLock()
-	lastConnTime, ok := m.feederConnectionTime[apiKey]
-	m.muFeederConnectionTime.RUnlock()
-	if ok && lastConnTime.Before(time.Now().Add(-30*time.Second)) {
-		return fmt.Errorf("feeder connecting too frequently: %s", apiKey)
-	}
-	m.muFeederConnectionTime.Lock()
-	m.feederConnectionTime[apiKey] = time.Now()
-	m.muFeederConnectionTime.Unlock()
-
-	// get feeder info from api key
-	m.muFeeders.RLock()
-	feeder, ok := m.feeders[apiKey]
-	m.muFeeders.RUnlock()
-	if !ok {
-		return fmt.Errorf("failed to get feeder info for authorised feeder key")
-	}
+	m.feeders.SetConnected(apiKey, feedercache.BEAST)
 
 	// TODO(mikenye): This causes a panic if the client reconnects.
 	//                `panic: duplicate metrics collector registration attempted`
@@ -216,62 +163,23 @@ func (m *Manifest) handler(conn net.Conn, apiKey string) error {
 		//producer.WithPrometheusCounters(nil, prometheusInputBeastFrames, nil),
 		producer.WithPoisonPill(
 			func() bool {
-				m.muFeeders.RLock()
-				defer m.muFeeders.RUnlock()
-				_, ok := m.feeders[apiKey]
-				if !ok {
-					log.Warn().
-						Str("apiKey", apiKey).
-						Msg("feeder api key no longer valid, poisoning")
+				if !m.feeders.IsValid(apiKey) {
+					log.Warn().Msg("feeder api key no longer valid")
+					return true // take poison pill
 				}
-				return ok
+				return false
 			},
 			time.Second*5,
 		),
 		producer.WithCleanUpTasks(
-			// remove feeder's api key from map of connected feeders
 			func() error {
-				m.muFeedersConnected.Lock()
-				defer m.muFeedersConnected.Unlock()
-				delete(m.feedersConnected, apiKey)
+				m.feeders.SetDisconnected(apiKey, feedercache.BEAST)
 				return nil
 			},
 		),
 	)
 
 	m.trk.AddProducer(p)
-
-	return nil
-}
-
-func (m *Manifest) fetchFeeders() error {
-	emptyMap := map[string]string{}
-	ret, err := m.natsServer.Request(export.NatsApiFeederListV1, nil, emptyMap, time.Second)
-	if err != nil {
-		return fmt.Errorf("failed to fetch feeder list data from atc api: %w", err)
-	}
-	json := jsoniter.ConfigFastest
-
-	// TODO(mikenye): It would be good for the NATS query to return the number of feeders,
-	//                so we can allocate once, rather than over allocate or under allocate and grow (more alloc).
-	feeders := make(export.Feeders, 0, 1000)
-
-	err = json.Unmarshal(ret, &feeders)
-	if err != nil {
-		return fmt.Errorf("failed to decode feeder list: %w", err)
-	}
-
-	m.log.Info().
-		Int("prev-feeder-count", len(m.feeders)).
-		Int("new-feeder-count", len(feeders)).
-		Msg("Updating Feeders")
-
-	m.muFeeders.Lock()
-	defer m.muFeeders.Unlock()
-	clear(m.feeders) // keeps capacity, prevent unnecessary alloc
-	for _, feeder := range feeders {
-		m.feeders[feeder.ApiKey.String()] = feeder
-	}
 
 	return nil
 }

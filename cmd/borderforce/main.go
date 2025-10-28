@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -11,6 +12,7 @@ import (
 	"github.com/urfave/cli/v2"
 	"golang.org/x/sync/errgroup"
 	"plane.watch/lib/dedupe"
+	"plane.watch/lib/feedercache"
 	"plane.watch/lib/logging"
 	"plane.watch/lib/middleware"
 	"plane.watch/lib/monitoring"
@@ -142,28 +144,48 @@ func runDaemon(c *cli.Context) error {
 		}
 	}
 
+	// start feeder cache system
+	feeders, err := feedercache.New(
+		feedercache.WithLogger(log.Logger),
+		feedercache.WithNatsURL(c.String("sink")),
+	)
+	defer func() {
+		err := feeders.Close()
+		if err != nil {
+			log.Error().Err(err).Msg("error closing feeders")
+		}
+	}()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	wg := errgroup.Group{}
+
+	// BEAST Listener
 	wg.Go(func() error {
 		defer cancel()
-		m, err := ListenForIncomingPlaneWatchBeast(
-			ctx,
-			WithListenHostPort(c.String("listen-beast")),
-			WithTLSCertificate(c.String("cert"), c.String("key")),
-			WithTracker(trk),
-			WithNatsURL(c.String("sink")),
-		)
-		if err != nil {
-			return fmt.Errorf("failed to listen for beast: %w", err)
+		for { // loop forever
+			//todo(mikenye): implement a way to exit loop when app is quit (eg: SIGTERM/SIGINT) or similar.
+			//  consider adding a "WithCancel" or "WithContext" for this
+			_, err := ListenForIncomingPlaneWatchBeast(
+				ctx,
+				WithListenHostPort(c.String("listen-beast")),
+				WithTLSCertificate(c.String("cert"), c.String("key")),
+				WithTracker(trk),
+				WithNatsURL(c.String("sink")),
+				WithFeederCache(feeders),
+			)
+			if err != nil {
+				return fmt.Errorf("failed to listen for beast: %w", err)
+			}
+			feeders.Reset()
+			time.Sleep(time.Second * 10) // back-off between loops
 		}
-		defer func() {
-			clear(m.feeders)
-		}()
 		return nil
 	})
+
 	//ListenForIncomingPlaneWatchMLAT(c.String("listen-mlat"), trk)
+
 	err = wg.Wait()
 
 	go trk.StopOnCancel()
