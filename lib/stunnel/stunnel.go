@@ -146,40 +146,52 @@ func (l *Listener) Listen(ctx context.Context) error {
 				return
 			}
 
-			// set a 10-second deadline for tls handshake
-			err = conn.SetDeadline(time.Now().Add(10 * time.Second))
-			if err != nil {
-				l.log.Error().Msg("failed to set deadline on connection")
-				_ = conn.Close()
-				continue
-			}
-
-			l.log.Debug().Msg("before handshake")
-			if err = conn.(*tls.Conn).Handshake(); err != nil {
-				l.log.Error().
-					Err(err).
-					Msg("Failed to complete TLS handshake with client")
-				_ = conn.Close()
-				continue
-			}
-
-			l.log.Debug().Msg("testing handshake complete")
-			if conn.(*tls.Conn).ConnectionState().HandshakeComplete == false {
-				l.log.Error().
-					Err(err).
-					Msg("Handshake is not complete, bailing")
-				_ = conn.Close()
-				continue
-			}
-
-			l.log.Debug().Msg("tls connection established")
-
 			go func(conn net.Conn) {
-				apiKey := conn.(*tls.Conn).ConnectionState().ServerName
-				l.log.Debug().Str("APIKey", apiKey).Msg("client api key")
 
 				// TODO: there is some potential issues here with blocking calls that should be sorted out
 				//  context with a timeout?
+				//  -
+				//  mikenye: I've moved the authentication into the goroutine, so we're not blocking accepting
+				//           other connections. I've also implemented a deadline, so if the feeder has not authenticated
+				//           within 10 seconds, it will close the connection.
+
+				// set a 10-second deadline for tls handshake
+				err = conn.SetDeadline(time.Now().Add(10 * time.Second))
+				if err != nil {
+					l.log.Error().Msg("failed to set deadline on connection")
+					_ = conn.Close()
+					return
+				}
+
+				l.log.Debug().Msg("before handshake")
+				if err = conn.(*tls.Conn).Handshake(); err != nil {
+					l.log.Error().
+						Err(err).
+						Msg("Failed to complete TLS handshake with client")
+					_ = conn.Close()
+					return
+				}
+
+				l.log.Debug().Msg("testing handshake complete")
+				if conn.(*tls.Conn).ConnectionState().HandshakeComplete == false {
+					l.log.Error().
+						Msg("Handshake is not complete, bailing")
+					_ = conn.Close()
+					return
+				}
+
+				l.log.Debug().Msg("tls connection established")
+
+				// remove connection deadline
+				err = conn.SetDeadline(time.Time{})
+				if err != nil {
+					l.log.Error().Msg("failed to remove deadline on connection")
+					_ = conn.Close()
+					return
+				}
+
+				apiKey := conn.(*tls.Conn).ConnectionState().ServerName
+				l.log.Debug().Str("APIKey", apiKey).Msg("client api key")
 
 				valid, errAuth := l.authHandler(apiKey)
 				if errAuth != nil {
@@ -205,8 +217,6 @@ func (l *Listener) Listen(ctx context.Context) error {
 						Msg("connection failure, closing")
 					_ = conn.Close()
 				}
-
-				// todo(mikenye): commented below as we shouldn't be closing the connection here
 			}(conn)
 		}
 	}()
