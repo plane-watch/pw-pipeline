@@ -101,7 +101,7 @@ func (t *Tracker) Finish() {
 
 // AddProducer wires up a Producer to start feeding data into the tracker
 func (t *Tracker) AddProducer(p Producer) {
-	if nil == p {
+	if p == nil {
 		return
 	}
 	monitoring.AddHealthCheck(p)
@@ -111,11 +111,11 @@ func (t *Tracker) AddProducer(p Producer) {
 
 	t.log.Debug().Str("producer", p.String()).Msg("Adding producer")
 	t.producers = append(t.producers, p)
-	t.producerWaiter.Add(1)
 
 	doneChan := make(chan bool)
 	inFlight := t.decodeWorkerCount
-	go func() {
+
+	t.producerWaiter.Go(func() {
 		for range doneChan {
 			inFlight--
 			if inFlight == 0 {
@@ -123,9 +123,8 @@ func (t *Tracker) AddProducer(p Producer) {
 			}
 		}
 		close(doneChan)
-		t.producerWaiter.Done()
 		t.removeProducer(p)
-	}()
+	})
 	for i := 0; i < t.decodeWorkerCount; i++ {
 		go t.decodeQueue(p.Listen(), doneChan)
 	}
@@ -136,7 +135,7 @@ func (t *Tracker) AddProducer(p Producer) {
 }
 
 func (t *Tracker) removeProducer(toRemove Producer) {
-	if nil == toRemove {
+	if toRemove == nil {
 		return
 	}
 	t.muProducers.Lock()
@@ -151,7 +150,7 @@ func (t *Tracker) removeProducer(toRemove Producer) {
 
 // AddMiddleware wires up a Middleware which each message will go through before being added to the tracker
 func (t *Tracker) AddMiddleware(m Middleware) {
-	if nil == m {
+	if m == nil {
 		return
 	}
 	monitoring.AddHealthCheck(m)
@@ -163,7 +162,7 @@ func (t *Tracker) AddMiddleware(m Middleware) {
 
 // SetSink wires up a Sink in the tracker. Whenever an event happens it gets sent to each Sink
 func (t *Tracker) SetSink(s Sink) {
-	if nil == s {
+	if s == nil {
 		return
 	}
 	t.log.Debug().Str("name", s.HealthCheckName()).Msg("Set Sink")
@@ -258,7 +257,7 @@ func (t *Tracker) decodeQueue(decodingQueue chan FrameEvent, done chan bool) {
 				break
 			}
 		}
-		if nil == frame || frame.Icao() == 0 {
+		if frame == nil || frame.Icao() == 0 {
 			// invalid frame || unable to determine planes ICAO
 			continue
 		}

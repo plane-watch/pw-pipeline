@@ -114,7 +114,7 @@ func main() {
 		return nil
 	}
 
-	if err := app.Run(os.Args); nil != err {
+	if err := app.Run(os.Args); err != nil {
 		log.Error().Err(err).Msg("Finishing with an error")
 		os.Exit(1)
 	}

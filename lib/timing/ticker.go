@@ -9,6 +9,10 @@ import (
 
 // RunOnTicker runs function f ever t duration, until the returned function is called.
 func RunOnTicker(logger zerolog.Logger, t time.Duration, f func() error) context.CancelFunc {
+	logger = logger.With().
+		Str("component", "timing.RunOnTicker").
+		Str("interval", t.String()).
+		Logger()
 	ctx, cancel := context.WithCancel(context.Background())
 	ticker := time.NewTicker(t)
 	go func() {
@@ -16,7 +20,7 @@ func RunOnTicker(logger zerolog.Logger, t time.Duration, f func() error) context
 			select {
 			case <-ticker.C:
 				if err := f(); err != nil {
-					logger.Error().Err(err).Msg("Failed to perform on ticker")
+					logger.Error().Err(err).Msg("function returned error")
 				}
 			case <-ctx.Done():
 				ticker.Stop()

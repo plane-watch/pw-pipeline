@@ -18,13 +18,18 @@ import (
 
 type (
 	Manifest struct {
+
+		// hostPort contains the IP and port to listen on, in the same format as the address argument to net.Listen
 		hostPort string
 
-		certPath, keyPath string
+		// certPath contains the file to use for the server certificate
+		certPath string
 
-		trk *tracker.Tracker
-		log zerolog.Logger
+		// keyPath contains the file to use for the server certificate's private key
+		keyPath string
 
+		trk      *tracker.Tracker
+		log      zerolog.Logger
 		listener *stunnel.Listener
 
 		natsServer *nats_io.Server
@@ -87,7 +92,6 @@ func ListenForIncomingPlaneWatchBeast(ctx context.Context, opts ...Option) (*Man
 	if manifest.trk == nil {
 		return nil, fmt.Errorf("%w: You need to configure the *tracker.Tracker", MissingOption)
 	}
-
 	if manifest.natsURL == "" {
 		return nil, fmt.Errorf("%w: Please specify the Nats URL (sink)", MissingOption)
 	}
