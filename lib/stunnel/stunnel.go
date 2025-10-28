@@ -186,12 +186,13 @@ func (l *Listener) Listen(ctx context.Context) error {
 					l.log.Error().
 						Str("APIKey", apiKey).
 						Err(errAuth).
-						Msg("authentication failure")
+						Msg("authentication failure, closing connection")
+					_ = conn.Close()
 					return
 				}
 
 				if !valid {
-					l.log.Debug().Msg("API Key is not valid, closing")
+					l.log.Debug().Msg("API Key is not valid, closing connection")
 					_ = conn.Close()
 					return
 				}
