@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
@@ -159,16 +161,56 @@ func (mb *MLATBridge) handler(feederConn net.Conn, apiKey string) error {
 		_ = mlatConn.Close()
 	}()
 
+	// register prom metrics
+	prometheusMLATBytesRx := prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: "border-force",
+		Subsystem: "mlat",
+		Name:      "input-bytes-total",
+		Help:      "The total number of MLAT bytes received from the feeder.",
+		ConstLabels: map[string]string{
+			"feeder_id":      strconv.FormatInt(int64(feeder.Id), 10),
+			"feeder_api_key": apiKey,
+			"feeder_label":   feeder.Label,
+			"feeder_user":    feeder.User,
+		},
+	})
+	err = prometheus.Register(prometheusMLATBytesRx)
+	if err != nil {
+		return fmt.Errorf("failed to register prometheus counter: %w", err)
+	}
+	defer func() {
+		_ = prometheus.Unregister(prometheusMLATBytesRx)
+	}()
+	prometheusMLATBytesTx := prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: "border-force",
+		Subsystem: "mlat",
+		Name:      "output-bytes-total",
+		Help:      "The total number of MLAT bytes sent to the feeder.",
+		ConstLabels: map[string]string{
+			"feeder_id":      strconv.FormatInt(int64(feeder.Id), 10),
+			"feeder_api_key": apiKey,
+			"feeder_label":   feeder.Label,
+			"feeder_user":    feeder.User,
+		},
+	})
+	err = prometheus.Register(prometheusMLATBytesTx)
+	if err != nil {
+		return fmt.Errorf("failed to register prometheus counter: %w", err)
+	}
+	defer func() {
+		_ = prometheus.Unregister(prometheusMLATBytesTx)
+	}()
+
 	// create a context for this connection
 	connCtx, connCtxCancel := context.WithCancel(context.Background())
 
 	// spin up goroutines to handle bridging
 	eg := errgroup.Group{}
 	eg.Go(func() error {
-		return mb.simplexBridge(connCtx, connCtxCancel, feederConn, mlatConn)
+		return mb.simplexBridge(connCtx, connCtxCancel, feederConn, mlatConn, prometheusMLATBytesRx)
 	})
 	eg.Go(func() error {
-		return mb.simplexBridge(connCtx, connCtxCancel, mlatConn, feederConn)
+		return mb.simplexBridge(connCtx, connCtxCancel, mlatConn, feederConn, prometheusMLATBytesTx)
 	})
 
 	// spin up goroutine for poison pill if feeder no longer valid
@@ -194,7 +236,7 @@ func (mb *MLATBridge) handler(feederConn net.Conn, apiKey string) error {
 // simplexBridge reads from connection "from" and writes to connection "to".
 // It continues doing this until the context is cancelled, or if there is a read/write error.
 // Connections will be closed and context will be cancelled when this method exits.
-func (mb *MLATBridge) simplexBridge(ctx context.Context, cancel context.CancelFunc, from, to net.Conn) error {
+func (mb *MLATBridge) simplexBridge(ctx context.Context, cancel context.CancelFunc, from, to net.Conn, counter prometheus.Counter) error {
 
 	var (
 		err error
@@ -242,6 +284,7 @@ func (mb *MLATBridge) simplexBridge(ctx context.Context, cancel context.CancelFu
 			cancel()
 			return fmt.Errorf("read error: %w", err)
 		}
+		counter.Add(float64(n))
 		_, err = to.Write(buf[:n])
 		if err != nil && !errors.Is(err, os.ErrDeadlineExceeded) {
 			cancel()

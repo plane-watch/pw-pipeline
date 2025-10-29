@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"plane.watch/lib/feedercache"
@@ -140,19 +142,23 @@ func (m *Manifest) handler(conn net.Conn, apiKey string) error {
 	}
 	m.feeders.SetConnected(apiKey, feedercache.BEAST)
 
-	// TODO(mikenye): This causes a panic if the client reconnects.
-	//                `panic: duplicate metrics collector registration attempted`
-	//                Replacing "promauto.NewCounter" with "prometheus.NewCounter" stops panic,
-	//                but I'm unsure if this is the correct fix.
-	//prometheusInputBeastFrames := promauto.NewCounter(prometheus.CounterOpts{
-	//	Namespace: "border-force",
-	//	Subsystem: "beast",
-	//	Name:      "input-total",
-	//	Help:      "The total number of beast frames processed.",
-	//	ConstLabels: map[string]string{
-	//		"feeder_id": strconv.FormatInt(int64(feeder.Id), 10),
-	//	},
-	//})
+	// register prom metrics
+	prometheusInputBeastFrames := prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: "border-force",
+		Subsystem: "beast",
+		Name:      "input-total",
+		Help:      "The total number of beast frames processed.",
+		ConstLabels: map[string]string{
+			"feeder_id":      strconv.FormatInt(int64(feeder.Id), 10),
+			"feeder_api_key": apiKey,
+			"feeder_label":   feeder.Label,
+			"feeder_user":    feeder.User,
+		},
+	})
+	err = prometheus.Register(prometheusInputBeastFrames)
+	if err != nil {
+		return fmt.Errorf("failed to register prometheus counter: %w", err)
+	}
 
 	// TODO: handle stats updates to ATC
 	// TODO: jam stats into clicks for received packets per second (needs to be done before dedupe)
@@ -163,8 +169,7 @@ func (m *Manifest) handler(conn net.Conn, apiKey string) error {
 		producer.WithOriginName(feeder.ApiKey.String()),
 		producer.WithReferenceLatLon(feeder.Latitude, feeder.Longitude),
 		producer.WithSourceTag(feeder.FeederCode),
-		// TODO(mikenye): re-enable when panic fixed
-		//producer.WithPrometheusCounters(nil, prometheusInputBeastFrames, nil),
+		producer.WithPrometheusCounters(nil, prometheusInputBeastFrames, nil),
 		producer.WithPoisonPill(
 			func() bool {
 				if !m.feeders.IsValid(apiKey) {
@@ -176,8 +181,14 @@ func (m *Manifest) handler(conn net.Conn, apiKey string) error {
 			time.Second*5,
 		),
 		producer.WithCleanUpTasks(
+			// set feeder disconnected
 			func() error {
 				m.feeders.SetDisconnected(apiKey, feedercache.BEAST)
+				return nil
+			},
+			// unregister prom metrics
+			func() error {
+				_ = prometheus.Unregister(prometheusInputBeastFrames)
 				return nil
 			},
 		),
