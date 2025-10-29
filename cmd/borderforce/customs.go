@@ -102,7 +102,7 @@ func ListenForIncomingPlaneWatchBeast(ctx context.Context, opts ...Option) (*Man
 	// setup our nats connection
 	manifest.natsServer, err = nats_io.NewServer(
 		nats_io.WithConnections(false, true),
-		nats_io.WithServer(manifest.natsURL, "borderforce-atc-client"),
+		nats_io.WithServer(manifest.natsURL, "borderforce-atc-client-BEAST"),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup nats connection: %w", err)
