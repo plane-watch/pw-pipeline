@@ -159,13 +159,13 @@ func (mb *MLATBridge) handler(feederConn net.Conn, apiKey string) error {
 	// spin up goroutines to handle bridging
 	eg := errgroup.Group{}
 	eg.Go(func() error {
-		return mb.bridge(connCtx, connCtxCancel, feederConn, mlatConn)
+		return mb.simplexBridge(connCtx, connCtxCancel, feederConn, mlatConn)
 	})
 	eg.Go(func() error {
-		return mb.bridge(connCtx, connCtxCancel, mlatConn, feederConn)
+		return mb.simplexBridge(connCtx, connCtxCancel, mlatConn, feederConn)
 	})
 
-	// spin up goroutine for poison pill
+	// spin up goroutine for poison pill if feeder no longer valid
 	eg.Go(func() error {
 		timing.RunOnTickerWithContext(connCtx, mb.log, time.Second*5, func() error {
 			if !mb.feeders.IsValid(apiKey) {
@@ -185,7 +185,10 @@ func (mb *MLATBridge) handler(feederConn net.Conn, apiKey string) error {
 	return nil
 }
 
-func (mb *MLATBridge) bridge(ctx context.Context, cancel context.CancelFunc, from, to net.Conn) error {
+// simplexBridge reads from connection "from" and writes to connection "to".
+// It continues doing this until the context is cancelled, or if there is a read/write error.
+// Connections will be closed and context will be cancelled when this method exits.
+func (mb *MLATBridge) simplexBridge(ctx context.Context, cancel context.CancelFunc, from, to net.Conn) error {
 
 	defer func() {
 		_ = from.Close()
