@@ -1,7 +1,6 @@
 package feedercache
 
 import (
-	"os"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -11,16 +10,15 @@ import (
 	"plane.watch/lib/export"
 )
 
-var (
-	testFeederProxy *FeederCache
-	testFeederUUID  = uuid.New()
-)
+func makeTestData() (*FeederCache, uuid.UUID) {
 
-func TestMain(m *testing.M) {
+	testFeederUUID := uuid.New()
 
 	// populate testFeederProxy with some test data
-	testFeederProxy = &FeederCache{}
-	testFeederProxy.Reset()
+	testFeederProxy := &FeederCache{}
+	testFeederProxy.feeders = make(map[string]export.Feeder)
+	testFeederProxy.feedersConnected = make(map[string]map[Protocol]struct{})
+	testFeederProxy.feederConnectionTime = make(map[string]map[Protocol]time.Time)
 	testFeederProxy.feeders[testFeederUUID.String()] = export.Feeder{
 		MlatEnabled:   true,
 		Id:            1,
@@ -35,15 +33,18 @@ func TestMain(m *testing.M) {
 		FeederCode:    "TEST-0001",
 		ApiKey:        testFeederUUID,
 	}
-	os.Exit(m.Run())
+
+	return testFeederProxy, testFeederUUID
 }
 
 func TestFeederProxy_IsValid(t *testing.T) {
+	testFeederProxy, testFeederUUID := makeTestData()
 	assert.True(t, testFeederProxy.IsValid(testFeederUUID.String()))
 	assert.False(t, testFeederProxy.IsValid(uuid.New().String()))
 }
 
 func TestFeederProxy_IsConnected(t *testing.T) {
+	testFeederProxy, testFeederUUID := makeTestData()
 	assert.False(t, testFeederProxy.IsConnected(testFeederUUID.String(), BEAST))
 	testFeederProxy.SetConnected(testFeederUUID.String(), BEAST)
 	assert.True(t, testFeederProxy.IsConnected(testFeederUUID.String(), BEAST))
@@ -52,6 +53,7 @@ func TestFeederProxy_IsConnected(t *testing.T) {
 }
 
 func TestFeederProxy_IsConnectingTooFrequently(t *testing.T) {
+	testFeederProxy, testFeederUUID := makeTestData()
 	synctest.Test(t, func(t *testing.T) {
 		// ensure previous tests cleaned up
 		testFeederProxy.SetDisconnected(testFeederUUID.String(), BEAST)
@@ -87,6 +89,7 @@ func TestFeederProxy_IsConnectingTooFrequently(t *testing.T) {
 }
 
 func TestFeederProxy_Authenticate(t *testing.T) {
+	testFeederProxy, testFeederUUID := makeTestData()
 	synctest.Test(t, func(t *testing.T) {
 		// ensure previous tests cleaned up
 		testFeederProxy.SetDisconnected(testFeederUUID.String(), BEAST)
