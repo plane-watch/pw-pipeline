@@ -82,7 +82,7 @@ func ListenForIncomingPlaneWatchBeast(ctx context.Context, opts ...Option) (*Man
 
 	// create our Manifest and apply our options to it
 	manifest := &Manifest{
-		log: log.With().Str("Section", "IncomingBeast").Logger(),
+		log: log.With().Str("listener", "beast").Logger(),
 	}
 	for _, opt := range opts {
 		opt(manifest)
@@ -168,7 +168,7 @@ func (m *Manifest) handler(conn net.Conn, apiKey string) error {
 		producer.WithPoisonPill(
 			func() bool {
 				if !m.feeders.IsValid(apiKey) {
-					log.Warn().Msg("feeder api key no longer valid")
+					m.log.Warn().Msg("feeder api key no longer valid")
 					return true // take poison pill
 				}
 				return false

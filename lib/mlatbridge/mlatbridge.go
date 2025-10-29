@@ -76,7 +76,7 @@ func ListenForIncomingPlaneWatchMLAT(ctx context.Context, opts ...Option) (*MLAT
 
 	// create our MLATBridge and apply our options to it
 	mb := &MLATBridge{
-		log: log.With().Str("Section", "MLATBridge").Logger(),
+		log: log.With().Str("listener", "mlat").Logger(),
 	}
 	for _, opt := range opts {
 		opt(mb)
