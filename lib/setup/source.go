@@ -25,18 +25,9 @@ const (
 )
 
 var (
-	prometheusInputBeastFrames = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "pw_ingest_input_beast_total",
-		Help: "The total number of beast frames processed.",
-	})
-	prometheusInputAvrFrames = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "pw_ingest_input_avr_total",
-		Help: "The total number of AVR frames processed.",
-	})
-	prometheusInputSbs1Frames = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "pw_ingest_input_sbs1_total",
-		Help: "The total number of SBS1 frames processed.",
-	})
+	prometheusInputBeastFrames prometheus.Counter
+	prometheusInputAvrFrames   prometheus.Counter
+	prometheusInputSbs1Frames  prometheus.Counter
 )
 
 func IncludeSourceFlags(app *cli.App) {
@@ -144,6 +135,19 @@ func handleSource(urlSource, defaultTag string, defaultRefLat, defaultRefLon flo
 	if nil != err {
 		return nil, err
 	}
+
+	prometheusInputBeastFrames = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "pw_ingest_input_beast_total",
+		Help: "The total number of beast frames processed.",
+	})
+	prometheusInputAvrFrames = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "pw_ingest_input_avr_total",
+		Help: "The total number of AVR frames processed.",
+	})
+	prometheusInputSbs1Frames = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "pw_ingest_input_sbs1_total",
+		Help: "The total number of SBS1 frames processed.",
+	})
 
 	producerOpts := make([]producer.Option, 3)
 	producerOpts[0] = producer.WithSourceTag(getTag(parsedUrl, defaultTag))

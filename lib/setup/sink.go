@@ -20,14 +20,8 @@ const (
 )
 
 var (
-	prometheusOutputFrame = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "pw_ingest_output_frame_total",
-		Help: "The total number of raw frames output. (no dedupe)",
-	})
-	prometheusOutputPlaneLocation = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "pw_ingest_output_location_update_total",
-		Help: "The total number of plane location events output.",
-	})
+	prometheusOutputFrame         prometheus.Counter
+	prometheusOutputPlaneLocation prometheus.Counter
 )
 
 func IncludeSinkFlags(app *cli.App) {
@@ -85,6 +79,15 @@ func handleSink(connName, urlSink, defaultTag string, sendDelay time.Duration) (
 	}
 
 	urlPass, _ := parsedUrl.User.Password()
+
+	prometheusOutputFrame = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "pw_ingest_output_frame_total",
+		Help: "The total number of raw frames output. (no dedupe)",
+	})
+	prometheusOutputPlaneLocation = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "pw_ingest_output_location_update_total",
+		Help: "The total number of plane location events output.",
+	})
 
 	commonOpts := []sink.Option{
 		sink.WithConnectionName(connName),
