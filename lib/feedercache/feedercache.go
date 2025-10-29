@@ -69,7 +69,11 @@ func WithNatsURL(natsURL string) Option {
 func New(opts ...Option) (*FeederCache, error) {
 	var err error
 	f := &FeederCache{}
-	f.Reset()
+
+	f.feeders = make(map[string]export.Feeder)
+	f.feedersConnected = make(map[string]map[Protocol]struct{})
+	f.feederConnectionTime = make(map[string]map[Protocol]time.Time)
+
 	for _, opt := range opts {
 		opt(f)
 	}
@@ -126,16 +130,17 @@ func (f *FeederCache) fetchFeeders() error {
 	return nil
 }
 
-func (f *FeederCache) Reset() {
-	f.muFeeders.Lock()
-	defer f.muFeeders.Unlock()
+func (f *FeederCache) Reset(p Protocol) {
 	f.muFeedersConnected.Lock()
 	defer f.muFeedersConnected.Unlock()
-	f.muFeederConnectionTime.Lock()
-	defer f.muFeederConnectionTime.Unlock()
-	f.feeders = make(map[string]export.Feeder)
-	f.feedersConnected = make(map[string]map[Protocol]struct{})
-	f.feederConnectionTime = make(map[string]map[Protocol]time.Time)
+
+	for apiKey := range f.feedersConnected {
+		if _, ok := f.feedersConnected[apiKey]; ok {
+			if _, ok := f.feedersConnected[apiKey][p]; ok {
+				delete(f.feedersConnected[apiKey], p)
+			}
+		}
+	}
 }
 
 func (f *FeederCache) IsValid(apiKey string) bool {
