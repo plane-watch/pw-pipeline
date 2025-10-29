@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -190,19 +191,20 @@ func (mb *MLATBridge) handler(feederConn net.Conn, apiKey string) error {
 // Connections will be closed and context will be cancelled when this method exits.
 func (mb *MLATBridge) simplexBridge(ctx context.Context, cancel context.CancelFunc, from, to net.Conn) error {
 
-	defer func() {
-		_ = from.Close()
-	}()
-
-	defer func() {
-		_ = to.Close()
-	}()
-
 	var (
 		err error
 		n   int
 	)
 
+	// close both sides of the bridge when done
+	defer func() {
+		_ = from.Close()
+	}()
+	defer func() {
+		_ = to.Close()
+	}()
+
+	// make buffer to hold data in flight
 	buf := make([]byte, 65745) // todo(mikenye): set to tcp maximum segment size - is this realistic?
 
 	for {
@@ -214,7 +216,7 @@ func (mb *MLATBridge) simplexBridge(ctx context.Context, cancel context.CancelFu
 		default:
 		}
 
-		// set deadlines
+		// set/extend read/write deadlines
 		err = from.SetReadDeadline(time.Now().Add(1 * time.Second))
 		if err != nil {
 			cancel()
@@ -226,14 +228,17 @@ func (mb *MLATBridge) simplexBridge(ctx context.Context, cancel context.CancelFu
 			return fmt.Errorf("failed to set write deadline: %w", err)
 		}
 
-		// copy bytes from "from" to "to" connections
+		// Copy bytes from "from" to "to" connections.
+		// We don't bail out on os.ErrDeadlineExceeded as this may be due to
+		// read/write deadlines being hit.
+		// The deadlines allow us to loop & check for context closure for graceful stop.
 		n, err = from.Read(buf)
-		if err != nil {
+		if err != nil && !errors.Is(err, os.ErrDeadlineExceeded) {
 			cancel()
 			return fmt.Errorf("read error: %w", err)
 		}
 		_, err = to.Write(buf[:n])
-		if err != nil {
+		if err != nil && !errors.Is(err, os.ErrDeadlineExceeded) {
 			cancel()
 			return fmt.Errorf("write error: %w", err)
 		}
