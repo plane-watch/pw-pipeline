@@ -1,6 +1,7 @@
 package feedercache
 
 import (
+	"database/sql"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -20,11 +21,14 @@ func makeTestData() (*FeederCache, uuid.UUID) {
 	testFeederProxy.feedersConnected = make(map[string]map[Protocol]struct{})
 	testFeederProxy.feederConnectionTime = make(map[string]map[Protocol]time.Time)
 	testFeederProxy.feeders[testFeederUUID.String()] = export.Feeder{
-		MlatEnabled:   true,
-		Id:            1,
-		Latitude:      33.33333,
-		Longitude:     -111.11111,
-		Altitude:      0,
+		MlatEnabled: true,
+		Id:          1,
+		Latitude:    33.33333,
+		Longitude:   -111.11111,
+		Altitude: sql.NullFloat64{
+			Float64: 0.0,
+			Valid:   true,
+		},
 		User:          "Test User",
 		FeedDirection: "0",
 		FeedProtocol:  "0",
