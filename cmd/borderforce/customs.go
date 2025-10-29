@@ -160,7 +160,7 @@ func (m *Manifest) handler(conn net.Conn, apiKey string) error {
 	p := producer.New(
 		producer.WithConnection(conn),
 		producer.WithType(producer.Beast),
-		producer.WithOriginName(feeder.Label),
+		producer.WithOriginName(feeder.ApiKey.String()),
 		producer.WithReferenceLatLon(feeder.Latitude, feeder.Longitude),
 		producer.WithSourceTag(feeder.FeederCode),
 		// TODO(mikenye): re-enable when panic fixed

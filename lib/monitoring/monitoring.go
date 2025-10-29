@@ -18,9 +18,13 @@ type (
 )
 
 var (
-	healthChecks     []HealthCheck
+	healthChecks     map[string]HealthCheck
 	healthChecksLock sync.RWMutex
 )
+
+func init() {
+	healthChecks = make(map[string]HealthCheck)
+}
 
 func IncludeMonitoringFlags(app *cli.App, defaultPort int) {
 	app.Flags = append(app.Flags,
@@ -52,7 +56,14 @@ func AddHealthCheck(f HealthCheck) {
 	log.Debug().Str("name", f.HealthCheckName()).Msg("Adding Health Check")
 	healthChecksLock.Lock()
 	defer healthChecksLock.Unlock()
-	healthChecks = append(healthChecks, f)
+	healthChecks[f.HealthCheckName()] = f
+}
+
+func RemoveHealthCheck(f HealthCheck) {
+	log.Debug().Str("name", f.HealthCheckName()).Msg("Removing Health Check")
+	healthChecksLock.Lock()
+	defer healthChecksLock.Unlock()
+	delete(healthChecks, f.HealthCheckName())
 }
 
 func healthCheck(w http.ResponseWriter, r *http.Request) {

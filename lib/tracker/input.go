@@ -104,6 +104,7 @@ func (t *Tracker) AddProducer(p Producer) {
 	if p == nil {
 		return
 	}
+
 	monitoring.AddHealthCheck(p)
 
 	t.muProducers.Lock()
@@ -124,6 +125,7 @@ func (t *Tracker) AddProducer(p Producer) {
 		}
 		close(doneChan)
 		t.removeProducer(p)
+		monitoring.RemoveHealthCheck(p)
 	})
 	for i := 0; i < t.decodeWorkerCount; i++ {
 		go t.decodeQueue(p.Listen(), doneChan)
@@ -135,6 +137,7 @@ func (t *Tracker) AddProducer(p Producer) {
 }
 
 func (t *Tracker) removeProducer(toRemove Producer) {
+	t.log.Debug().Str("func", "removeProducer()").Msg("Removing producer")
 	if toRemove == nil {
 		return
 	}
