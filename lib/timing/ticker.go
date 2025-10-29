@@ -14,6 +14,15 @@ func RunOnTicker(logger zerolog.Logger, t time.Duration, f func() error) context
 		Str("interval", t.String()).
 		Logger()
 	ctx, cancel := context.WithCancel(context.Background())
+	RunOnTickerWithContext(ctx, logger, t, f)
+	return cancel
+}
+
+func RunOnTickerWithContext(ctx context.Context, logger zerolog.Logger, t time.Duration, f func() error) {
+	logger = logger.With().
+		Str("component", "timing.RunOnTicker").
+		Str("interval", t.String()).
+		Logger()
 	ticker := time.NewTicker(t)
 	go func() {
 		for {
@@ -28,5 +37,4 @@ func RunOnTicker(logger zerolog.Logger, t time.Duration, f func() error) context
 			}
 		}
 	}()
-	return cancel
 }
