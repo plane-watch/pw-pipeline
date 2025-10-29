@@ -15,6 +15,7 @@ import (
 	"plane.watch/lib/feedercache"
 	"plane.watch/lib/logging"
 	"plane.watch/lib/middleware"
+	"plane.watch/lib/mlatbridge"
 	"plane.watch/lib/monitoring"
 	"plane.watch/lib/nats_io"
 	"plane.watch/lib/setup"
@@ -178,13 +179,33 @@ func runDaemon(c *cli.Context) error {
 			if err != nil {
 				return fmt.Errorf("failed to listen for beast: %w", err)
 			}
-			feeders.Reset()
+			feeders.Reset(feedercache.BEAST)
 			time.Sleep(time.Second * 10) // back-off between loops
 		}
 		return nil
 	})
 
-	//ListenForIncomingPlaneWatchMLAT(c.String("listen-mlat"), trk)
+	// MLAT Listener
+	wg.Go(func() error {
+		defer cancel()
+		for {
+			//todo(mikenye): implement a way to exit loop when app is quit (eg: SIGTERM/SIGINT) or similar.
+			//  consider adding a "WithCancel" or "WithContext" for this
+			_, err := mlatbridge.ListenForIncomingPlaneWatchMLAT(
+				ctx,
+				mlatbridge.WithListenHostPort(c.String("listen-mlat")),
+				mlatbridge.WithTLSCertificate(c.String("cert"), c.String("key")),
+				mlatbridge.WithNatsURL(c.String("sink")),
+				mlatbridge.WithFeederCache(feeders),
+			)
+			if err != nil {
+				return fmt.Errorf("failed to listen for mlat: %w", err)
+			}
+			feeders.Reset(feedercache.MLAT)
+			time.Sleep(time.Second * 10) // back-off between loops
+		}
+		return nil
+	})
 
 	err = wg.Wait()
 
