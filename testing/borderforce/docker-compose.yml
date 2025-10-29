@@ -15,7 +15,7 @@ services:
     environment:
       - CERT_FILE=/test/server.crt
       - KEY_FILE=/test/server.key
-      - DEBUG=true
+      - DEBUG=false
       - SINK=nats://nats:4222
     ports:
       - "12345:12345"
@@ -70,17 +70,30 @@ services:
       - POSTGRES_PASSWORD=test
       - POSTGRES_USER=test
 
-#  stunnel:
-#    build:
-#      context: ./stunnel
-#    restart: always
-#    depends_on:
-#      borderforce:
-#        condition: service_healthy
-#
-#  readsb:
-#    build:
-#      context: ./readsb
-#    depends_on:
-#      stunnel:
-#        condition: service_healthy
+  pw-feeder:
+    build: https://github.com/plane-watch/docker-plane-watch.git
+    restart: always
+    depends_on:
+      borderforce:
+        condition: service_healthy
+    environment:
+      - BEASTHOST=${BEASTHOST}
+      - BEASTPORT=${BEASTPORT}
+      - PW_BEAST_ENDPOINT=borderforce:12345
+      - PW_MLAT_ENDPOINT=borderforce:12346
+      - API_KEY=ad84bf99-f24b-4b4c-83e3-28bfc331f7ad
+      - INSECURE=true
+      - LAT=33.33333
+      - LONG=111.11111
+      - ALT=0
+
+  mux-wa:
+    build:
+      context: https://github.com/plane-watch/bordercontrol.git
+      dockerfile: Dockerfile.mlat-server
+    restart: always
+    depends_on:
+      nats:
+        condition: service_started
+    environment:
+      - PW_INGEST_SINK=nats://nats:4222

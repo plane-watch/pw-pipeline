@@ -64,6 +64,8 @@ echo "Generated: $CRTFILE"
 ENVFILE="$TESTDIR/docker-compose.env"
 cat > "$ENVFILE" <<EOF
 TESTDIR=$TESTDIR
+BEASTHOST=$1
+BEASTPORT=$2
 EOF
 
 # === BRING UP TEST ENVIRONMENT ===
