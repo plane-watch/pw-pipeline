@@ -135,7 +135,12 @@ func (mb *MLATBridge) handler(feederConn net.Conn, apiKey string) error {
 	if err != nil {
 		return fmt.Errorf("failed to get feeder for %s: %w", apiKey, err)
 	}
+
+	// update feeder cache
 	mb.feeders.SetConnected(apiKey, feedercache.MLAT)
+	defer func() {
+		mb.feeders.SetDisconnected(apiKey, feedercache.MLAT)
+	}()
 
 	// lookup which mlat server to use
 	mlatHost, ok := muxes[feeder.Mux]
