@@ -68,9 +68,16 @@ FROM feeders f
     LEFT JOIN users u on f.user_id = u.id
     LEFT JOIN feeder_muxes fm on f.feeder_mux_id = fm.id`)
 
-		buf, respondErr = json.Marshal(feeders)
-		if nil == respondErr {
-			respondErr = msg.Respond(buf)
+		if respondErr != nil {
+			sa.log.Error().Err(respondErr).Msg("failed to fetch feeders")
+		} else {
+
+			sa.log.Info().Int("count", len(feeders)).Msg("fetched feeders via db query")
+
+			buf, respondErr = json.Marshal(feeders)
+			if respondErr == nil {
+				respondErr = msg.Respond(buf)
+			}
 		}
 
 	case export.NatsApiFeederStatsUpdateV1:
