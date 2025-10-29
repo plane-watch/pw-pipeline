@@ -132,7 +132,7 @@ func getRef(parsedUrl *url.URL, what string, defaultRef float64) float64 {
 
 func handleSource(urlSource, defaultTag string, defaultRefLat, defaultRefLon float64, listen, isAdsc bool) (tracker.Producer, error) {
 	parsedUrl, err := url.Parse(urlSource)
-	if nil != err {
+	if err != nil {
 		return nil, err
 	}
 
