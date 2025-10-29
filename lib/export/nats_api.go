@@ -1,6 +1,7 @@
 package export
 
 import (
+	"database/sql"
 	"time"
 
 	"github.com/google/uuid"
@@ -70,18 +71,18 @@ type (
 	// Feeder is part of schema for /api/v1/feeders.json atc endpoint
 	// we keep the field types organised for memory alignment reasons
 	Feeder struct { //
-		MlatEnabled   bool      `db:"mlat_enabled"`
-		Id            int       `db:"id"`
-		Latitude      float64   `db:"latitude" json:",string"`
-		Longitude     float64   `db:"longitude" json:",string"`
-		Altitude      float64   `db:"altitude" json:",string"`
-		User          string    `db:"name"`
-		FeedDirection string    `db:"feed_direction"`
-		FeedProtocol  string    `db:"feed_protocol"`
-		Label         string    `db:"label"`
-		Mux           string    `db:"container_name"`
-		FeederCode    string    `db:"feeder_code"`
-		ApiKey        uuid.UUID `db:"api_key"`
+		MlatEnabled   bool            `db:"mlat_enabled"`
+		Id            int             `db:"id"`
+		Latitude      float64         `db:"latitude" json:",string"`
+		Longitude     float64         `db:"longitude" json:",string"`
+		Altitude      sql.NullFloat64 `db:"altitude" json:",string"`
+		User          string          `db:"name"`
+		FeedDirection string          `db:"feed_direction"`
+		FeedProtocol  string          `db:"feed_protocol"`
+		Label         string          `db:"label"`
+		Mux           string          `db:"container_name"`
+		FeederCode    string          `db:"feeder_code"`
+		ApiKey        uuid.UUID       `db:"api_key"`
 	}
 
 	FeederUpdates []FeederUpdate
