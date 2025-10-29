@@ -20,6 +20,7 @@ services:
     ports:
       - "12345:12345"
       - "12346:12346"
+      - "9602:9602"
     volumes:
       - type: bind
         source: ${TESTDIR}
