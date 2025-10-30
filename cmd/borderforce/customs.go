@@ -157,10 +157,9 @@ func (m *Manifest) handler(conn net.Conn, apiKey string) error {
 		Name:      "input-total",
 		Help:      "The total number of beast frames processed.",
 		ConstLabels: map[string]string{
-			"feeder_id":      strconv.FormatInt(int64(feeder.Id), 10),
-			"feeder_api_key": apiKey,
-			"feeder_label":   feeder.Label,
-			"feeder_user":    feeder.User,
+			"feeder_id":    strconv.FormatInt(int64(feeder.Id), 10),
+			"feeder_label": feeder.Label,
+			"feeder_user":  feeder.User,
 		},
 	})
 	err = prometheus.Register(prometheusInputBeastFrames)

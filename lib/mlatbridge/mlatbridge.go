@@ -176,10 +176,10 @@ func (mb *MLATBridge) handler(feederConn net.Conn, apiKey string) error {
 		Name:      "input-bytes-total",
 		Help:      "The total number of MLAT bytes received from the feeder.",
 		ConstLabels: map[string]string{
-			"feeder_id":      strconv.FormatInt(int64(feeder.Id), 10),
-			"feeder_api_key": apiKey,
-			"feeder_label":   feeder.Label,
-			"feeder_user":    feeder.User,
+			"feeder_id":    strconv.FormatInt(int64(feeder.Id), 10),
+			"feeder_label": feeder.Label,
+			"feeder_user":  feeder.User,
+			"feeder_mux":   feeder.Mux,
 		},
 	})
 	err = prometheus.Register(prometheusMLATBytesRx)
@@ -195,10 +195,10 @@ func (mb *MLATBridge) handler(feederConn net.Conn, apiKey string) error {
 		Name:      "output-bytes-total",
 		Help:      "The total number of MLAT bytes sent to the feeder.",
 		ConstLabels: map[string]string{
-			"feeder_id":      strconv.FormatInt(int64(feeder.Id), 10),
-			"feeder_api_key": apiKey,
-			"feeder_label":   feeder.Label,
-			"feeder_user":    feeder.User,
+			"feeder_id":    strconv.FormatInt(int64(feeder.Id), 10),
+			"feeder_label": feeder.Label,
+			"feeder_user":  feeder.User,
+			"feeder_mux":   feeder.Mux,
 		},
 	})
 	err = prometheus.Register(prometheusMLATBytesTx)
