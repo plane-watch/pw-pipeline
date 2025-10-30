@@ -48,7 +48,7 @@ var (
 	MissingOption = errors.New("option is required")
 
 	prometheusConnectedMLATFeeders = promauto.NewGauge(prometheus.GaugeOpts{
-		Namespace: "border-force",
+		Namespace: "runway",
 		Subsystem: "mlat",
 		Name:      "feeders-connected",
 		Help:      "The total number of mlat feeders connected.",
@@ -103,7 +103,7 @@ func ListenForIncomingPlaneWatchMLAT(ctx context.Context, opts ...Option) (*MLAT
 	// setup our nats connection
 	mb.natsServer, err = nats_io.NewServer(
 		nats_io.WithConnections(false, true),
-		nats_io.WithServer(mb.natsURL, "borderforce-atc-client-MLAT"),
+		nats_io.WithServer(mb.natsURL, "runway-atc-client-MLAT"),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup nats connection: %w", err)
@@ -171,7 +171,7 @@ func (mb *MLATBridge) handler(feederConn net.Conn, apiKey string) error {
 
 	// register prom metrics
 	prometheusMLATBytesRx := prometheus.NewCounter(prometheus.CounterOpts{
-		Namespace: "border-force",
+		Namespace: "runway",
 		Subsystem: "mlat",
 		Name:      "input-bytes-total",
 		Help:      "The total number of MLAT bytes received from the feeder.",
@@ -190,7 +190,7 @@ func (mb *MLATBridge) handler(feederConn net.Conn, apiKey string) error {
 		_ = prometheus.Unregister(prometheusMLATBytesRx)
 	}()
 	prometheusMLATBytesTx := prometheus.NewCounter(prometheus.CounterOpts{
-		Namespace: "border-force",
+		Namespace: "runway",
 		Subsystem: "mlat",
 		Name:      "output-bytes-total",
 		Help:      "The total number of MLAT bytes sent to the feeder.",

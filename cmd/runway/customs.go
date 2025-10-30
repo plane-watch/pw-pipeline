@@ -48,7 +48,7 @@ var (
 	MissingOption = errors.New("option is required")
 
 	prometheusConnectedBeastFeeders = promauto.NewGauge(prometheus.GaugeOpts{
-		Namespace: "border-force",
+		Namespace: "runway",
 		Subsystem: "beast",
 		Name:      "feeders-connected",
 		Help:      "The total number of beast feeders connected.",
@@ -112,7 +112,7 @@ func ListenForIncomingPlaneWatchBeast(ctx context.Context, opts ...Option) (*Man
 	// setup our nats connection
 	manifest.natsServer, err = nats_io.NewServer(
 		nats_io.WithConnections(false, true),
-		nats_io.WithServer(manifest.natsURL, "borderforce-atc-client-BEAST"),
+		nats_io.WithServer(manifest.natsURL, "runway-atc-client-BEAST"),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup nats connection: %w", err)
@@ -152,7 +152,7 @@ func (m *Manifest) handler(conn net.Conn, apiKey string) error {
 
 	// register prom metrics
 	prometheusInputBeastFrames := prometheus.NewCounter(prometheus.CounterOpts{
-		Namespace: "border-force",
+		Namespace: "runway",
 		Subsystem: "beast",
 		Name:      "input-total",
 		Help:      "The total number of beast frames processed.",

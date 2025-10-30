@@ -54,7 +54,7 @@ func init() {
 func main() {
 	app := cli.NewApp()
 
-	app.Name = "Border Force"
+	app.Name = "Runway"
 	app.Description = `This program acts as a server for multiple stunnel-based endpoints, ` +
 		`authenticates the feeder based on API key (UUID) check against atc.plane.watch, ` +
 		`routes data to feed-in containers.`
@@ -133,7 +133,7 @@ func runDaemon(c *cli.Context) error {
 	)
 	trk := tracker.NewTracker(trackerOpts...)
 	trk.AddMiddleware(dedupe.NewFilter(dedupe.WithDedupeCounter(prometheusOutputFrameDedupe)))
-	sinkDest, err := setup.HandleSinkFlagWithoutTag(c, "border-force")
+	sinkDest, err := setup.HandleSinkFlagWithoutTag(c, "runway")
 	if err != nil {
 		return err
 	}

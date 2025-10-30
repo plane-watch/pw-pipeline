@@ -21,29 +21,29 @@ COPY . /app/
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Build the application
-RUN set -x && go build -buildvcs=false -ldflags="-X main.version=${IMAGE_VERSION//\"/}" plane.watch/cmd/borderforce
+RUN set -x && go build -buildvcs=false -ldflags="-X main.version=${IMAGE_VERSION//\"/}" plane.watch/cmd/runway
 
 # test binary (make sure it will run on this arch)
-RUN ./borderforce --help
+RUN ./runway --help
 
 FROM alpine:latest AS dev
-LABEL org.opencontainers.image.description="Plane.Watch Borderforce"
+LABEL org.opencontainers.image.description="Plane.Watch Runway"
 
 WORKDIR /app
-COPY --from=build /app/borderforce /app
+COPY --from=build /app/runway /app
 
 HEALTHCHECK --interval=15s --timeout=3s CMD wget --spider http://localhost:9602/status
 
 # Command to run
-CMD [ "/app/borderforce", "daemon" ]
+CMD [ "/app/runway", "daemon" ]
 
 FROM alpine:latest
-LABEL org.opencontainers.image.description="Plane.Watch Borderforce"
+LABEL org.opencontainers.image.description="Plane.Watch Runway"
 
 WORKDIR /app
-COPY --from=build /app/borderforce /app
+COPY --from=build /app/runway /app
 
 HEALTHCHECK --interval=15s --timeout=3s CMD wget --spider http://localhost:9602/status
 
 # Command to run
-CMD [ "/app/borderforce", "daemon" ]
+CMD [ "/app/runway", "daemon" ]

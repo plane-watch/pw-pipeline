@@ -1,10 +1,10 @@
-name: borderforce_testing
+name: runway_testing
 
 services:
-  borderforce:
+  runway:
     build:
       context: ../../
-      dockerfile: docker/borderforce/Dockerfile
+      dockerfile: ../../docker/runway/Dockerfile
       target: dev
     restart: always
     depends_on:
@@ -75,13 +75,13 @@ services:
     build: https://github.com/plane-watch/docker-plane-watch.git
     restart: always
     depends_on:
-      borderforce:
+      runway:
         condition: service_healthy
     environment:
       - BEASTHOST=${BEASTHOST}
       - BEASTPORT=${BEASTPORT}
-      - PW_BEAST_ENDPOINT=borderforce:12345
-      - PW_MLAT_ENDPOINT=borderforce:12346
+      - PW_BEAST_ENDPOINT=runway:12345
+      - PW_MLAT_ENDPOINT=runway:12346
       - API_KEY=ad84bf99-f24b-4b4c-83e3-28bfc331f7ad
       - INSECURE=true
       - LAT=33.33333

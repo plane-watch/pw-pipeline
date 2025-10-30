@@ -87,7 +87,7 @@ func New(opts ...Option) (*FeederCache, error) {
 	}
 	f.natsServer, err = nats_io.NewServer(
 		nats_io.WithConnections(false, true),
-		nats_io.WithServer(f.natsURL, "borderforce-atc-client-feeders"),
+		nats_io.WithServer(f.natsURL, "runway-atc-client-feeders"),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup nats connection: %w", err)
