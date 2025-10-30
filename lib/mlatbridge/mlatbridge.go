@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
@@ -45,6 +46,13 @@ type (
 
 var (
 	MissingOption = errors.New("option is required")
+
+	prometheusConnectedMLATFeeders = promauto.NewGauge(prometheus.GaugeOpts{
+		Namespace: "border-force",
+		Subsystem: "mlat",
+		Name:      "feeders-connected",
+		Help:      "The total number of mlat feeders connected.",
+	})
 )
 
 func WithFeederCache(feeders *feedercache.FeederCache) Option {
@@ -199,6 +207,10 @@ func (mb *MLATBridge) handler(feederConn net.Conn, apiKey string) error {
 	}
 	defer func() {
 		_ = prometheus.Unregister(prometheusMLATBytesTx)
+	}()
+	prometheusConnectedMLATFeeders.Inc()
+	defer func() {
+		prometheusConnectedMLATFeeders.Dec()
 	}()
 
 	// create a context for this connection

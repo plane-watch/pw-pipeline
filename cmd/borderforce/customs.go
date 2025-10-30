@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"plane.watch/lib/feedercache"
@@ -45,6 +46,13 @@ type (
 
 var (
 	MissingOption = errors.New("option is required")
+
+	prometheusConnectedBeastFeeders = promauto.NewGauge(prometheus.GaugeOpts{
+		Namespace: "border-force",
+		Subsystem: "beast",
+		Name:      "feeders-connected",
+		Help:      "The total number of beast feeders connected.",
+	})
 )
 
 func WithFeederCache(feeders *feedercache.FeederCache) Option {
@@ -159,6 +167,7 @@ func (m *Manifest) handler(conn net.Conn, apiKey string) error {
 	if err != nil {
 		return fmt.Errorf("failed to register prometheus counter: %w", err)
 	}
+	prometheusConnectedBeastFeeders.Inc()
 
 	// TODO: handle stats updates to ATC
 	// TODO: jam stats into clicks for received packets per second (needs to be done before dedupe)
@@ -189,6 +198,7 @@ func (m *Manifest) handler(conn net.Conn, apiKey string) error {
 			// unregister prom metrics
 			func() error {
 				_ = prometheus.Unregister(prometheusInputBeastFrames)
+				prometheusConnectedBeastFeeders.Dec()
 				return nil
 			},
 		),
