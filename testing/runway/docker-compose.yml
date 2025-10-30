@@ -4,7 +4,7 @@ services:
   runway:
     build:
       context: ../../
-      dockerfile: ../../docker/runway/Dockerfile
+      dockerfile: docker/runway/Dockerfile
       target: dev
     restart: always
     depends_on:
