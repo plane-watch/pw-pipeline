@@ -155,16 +155,11 @@ func (t *Tracker) removeProducer(toRemove Producer) {
 	defer t.muProducers.Unlock()
 	for idx, p := range t.producers {
 		if toRemove.String() == p.String() {
-			t.log.Info().
-				Str("func", "removeProducer()").
-				Int("index", idx).
-				Int("len(t.producers)", len(t.producers)).
-				Str("source", p.String()).
-				Msg("Removing producer")
 			t.producers = slices.Delete(t.producers, idx, idx+1)
 			return
 		}
 	}
+	t.log.Info().Msg("Producer removed")
 }
 
 // AddMiddleware wires up a Middleware which each message will go through before being added to the tracker
