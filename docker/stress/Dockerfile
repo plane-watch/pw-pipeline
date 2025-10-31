@@ -1,5 +1,13 @@
 FROM golang:1.25 AS build
 
+# Set necessary environmet variables needed for our image
+ENV GO111MODULE=on \
+    CGO_ENABLED=0 \
+    GOAMD64=v3
+
+ARG IMAGE_VERSION=dev
+
+
 WORKDIR /app
 
 # prefill the build steps
