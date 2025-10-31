@@ -34,4 +34,4 @@ WORKDIR /app
 COPY --from=build /app/stress /app
 
 # Command to run
-CMD [ "/app/stress" ]
+ENTRYPOINT [ "/app/stress" ]
