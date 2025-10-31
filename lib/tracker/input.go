@@ -186,7 +186,7 @@ func (t *Tracker) removeProducer(toRemove Producer) {
 	defer t.muProducers.Unlock()
 	for idx, p := range t.producers {
 		if toRemove.String() == p.String() {
-			t.log.Debug().
+			t.log.Info().
 				Str("func", "removeProducer()").
 				Int("index", idx).
 				Str("source", p.String()).
