@@ -189,6 +189,7 @@ func (t *Tracker) removeProducer(toRemove Producer) {
 			t.log.Info().
 				Str("func", "removeProducer()").
 				Int("index", idx).
+				Int("len(t.producers)", len(t.producers)).
 				Str("source", p.String()).
 				Msg("Removing producer")
 			t.producers = slices.Delete(t.producers, idx, 1)
