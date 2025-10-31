@@ -203,7 +203,7 @@ func runStress(c *cli.Context) error {
 		case <-ctx.Done():
 			break
 		case <-logTicker.C:
-			log.Info().Msgf("%d feeders spawned", maxWorkers)
+			log.Info().Msgf("%d/%d feeders spawned", i, maxWorkers)
 		default:
 		}
 		time.Sleep(c.Duration("spawndelay"))
