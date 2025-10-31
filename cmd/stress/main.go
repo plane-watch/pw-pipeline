@@ -59,6 +59,12 @@ func main() {
 			Required: true,
 		},
 		&cli.DurationFlag{
+			Name:     "spawndelay",
+			Category: "Stress Testing",
+			Usage:    "Time to sleep between spawning workers",
+			Value:    time.Millisecond * 50,
+		},
+		&cli.DurationFlag{
 			Name:     "ifgmin",
 			Category: "Stress Testing",
 			Usage:    "Per-feeder minimum inter-frame Gap",
@@ -192,6 +198,7 @@ func runStress(c *cli.Context) error {
 				}
 			}
 		})
+		time.Sleep(c.Duration("spawndelay"))
 	}
 	log.Info().Msgf("workers spawned, running for %s", c.Duration("duration").String())
 
