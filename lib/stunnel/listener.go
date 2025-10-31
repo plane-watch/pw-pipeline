@@ -212,13 +212,6 @@ func (l *Listener) Listen(ctx context.Context) error {
 						Msg("connection failure, closing")
 					_ = conn.Close()
 				}
-
-				_ = conn.Close()
-				l.log.Info().
-					Str("RemoteAddr", conn.RemoteAddr().String()).
-					Str("APIKey", apiKey).
-					Msg("Connection Closed")
-
 			}(conn)
 		}
 	}()
