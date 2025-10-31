@@ -58,6 +58,18 @@ func main() {
 			Value:    "feed.push.plane.watch:22345", // beta-env by default
 			Required: true,
 		},
+		&cli.DurationFlag{
+			Name:     "ifgmin",
+			Category: "Stress Testing",
+			Usage:    "Per-feeder minimum inter-frame Gap",
+			Value:    time.Millisecond * 5,
+		},
+		&cli.DurationFlag{
+			Name:     "ifgmax",
+			Category: "Stress Testing",
+			Usage:    "Per-feeder maximum inter-frame Gap",
+			Value:    time.Millisecond * 50,
+		},
 	}
 
 	setup.IncludeSinkFlags(app)
@@ -174,8 +186,8 @@ func runStress(c *cli.Context) error {
 					}
 
 					// fake inter packet gap between 5 and 100ms
-					ipg := rand.Intn(100 + 5)
-					ipg += 5
+					ipg := rand.Int63n(c.Duration("ifgmax").Milliseconds())
+					ipg += c.Duration("ifgmin").Milliseconds()
 					time.Sleep(time.Duration(ipg) * time.Millisecond)
 				}
 			}
