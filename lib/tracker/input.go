@@ -141,7 +141,6 @@ func (t *Tracker) AddProducer(p Producer) {
 		go t.decodeQueue(p.Listen(), doneChan)
 	}
 	t.log.Info().
-		Int("num workers", t.decodeWorkerCount).
 		Str("source", p.String()).
 		Msg("Producer added")
 }
@@ -156,7 +155,9 @@ func (t *Tracker) removeProducer(toRemove Producer) {
 	for idx, p := range t.producers {
 		if toRemove.String() == p.String() {
 			t.producers = slices.Delete(t.producers, idx, idx+1)
-			t.log.Info().Msg("Producer removed")
+			t.log.Info().
+				Str("source", p.String()).
+				Msg("Producer removed")
 			return
 		}
 	}
