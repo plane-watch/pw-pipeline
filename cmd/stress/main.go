@@ -136,6 +136,10 @@ func runStress(c *cli.Context) error {
 	for i := 0; i < maxWorkers; i++ {
 		wg.Go(func() {
 
+			workerNum := i
+
+			workerLogger := log.With().Int("worker", workerNum).Logger()
+
 			// connect
 			D, err := stunnel.NewDialler(
 				stunnel.WithTimeout(time.Second),
@@ -145,14 +149,14 @@ func runStress(c *cli.Context) error {
 			)
 			if err != nil {
 				// handle error by killing all workers and bailing out
-				log.Error().Err(err).Msg("Failed to create stunnel dialer")
+				workerLogger.Error().Err(err).Msg("Failed to create stunnel dialer")
 				cancel()
 				return
 			}
 			conn, err := D.Dial()
 			if err != nil {
 				// handle error by killing all workers and bailing out
-				log.Error().Err(err).Msg("Failed to connect to remote host")
+				workerLogger.Error().Err(err).Msg("Failed to connect to remote host")
 				cancel()
 				return
 			}
@@ -187,7 +191,7 @@ func runStress(c *cli.Context) error {
 					_, err := conn.Write(msg)
 					if err != nil {
 						// handle error by killing all workers and bailing out
-						log.Error().Err(err).Msg("error sending data")
+						workerLogger.Error().Err(err).Msg("error sending data")
 						cancel()
 						return
 					}
@@ -210,17 +214,22 @@ func runStress(c *cli.Context) error {
 	}
 	log.Info().Msgf("workers spawned, running for %s", c.Duration("duration").String())
 
+	errors := false
 	t := time.NewTicker(c.Duration("duration"))
 	select {
 	case <-t.C:
 		log.Info().Msg("stress test finished successfully")
 		cancel()
 	case <-ctx.Done():
-		log.Info().Msg("one or more workers errored")
+		errors = true
 	}
 
 	cancel()
 	wg.Wait()
+
+	if errors {
+		log.Error().Msg("one or more workers encountered an error")
+	}
 
 	return nil
 }
