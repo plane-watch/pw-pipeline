@@ -49,7 +49,7 @@ func main() {
 			Name:     "duration",
 			Category: "Stress Testing",
 			Usage:    "how long to run stress test",
-			Required: true,
+			Value:    time.Second * 30,
 		},
 		&cli.StringFlag{
 			Name:     "beastout",
@@ -193,7 +193,7 @@ func runStress(c *cli.Context) error {
 			}
 		})
 	}
-	log.Info().Msgf("workers spawned, waiting for %s", c.Duration("duration").String())
+	log.Info().Msgf("workers spawned, running for %s", c.Duration("duration").String())
 
 	t := time.NewTicker(c.Duration("duration"))
 	select {
