@@ -120,7 +120,7 @@ func ListenForIncomingPlaneWatchBeast(ctx context.Context, opts ...Option) (*Man
 
 	// now let's start listening for connections!
 
-	manifest.listener, err = stunnel.New(
+	manifest.listener, err = stunnel.NewListener(
 		stunnel.WithHostPort(manifest.hostPort),
 		stunnel.WithTLSCertificate(manifest.certPath, manifest.keyPath),
 		stunnel.WithConnectionHandler(manifest.handler),

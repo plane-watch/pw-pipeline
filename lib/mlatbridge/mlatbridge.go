@@ -111,7 +111,7 @@ func ListenForIncomingPlaneWatchMLAT(ctx context.Context, opts ...Option) (*MLAT
 
 	// now let's start listening for connections!
 
-	mb.listener, err = stunnel.New(
+	mb.listener, err = stunnel.NewListener(
 		stunnel.WithHostPort(mb.hostPort),
 		stunnel.WithTLSCertificate(mb.certPath, mb.keyPath),
 		stunnel.WithConnectionHandler(mb.handler),

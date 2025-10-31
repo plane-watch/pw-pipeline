@@ -3,7 +3,6 @@ package stunnel
 import (
 	"context"
 	"crypto/tls"
-	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -31,40 +30,36 @@ type (
 		log zerolog.Logger
 	}
 
-	Option func(*Listener)
+	ListenerOption func(*Listener)
 )
 
-var (
-	MissingOption = errors.New("option is required")
-)
-
-func WithHostPort(hostPort string) Option {
+func WithHostPort(hostPort string) ListenerOption {
 	return func(listener *Listener) {
 		listener.hostPort = hostPort
 	}
 }
 
-func WithTLSCertificate(cert, key string) Option {
+func WithTLSCertificate(cert, key string) ListenerOption {
 	return func(listener *Listener) {
 		listener.certPath = cert
 		listener.keyPath = key
 	}
 }
 
-func WithConnectionHandler(h ConnectionHandler) Option {
+func WithConnectionHandler(h ConnectionHandler) ListenerOption {
 	return func(listener *Listener) {
 		listener.connHandler = h
 	}
 }
 
-func WithAuthenticator(h AuthenticationHandler) Option {
+func WithAuthenticator(h AuthenticationHandler) ListenerOption {
 	return func(listener *Listener) {
 		listener.authHandler = h
 	}
 }
 
-// New creates a new Listener
-func New(opts ...Option) (*Listener, error) {
+// NewListener creates a new Listener
+func NewListener(opts ...ListenerOption) (*Listener, error) {
 	l := &Listener{
 		log: log.With().Str("Section", "stunnel").Logger(),
 	}

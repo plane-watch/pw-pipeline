@@ -2,101 +2,208 @@ package stunnel
 
 import (
 	"context"
-	"crypto/tls"
-	"errors"
-	"io"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"log"
+	"math/big"
 	"net"
+	"os"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+	"golang.org/x/net/nettest"
 )
 
-var testHostPort = "localhost:34543"
+var (
+	testKeyFile, testCertFile *os.File
+)
 
-func TestListener_Listen(t *testing.T) {
-	authenticatorCalled := false
-	handlerCalled := false
+func GenerateSelfSignedTLSCertAndKey(keyFile, certFile *os.File) error {
+	// Thanks to: https://go.dev/src/crypto/tls/generate_cert.go
 
-	l, err := New(
-		WithHostPort(testHostPort),
-		WithTLSCertificate("testdata/cert.crt", "testdata/cert.key"),
+	// prep certificate info
+	hosts := []string{"localhost"}
+	ipAddrs := []net.IP{net.IPv4(127, 0, 0, 1)}
+	notBefore := time.Now()
+	notAfter := time.Now().Add(time.Minute * 15)
+	//isCA := true
+
+	// generate private key
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return err
+	}
+
+	keyUsage := x509.KeyUsageDigitalSignature
+
+	// generate serial number
+	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
+	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
+	if err != nil {
+		return err
+	}
+
+	// prep cert template
+	template := x509.Certificate{
+		SerialNumber: serialNumber,
+		Subject: pkix.Name{
+			Organization: []string{"plane.watch"},
+		},
+		NotBefore: notBefore,
+		NotAfter:  notAfter,
+
+		KeyUsage:              keyUsage,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+	}
+
+	// add hostname(s)
+	for _, host := range hosts {
+		template.DNSNames = append(template.DNSNames, host)
+	}
+
+	// add ip(s)
+	for _, ip := range ipAddrs {
+		template.IPAddresses = append(template.IPAddresses, ip)
+	}
+
+	// if self-signed, include CA
+	//if isCA {
+	template.IsCA = true
+	template.KeyUsage |= x509.KeyUsageCertSign
+	//}
+
+	// create certificate
+	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, priv.Public().(ed25519.PublicKey), priv)
+	if err != nil {
+		return err
+	}
+
+	// encode certificate
+	err = pem.Encode(certFile, &pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
+	if err != nil {
+		return err
+	}
+
+	// marhsal private key
+	privBytes, err := x509.MarshalPKCS8PrivateKey(priv)
+	if err != nil {
+		return err
+	}
+
+	// write private key
+	err = pem.Encode(keyFile, &pem.Block{Type: "PRIVATE KEY", Bytes: privBytes})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func TestMain(m *testing.M) {
+	var err error
+
+	// prep cert file
+	testCertFile, err = os.CreateTemp("", "stunnel_unit_testing_*_cert.pem")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// prep key file
+	testKeyFile, err = os.CreateTemp("", "stunnel_unit_testing_*_key.pem")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// generate cert/key for testing
+	err = GenerateSelfSignedTLSCertAndKey(testKeyFile, testCertFile)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// close cert & key files
+	_ = testCertFile.Close()
+	_ = testKeyFile.Close()
+
+	// run tests
+	exitCode := m.Run()
+
+	// clean-up after tests
+	_ = os.Remove(testCertFile.Name())
+	_ = os.Remove(testKeyFile.Name())
+
+	// return exit code
+	os.Exit(exitCode)
+}
+
+func TestStunnel(t *testing.T) {
+
+	// get listener addr
+	listener, err := nettest.NewLocalListener("tcp4")
+	require.NoError(t, err, "test setup: nettest.NewLocalListener failed")
+	err = listener.Close()
+	require.NoError(t, err, "test setup: listener.Close() failed")
+
+	testSNI := uuid.New().String()
+	testData := []byte("The quick brown fox jumps over the lazy dog 9876543210 times")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer func() {
+		cancel()
+	}()
+
+	L, err := NewListener(
+		WithHostPort(listener.Addr().String()),
 		WithAuthenticator(func(apiKey string) (bool, error) {
-			authenticatorCalled = true
-			t.Log("authenticator called")
-			if apiKey != "test1234" {
-				t.Errorf("Expected `test123` as the API Key, got: `%s`", apiKey)
+			if apiKey != testSNI {
+				require.Equal(t, testSNI, apiKey, "apiKey passed to AuthenticationHandler did not match testSNI")
+				return false, nil
 			}
 			return true, nil
 		}),
 		WithConnectionHandler(func(conn net.Conn, apiKey string) error {
-			handlerCalled = true
-			t.Log("handler called")
-			if err := conn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
-				t.Errorf("failed to set read deadline: %s", err)
-			}
-			if apiKey != "test1234" {
-				t.Errorf("Expected `test123` as the API Key, got: `%s`", apiKey)
-			}
-
-			for {
-				b := make([]byte, 64)
-				n, err := conn.Read(b)
-				if err != nil {
-					t.Logf("Connection error: %s", err)
-					if errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF) {
-						return nil
-					}
-				} else {
-					t.Logf("Read %d bytes", n)
-				}
-			}
+			require.Equal(t, testSNI, apiKey, "apiKey passed to ConnectionHandler did not match testSNI")
+			buf := make([]byte, 1024)
+			n, err := conn.Read(buf)
+			require.NoError(t, err, "error reading from connection in ConnectionHandler")
+			require.Equal(t, testData, buf[:n], "read returned wrong data from connection in ConnectionHandler")
+			return nil
 		}),
+		WithTLSCertificate(testCertFile.Name(), testKeyFile.Name()),
 	)
-	if err != nil {
-		t.Errorf("failed to create test listener: %s", err)
-		t.Fail()
-		return
-	}
+	require.NoError(t, err, "error creating listener")
 
-	ctx, cancel := context.WithCancel(context.Background())
+	testWg := sync.WaitGroup{}
 
-	go func() {
-		err = l.Listen(ctx)
-		if err != nil {
-			t.Errorf("Failed to listen")
-			cancel()
-			return
-		}
+	testWg.Go(func() {
+		err = L.Listen(ctx)
+		require.NoError(t, err, "error listening on listener")
+	})
+	time.Sleep(1 * time.Second) // wait for listener to listen
+
+	D, err := NewDialler(
+		WithAddress(listener.Addr().String()),
+		WithSni(testSNI),
+		WithTimeout(1*time.Second),
+	)
+	require.NoError(t, err, "error creating dialler")
+
+	conn, err := D.Dial()
+	require.NoError(t, err, "error dialing listener")
+
+	_, err = conn.Write(testData)
+	require.NoError(t, err, "error writing to connection")
+
+	defer func() {
+		_ = conn.Close()
 	}()
 
-	time.Sleep(time.Millisecond * 50) // lets our server start
-	t.Log("Client: connecting to server")
-	conn, err := tls.Dial("tcp", testHostPort, &tls.Config{ServerName: "test1234", InsecureSkipVerify: true})
-	if err != nil {
-		t.Errorf("failed to connect to our local server: %s", err)
-		cancel()
-		return
-	}
-
-	t.Log("Client: writing test data to server")
-	wl, err := conn.Write([]byte("test-data"))
-	if err != nil {
-		t.Errorf("failed to write to our local server: %s", err)
-	}
-
-	if wl != 9 {
-		t.Errorf("Wrote the wrong number of bytes: expected 9, got %d", wl)
-	}
-
-	time.Sleep(time.Millisecond * 50) // lets our server handle the data
-	t.Log("Client: closing connection")
-	_ = conn.Close()
-
 	cancel()
-
-	if !authenticatorCalled {
-		t.Errorf("Expected our connection to call the authenticator")
-	}
-	if !handlerCalled {
-		t.Errorf("Expected our connection to call the handler")
-	}
+	testWg.Wait()
 }
