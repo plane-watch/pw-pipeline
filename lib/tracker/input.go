@@ -143,7 +143,7 @@ func (t *Tracker) AddProducer(p Producer) {
 	t.log.Info().
 		Int("num workers", t.decodeWorkerCount).
 		Str("source", p.String()).
-		Msg("Just added a producer")
+		Msg("Producer added")
 }
 
 func (t *Tracker) removeProducer(toRemove Producer) {
@@ -156,10 +156,10 @@ func (t *Tracker) removeProducer(toRemove Producer) {
 	for idx, p := range t.producers {
 		if toRemove.String() == p.String() {
 			t.producers = slices.Delete(t.producers, idx, idx+1)
+			t.log.Info().Msg("Producer removed")
 			return
 		}
 	}
-	t.log.Info().Msg("Producer removed")
 }
 
 // AddMiddleware wires up a Middleware which each message will go through before being added to the tracker
