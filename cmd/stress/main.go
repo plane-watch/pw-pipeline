@@ -131,6 +131,7 @@ func runStress(c *cli.Context) error {
 	}
 
 	// spawn workers
+	logTicker := time.NewTicker(time.Second)
 	log.Info().Msgf("spawning %d workers", maxWorkers)
 	for i := 0; i < maxWorkers; i++ {
 		wg.Go(func() {
@@ -198,6 +199,13 @@ func runStress(c *cli.Context) error {
 				}
 			}
 		})
+		select {
+		case <-ctx.Done():
+			break
+		case <-logTicker.C:
+			log.Info().Msgf("%d feeders spawned", maxWorkers)
+		default:
+		}
 		time.Sleep(c.Duration("spawndelay"))
 	}
 	log.Info().Msgf("workers spawned, running for %s", c.Duration("duration").String())
