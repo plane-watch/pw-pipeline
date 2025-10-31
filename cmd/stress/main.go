@@ -218,7 +218,6 @@ func runStress(c *cli.Context) error {
 	t := time.NewTicker(c.Duration("duration"))
 	select {
 	case <-t.C:
-		log.Info().Msg("stress test finished successfully")
 		cancel()
 	case <-ctx.Done():
 		errors = true
@@ -229,6 +228,8 @@ func runStress(c *cli.Context) error {
 
 	if errors {
 		log.Error().Msg("one or more workers encountered an error")
+	} else {
+		log.Info().Msg("stress test finished successfully")
 	}
 
 	return nil
