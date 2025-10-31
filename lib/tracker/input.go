@@ -146,37 +146,6 @@ func (t *Tracker) AddProducer(p Producer) {
 		Msg("Just added a producer")
 }
 
-// todo(mikenye): fix this error
-//  /app/lib/tracker/input.go:148 is actually 179 below
-//runway-runway-1  | panic: runtime error: slice bounds out of range [110:1:]
-//runway-runway-1  |
-//runway-runway-1  | goroutine 3533 [running]:
-//runway-runway-1  | slices.Delete[...](...)
-//runway-runway-1  |      /usr/local/go/src/slices/slices.go:223
-//runway-runway-1  | golang.org/x/exp/slices.Delete[...](...)
-//runway-runway-1  |      /go/pkg/mod/golang.org/x/exp@v0.0.0-20250911091902-df9299821621/slices/slices.go:111
-//runway-runway-1  | plane.watch/lib/tracker.(*Tracker).removeProducer(0xc000294580, {0xcc6e88, 0xc000d00b00})
-//runway-runway-1  |      /app/lib/tracker/input.go:148 +0x314
-//runway-runway-1  | plane.watch/lib/tracker.(*Tracker).AddProducer.func1()
-//runway-runway-1  |      /app/lib/tracker/input.go:127 +0x8d
-//runway-runway-1  | sync.(*WaitGroup).Go.func1()
-//runway-runway-1  |      /usr/local/go/src/sync/waitgroup.go:239 +0x4a
-//runway-runway-1  | created by sync.(*WaitGroup).Go in goroutine 504
-//runway-runway-1  |      /usr/local/go/src/sync/waitgroup.go:237 +0x73
-//runway-runway-1 exited with code 0
-//runway-runway-1  | slices.Delete[...](...)
-//runway-runway-1  |      /usr/local/go/src/slices/slices.go:223
-//runway-runway-1  | golang.org/x/exp/slices.Delete[...](...)
-//runway-runway-1  |      /go/pkg/mod/golang.org/x/exp@v0.0.0-20250911091902-df9299821621/slices/slices.go:111
-//runway-runway-1  | plane.watch/lib/tracker.(*Tracker).removeProducer(0xc000294580, {0xcc6e88, 0xc000d00b00})
-//runway-runway-1  |      /app/lib/tracker/input.go:148 +0x314
-//runway-runway-1  | plane.watch/lib/tracker.(*Tracker).AddProducer.func1()
-//runway-runway-1  |      /app/lib/tracker/input.go:127 +0x8d
-//runway-runway-1  | sync.(*WaitGroup).Go.func1()
-//runway-runway-1  |      /usr/local/go/src/sync/waitgroup.go:239 +0x4a
-//runway-runway-1  | created by sync.(*WaitGroup).Go in goroutine 504
-//runway-runway-1  |      /usr/local/go/src/sync/waitgroup.go:237 +0x73
-
 func (t *Tracker) removeProducer(toRemove Producer) {
 	t.log.Debug().Str("func", "removeProducer()").Msg("Removing producer")
 	if toRemove == nil {
