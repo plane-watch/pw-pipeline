@@ -88,12 +88,22 @@ func (t *Tracker) Finish() {
 	if t.finishDone {
 		return
 	}
+
 	t.finishDone = true
 	t.log.Debug().Str("func", "Finish()").Msg("Starting...")
+
+	// stop all producers
+	t.muProducers.Lock()
+	stopFuncs := make([]func(), 0, len(t.producers))
 	for _, p := range t.producers {
 		t.log.Debug().Str("func", "Finish()").Str("producer", p.String()).Msg("Stopping Producer")
-		p.Stop()
+		stopFuncs = append(stopFuncs, p.Stop)
 	}
+	t.muProducers.Unlock()
+	for _, f := range stopFuncs {
+		f()
+	}
+
 	t.log.Debug().Str("func", "Finish()").Msg("Closing Decoding Queue")
 	t.planeList.Stop()
 	t.log.Debug().Str("func", "Finish()").Msg("done...")
