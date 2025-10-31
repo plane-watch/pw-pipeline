@@ -37,7 +37,7 @@ type (
 		pruneTick           time.Duration
 		finishDone          bool
 
-		muProducers sync.Mutex
+		muProducers sync.RWMutex
 	}
 
 	dummySink struct {

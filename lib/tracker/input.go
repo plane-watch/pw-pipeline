@@ -93,13 +93,13 @@ func (t *Tracker) Finish() {
 	t.log.Debug().Str("func", "Finish()").Msg("Starting...")
 
 	// stop all producers
-	t.muProducers.Lock()
+	t.muProducers.RLock()
 	stopFuncs := make([]func(), 0, len(t.producers))
 	for _, p := range t.producers {
 		t.log.Debug().Str("func", "Finish()").Str("producer", p.String()).Msg("Stopping Producer")
 		stopFuncs = append(stopFuncs, p.Stop)
 	}
-	t.muProducers.Unlock()
+	t.muProducers.RUnlock()
 	for _, f := range stopFuncs {
 		f()
 	}
@@ -192,7 +192,7 @@ func (t *Tracker) removeProducer(toRemove Producer) {
 				Int("len(t.producers)", len(t.producers)).
 				Str("source", p.String()).
 				Msg("Removing producer")
-			t.producers = slices.Delete(t.producers, idx, 1)
+			t.producers = slices.Delete(t.producers, idx, idx+1)
 			return
 		}
 	}
