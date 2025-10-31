@@ -32,10 +32,8 @@ var (
 func main() {
 	app := cli.NewApp()
 
-	app.Name = "Runway"
-	app.Description = `This program acts as a server for multiple stunnel-based endpoints, ` +
-		`authenticates the feeder based on API key (UUID) check against atc.plane.watch, ` +
-		`routes data to feed-in containers.`
+	app.Name = "Stress"
+	app.Description = `This program stress tests runway. It connects to nats to retrieve valid api keys, then spawns a given number of workers. Each worker spawns BEAST data.`
 	app.Version = version
 
 	app.Flags = []cli.Flag{
