@@ -163,7 +163,7 @@ spawnLoop:
 				_ = conn.Close()
 			}()
 
-			// send beast traffic forever (until context closure
+			// send beast traffic forever (until context closure)
 			for {
 
 				// check for context closure
@@ -214,7 +214,11 @@ spawnLoop:
 		time.Sleep(c.Duration("spawndelay"))
 	}
 
-	log.Info().Msgf("workers spawned, running for %s", c.Duration("duration").String())
+	select {
+	case <-ctx.Done():
+	default:
+		log.Info().Msgf("workers spawned, running for %s", c.Duration("duration").String())
+	}
 
 	errors := false
 	t := time.NewTicker(c.Duration("duration"))
