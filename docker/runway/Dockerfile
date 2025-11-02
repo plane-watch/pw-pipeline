@@ -35,7 +35,8 @@ COPY --from=build /app/runway /app
 HEALTHCHECK --interval=15s --timeout=3s CMD wget --spider http://localhost:9602/status
 
 # Command to run
-CMD [ "/app/runway", "daemon" ]
+ENTRYPOINT [ "/app/runway" ]
+CMD [ "daemon" ]
 
 FROM alpine:latest
 LABEL org.opencontainers.image.description="Plane.Watch Runway"
@@ -46,4 +47,5 @@ COPY --from=build /app/runway /app
 HEALTHCHECK --interval=15s --timeout=3s CMD wget --spider http://localhost:9602/status
 
 # Command to run
-CMD [ "/app/runway", "daemon" ]
+ENTRYPOINT [ "/app/runway" ]
+CMD [ "daemon" ]
