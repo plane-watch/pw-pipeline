@@ -3,6 +3,7 @@ package stunnel
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -88,6 +89,76 @@ func NewListener(opts ...ListenerOption) (*Listener, error) {
 	return l, nil
 }
 
+func (l *Listener) handleIncoming(conn net.Conn) {
+	var err error
+
+	// set a 10-second deadline for tls handshake
+	err = conn.SetDeadline(time.Now().Add(10 * time.Second))
+	if err != nil {
+		l.log.Error().Msg("failed to set deadline on connection")
+		_ = conn.Close()
+		return
+	}
+
+	// perform tls handshake
+	l.log.Debug().Msg("before handshake")
+	if err = conn.(*tls.Conn).Handshake(); err != nil {
+		l.log.Error().
+			Err(err).
+			Msg("Failed to complete TLS handshake with client")
+		_ = conn.Close()
+		return
+	}
+
+	// ensure tls handshake completed ok
+	l.log.Debug().Msg("testing handshake complete")
+	if conn.(*tls.Conn).ConnectionState().HandshakeComplete == false {
+		l.log.Error().
+			Msg("Handshake is not complete, bailing")
+		_ = conn.Close()
+		return
+	}
+	l.log.Debug().Msg("tls connection established")
+
+	// remove connection deadline now tls handshake complete
+	err = conn.SetDeadline(time.Time{})
+	if err != nil {
+		l.log.Error().Msg("failed to remove deadline on connection")
+		_ = conn.Close()
+		return
+	}
+
+	// pull feeder api key from SNI
+	apiKey := conn.(*tls.Conn).ConnectionState().ServerName
+	l.log.Debug().Str("APIKey", apiKey).Msg("client api key")
+
+	// authenticate client
+	valid, errAuth := l.authHandler(apiKey)
+	if errAuth != nil {
+		l.log.Error().
+			Str("APIKey", apiKey).
+			Err(errAuth).
+			Msg("authentication failure, closing connection")
+		_ = conn.Close()
+		return
+	}
+	if !valid {
+		l.log.Debug().Msg("API Key is not valid, closing connection")
+		_ = conn.Close()
+		return
+	}
+
+	// pass authenticated connection to connHandler
+	l.log.Debug().Str("APIKey", apiKey).Msg("Handling connection")
+	errConn := l.connHandler(conn, apiKey)
+	if errConn != nil {
+		l.log.Error().
+			Err(errConn).
+			Msg("connection failure, closing")
+		_ = conn.Close()
+	}
+}
+
 func (l *Listener) Listen(ctx context.Context) error {
 	config := &tls.Config{
 		GetCertificate: func(info *tls.ClientHelloInfo) (*tls.Certificate, error) {
@@ -98,12 +169,11 @@ func (l *Listener) Listen(ctx context.Context) error {
 
 			l.muCert.Lock()
 			defer l.muCert.Unlock()
-
 			return l.cert, nil
 		},
 	}
 
-	// reload our certificate once a minute
+	// reload our certificate every 5 minutes
 	cancelTicker := timing.RunOnTicker(
 		l.log.With().Str("what", "stunnel reloading certificate").Logger(),
 		5*time.Minute,
@@ -111,20 +181,27 @@ func (l *Listener) Listen(ctx context.Context) error {
 	)
 	defer cancelTicker()
 
-	l.log.Debug().Msg("starting to listen...")
-	netListener, err := tls.Listen("tcp", l.hostPort, config)
-	if err != nil {
-		return fmt.Errorf("failed to listen: %s - %w", l.hostPort, err)
+	// listen for incoming connections
+	netListener, errListener := tls.Listen("tcp", l.hostPort, config)
+	if errListener != nil {
+		return fmt.Errorf("failed to listen: %s - %w", l.hostPort, errListener)
 	}
+	l.log.Info().
+		Str("addr", netListener.Addr().String()).
+		Msg("started listening for connections")
 
-	chDone := make(chan struct{})
-	go func() {
+	// accept incoming connections
+	wg := &sync.WaitGroup{}
+	wg.Go(func() {
 		for {
-			l.log.Debug().Msg("Top of loop")
 
-			l.log.Debug().Msg("accepting tcp connection")
+			// accept the connection
 			conn, errAccept := netListener.Accept()
 			if errAccept != nil {
+				if errors.Is(errAccept, net.ErrClosed) {
+					l.log.Error().Err(errAccept).Msg("Listener closed, exiting accept loop")
+					return
+				}
 				if conn == nil {
 					l.log.Error().
 						Err(errAccept).
@@ -135,97 +212,34 @@ func (l *Listener) Listen(ctx context.Context) error {
 						Err(errAccept).
 						Msg("connection accept failure")
 				}
-				// TODO: are there any errors we can tolerate when accepting a conn?
-				// todo(mikenye): i dont think we want to return here, we want to keep listening...?
-				chDone <- struct{}{}
-				return
+				continue
 			}
+			l.log.Info().
+				Str("RemoteAddr", conn.RemoteAddr().String()).
+				Msg("accepted connection")
 
-			go func(conn net.Conn) {
-
-				// TODO: there is some potential issues here with blocking calls that should be sorted out
-				//  context with a timeout?
-				//  -
-				//  mikenye: I've moved the authentication into the goroutine, so we're not blocking accepting
-				//           other connections. I've also implemented a deadline, so if the feeder has not authenticated
-				//           within 10 seconds, it will close the connection.
-
-				// set a 10-second deadline for tls handshake
-				err = conn.SetDeadline(time.Now().Add(10 * time.Second))
-				if err != nil {
-					l.log.Error().Msg("failed to set deadline on connection")
-					_ = conn.Close()
-					return
-				}
-
-				l.log.Debug().Msg("before handshake")
-				if err = conn.(*tls.Conn).Handshake(); err != nil {
-					l.log.Error().
-						Err(err).
-						Msg("Failed to complete TLS handshake with client")
-					_ = conn.Close()
-					return
-				}
-
-				l.log.Debug().Msg("testing handshake complete")
-				if conn.(*tls.Conn).ConnectionState().HandshakeComplete == false {
-					l.log.Error().
-						Msg("Handshake is not complete, bailing")
-					_ = conn.Close()
-					return
-				}
-
-				l.log.Debug().Msg("tls connection established")
-
-				// remove connection deadline
-				err = conn.SetDeadline(time.Time{})
-				if err != nil {
-					l.log.Error().Msg("failed to remove deadline on connection")
-					_ = conn.Close()
-					return
-				}
-
-				apiKey := conn.(*tls.Conn).ConnectionState().ServerName
-				l.log.Debug().Str("APIKey", apiKey).Msg("client api key")
-
-				valid, errAuth := l.authHandler(apiKey)
-				if errAuth != nil {
-					l.log.Error().
-						Str("APIKey", apiKey).
-						Err(errAuth).
-						Msg("authentication failure, closing connection")
-					_ = conn.Close()
-					return
-				}
-
-				if !valid {
-					l.log.Debug().Msg("API Key is not valid, closing connection")
-					_ = conn.Close()
-					return
-				}
-
-				l.log.Debug().Str("APIKey", apiKey).Msg("Handling connection")
-				errConn := l.connHandler(conn, apiKey)
-				if errConn != nil {
-					l.log.Error().
-						Err(errConn).
-						Msg("connection failure, closing")
-					_ = conn.Close()
-				}
-			}(conn)
+			// hand the connection off so we aren't blocking accept of new connections
+			go l.handleIncoming(conn)
 		}
-	}()
+	})
 
-	l.log.Debug().Msg("Awaiting close")
+	// wait for context closure
 	select {
 	case <-ctx.Done():
-		l.log.Debug().Msg("Context has finished")
-	case <-chDone:
-		l.log.Debug().Msg("Accepting loop has exited")
+		l.log.Debug().Msg("context has finished")
 	}
-	l.log.Debug().Msg("Shutting down...")
+
+	// shutdown
+	l.log.Info().
+		Str("addr", netListener.Addr().String()).
+		Msg("shutting down listener")
+
 	_ = netListener.Close()
-	l.log.Info().Msg("Done with accepting connections")
+	wg.Wait()
+
+	l.log.Info().
+		Str("addr", netListener.Addr().String()).
+		Msg("stopped listening for connections")
 
 	return nil
 }
