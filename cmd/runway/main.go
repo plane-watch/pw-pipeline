@@ -98,7 +98,7 @@ func main() {
 			Category: "Network",
 			Name:     setup.Tag,
 			Usage:    "default tag name for feeders if they do not have one",
-			Hidden:   true,
+			Hidden:   true, // because the HandleSinkFlag expects this to be present, but we do not need it
 			Value:    "unknown",
 		},
 	}
@@ -168,9 +168,9 @@ func runDaemon(c *cli.Context) error {
 		feederauth.WithNatsURL(c.String("sink")),
 	)
 	defer func() {
-		err := feederAuthenticator.Close()
-		if err != nil {
-			log.Error().Err(err).Msg("error closing feederAuthenticator")
+		errFeeder := feederAuthenticator.Close()
+		if errFeeder != nil {
+			log.Error().Err(errFeeder).Msg("error closing feederAuthenticator")
 		}
 	}()
 
