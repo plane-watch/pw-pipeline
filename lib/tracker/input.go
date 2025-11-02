@@ -93,23 +93,24 @@ func (t *Tracker) Finish() {
 	t.finishDone = true
 	t.log.Debug().Str("func", "Finish()").Msg("Starting...")
 
+	wg := sync.WaitGroup{}
 	// stop all producers
 	t.muProducers.RLock()
-	stopFuncs := make([]func(), 0, len(t.producers))
 	for _, p := range t.producers {
 		t.log.Debug().Str("func", "Finish()").Str("producer", p.String()).Msg("Stopping Producer")
-		stopFuncs = append(stopFuncs, p.Stop)
+		wg.Go(p.Stop)
 	}
 	t.muProducers.RUnlock()
-	for _, f := range stopFuncs {
-		f()
-	}
 
 	for _, m := range t.middlewares {
-		t.log.Debug().Str("func", "Finish()").Str("middleware", m.String()).Msg("Stopping middleware")
-		m.Stop()
-		t.middlewareWaiter.Done()
+		wg.Go(func() {
+			t.log.Debug().Str("func", "Finish()").Str("middleware", m.String()).Msg("Stopping middleware")
+			m.Stop()
+			t.middlewareWaiter.Done()
+		})
 	}
+
+	wg.Wait()
 
 	t.log.Debug().Str("func", "Finish()").Msg("Closing Decoding Queue")
 	t.planeList.Stop()

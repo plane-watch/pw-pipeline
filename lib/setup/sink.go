@@ -57,21 +57,6 @@ func HandleSinkFlag(c *cli.Context, connName string) (tracker.Sink, error) {
 	return s, nil
 }
 
-// TODO(mikenye): may be able to DRY this and the func above
-func HandleSinkFlagWithoutTag(c *cli.Context, connName string) (tracker.Sink, error) {
-	defaultDelay := c.Duration(SinkCollectDelay)
-
-	sinkUrl := c.String(Sink)
-	log.Debug().Str("sink-url", sinkUrl).Msg("With Sink")
-	s, err := handleSink(connName, sinkUrl, "", defaultDelay)
-	if nil != err {
-		log.Error().Err(err).Str("url", sinkUrl).Str("what", "sink").Msg("Failed setup sink")
-		return nil, err
-	}
-
-	return s, nil
-}
-
 func handleSink(connName, urlSink, defaultTag string, sendDelay time.Duration) (tracker.Sink, error) {
 	parsedUrl, err := url.Parse(urlSink)
 	if nil != err {

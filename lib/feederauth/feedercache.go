@@ -1,4 +1,4 @@
-package feedercache
+package feederauth
 
 import (
 	"context"

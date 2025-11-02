@@ -30,6 +30,7 @@ type (
 	}
 
 	feederStat struct {
+		apiKey        string
 		frameCount    uint64
 		lastSeen      time.Time
 		lastAtcUpdate time.Time
@@ -75,7 +76,13 @@ func (a *Accounting) Handle(event *tracker.FrameEvent) tracker.Frame {
 func (a *Accounting) queueHandler() {
 	a.exitQueueWaiter.Add(1)
 	for item := range a.handleQueue {
-		stat := a.stats[item.Tag]
+		stat, ok := a.stats[item.Tag]
+		if !ok {
+			stat = feederStat{
+				apiKey:     item.Tag,
+				frameCount: 0,
+			}
+		}
 		stat.frameCount++
 		stat.lastSeen = time.Now()
 
@@ -94,7 +101,7 @@ func (a *Accounting) atcUpdateQueueHandler() {
 	for stat := range a.atcUpdateQueue {
 		feederUpdates := []export.FeederUpdate{
 			{
-				ApiKey:   "",
+				ApiKey:   stat.apiKey,
 				LastSeen: stat.lastSeen,
 			},
 		}
@@ -120,6 +127,7 @@ func (a *Accounting) HealthCheckName() string {
 	return "Packet Accounting"
 }
 
+// TODO: if nats is returning lots of errors, maybe make this service unhealthy?
 func (a *Accounting) HealthCheck() bool {
 	// TODO: actually implement a health check
 	return true

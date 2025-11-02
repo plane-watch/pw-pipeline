@@ -27,8 +27,7 @@ type (
 )
 
 func (f *Filter) Stop() {
-	//TODO implement me
-	panic("implement me")
+	f.list.Stop()
 }
 
 func WithDedupeCounter(dedupeCounter prometheus.Counter) Option {

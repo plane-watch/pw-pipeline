@@ -14,7 +14,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
-	"plane.watch/lib/feedercache"
+	"plane.watch/lib/feederauth"
 	"plane.watch/lib/nats_io"
 	"plane.watch/lib/stunnel"
 	"plane.watch/lib/timing"
@@ -38,7 +38,7 @@ type (
 		natsServer *nats_io.Server
 		natsURL    string
 
-		feeders *feedercache.FeederCache
+		feeders *feederauth.FeederCache
 	}
 
 	Option func(manifest *MLATBridge)
@@ -55,7 +55,7 @@ var (
 	})
 )
 
-func WithFeederCache(feeders *feedercache.FeederCache) Option {
+func WithFeederAuthenticator(feeders *feederauth.FeederCache) Option {
 	return func(mb *MLATBridge) {
 		mb.feeders = feeders
 	}
@@ -130,7 +130,7 @@ func ListenForIncomingPlaneWatchMLAT(ctx context.Context, opts ...Option) (*MLAT
 }
 
 func (mb *MLATBridge) authenticator(apiKey string) (bool, error) {
-	return mb.feeders.Authenticate(apiKey, feedercache.MLAT)
+	return mb.feeders.Authenticate(apiKey, feederauth.MLAT)
 }
 
 func (mb *MLATBridge) handler(feederConn net.Conn, apiKey string) error {
@@ -147,9 +147,9 @@ func (mb *MLATBridge) handler(feederConn net.Conn, apiKey string) error {
 	}
 
 	// update feeder cache
-	mb.feeders.SetConnected(apiKey, feedercache.MLAT)
+	mb.feeders.SetConnected(apiKey, feederauth.MLAT)
 	defer func() {
-		mb.feeders.SetDisconnected(apiKey, feedercache.MLAT)
+		mb.feeders.SetDisconnected(apiKey, feederauth.MLAT)
 	}()
 
 	// lookup which mlat server to use

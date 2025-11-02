@@ -12,7 +12,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"plane.watch/lib/feedercache"
+	"plane.watch/lib/feederauth"
 	"plane.watch/lib/nats_io"
 	"plane.watch/lib/producer"
 	"plane.watch/lib/stunnel"
@@ -38,7 +38,7 @@ type (
 		natsServer *nats_io.Server
 		natsURL    string
 
-		feeders *feedercache.FeederCache
+		feeders *feederauth.FeederCache
 	}
 
 	Option func(manifest *Manifest)
@@ -55,7 +55,7 @@ var (
 	})
 )
 
-func WithFeederCache(feeders *feedercache.FeederCache) Option {
+func WithFeederAuthenticator(feeders *feederauth.FeederCache) Option {
 	return func(manifest *Manifest) {
 		manifest.feeders = feeders
 	}
@@ -139,7 +139,7 @@ func ListenForIncomingPlaneWatchBeast(ctx context.Context, opts ...Option) (*Man
 }
 
 func (m *Manifest) authenticator(apiKey string) (bool, error) {
-	return m.feeders.Authenticate(apiKey, feedercache.BEAST)
+	return m.feeders.Authenticate(apiKey, feederauth.BEAST)
 }
 
 func (m *Manifest) handler(conn net.Conn, apiKey string) error {
@@ -148,7 +148,7 @@ func (m *Manifest) handler(conn net.Conn, apiKey string) error {
 	if err != nil {
 		return fmt.Errorf("failed to get feeder for %s: %w", apiKey, err)
 	}
-	m.feeders.SetConnected(apiKey, feedercache.BEAST)
+	m.feeders.SetConnected(apiKey, feederauth.BEAST)
 
 	// register prom metrics
 	prometheusInputBeastFrames := prometheus.NewCounter(prometheus.CounterOpts{
@@ -168,9 +168,6 @@ func (m *Manifest) handler(conn net.Conn, apiKey string) error {
 	}
 	prometheusConnectedBeastFeeders.Inc()
 
-	// TODO: handle stats updates to ATC
-	// TODO: jam stats into clicks for received packets per second (needs to be done before dedupe)
-	// TODO: Jam distance/heading info into clicks so we can produce a coverage map
 	p := producer.New(
 		producer.WithConnection(conn),
 		producer.WithType(producer.Beast),
@@ -191,7 +188,7 @@ func (m *Manifest) handler(conn net.Conn, apiKey string) error {
 		producer.WithCleanUpTasks(
 			// set feeder disconnected
 			func() error {
-				m.feeders.SetDisconnected(apiKey, feedercache.BEAST)
+				m.feeders.SetDisconnected(apiKey, feederauth.BEAST)
 				return nil
 			},
 			// unregister prom metrics

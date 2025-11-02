@@ -2,17 +2,15 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"os"
-	"time"
+	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/rs/zerolog/log"
 	"github.com/urfave/cli/v2"
-	"golang.org/x/sync/errgroup"
 	"plane.watch/lib/dedupe"
-	"plane.watch/lib/feedercache"
+	"plane.watch/lib/feederauth"
 	"plane.watch/lib/logging"
 	"plane.watch/lib/middleware"
 	"plane.watch/lib/mlatbridge"
@@ -96,6 +94,13 @@ func main() {
 			Value:    1,
 			EnvVars:  []string{"ATC_UPDATE_FREQ"},
 		},
+		&cli.StringFlag{
+			Category: "Network",
+			Name:     setup.Tag,
+			Usage:    "default tag name for feeders if they do not have one",
+			Hidden:   true,
+			Value:    "unknown",
+		},
 	}
 
 	setup.IncludeSinkFlags(app)
@@ -132,8 +137,7 @@ func runDaemon(c *cli.Context) error {
 		tracker.WithDecodeWorkerCount(1), // only need a single decoder per source
 	)
 	trk := tracker.NewTracker(trackerOpts...)
-	trk.AddMiddleware(dedupe.NewFilter(dedupe.WithDedupeCounter(prometheusOutputFrameDedupe)))
-	sinkDest, err := setup.HandleSinkFlagWithoutTag(c, "runway")
+	sinkDest, err := setup.HandleSinkFlag(c, "runway")
 	if err != nil {
 		return err
 	}
@@ -159,69 +163,55 @@ func runDaemon(c *cli.Context) error {
 	}
 
 	// start feeder cache system
-	feeders, err := feedercache.New(
-		feedercache.WithLogger(log.Logger),
-		feedercache.WithNatsURL(c.String("sink")),
+	feederAuthenticator, err := feederauth.New(
+		feederauth.WithLogger(log.With().Logger()),
+		feederauth.WithNatsURL(c.String("sink")),
 	)
 	defer func() {
-		err := feeders.Close()
+		err := feederAuthenticator.Close()
 		if err != nil {
-			log.Error().Err(err).Msg("error closing feeders")
+			log.Error().Err(err).Msg("error closing feederAuthenticator")
 		}
 	}()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	wg := errgroup.Group{}
+	wg := sync.WaitGroup{}
 
 	// BEAST Listener
-	wg.Go(func() error {
+	wg.Go(func() {
 		defer cancel()
-		for { // loop forever
-			//todo(mikenye): implement a way to exit loop when app is quit (eg: SIGTERM/SIGINT) or similar.
-			//  consider adding a "WithCancel" or "WithContext" for this
-			_, err := ListenForIncomingPlaneWatchBeast(
-				ctx,
-				WithListenHostPort(c.String("listen-beast")),
-				WithTLSCertificate(c.String("cert"), c.String("key")),
-				WithTracker(trk),
-				WithNatsURL(c.String("sink")),
-				WithFeederCache(feeders),
-			)
-			if err != nil {
-				return fmt.Errorf("failed to listen for beast: %w", err)
-			}
-			feeders.Reset(feedercache.BEAST)
-			time.Sleep(time.Second * 10) // back-off between loops
+		_, err := ListenForIncomingPlaneWatchBeast(
+			ctx,
+			WithListenHostPort(c.String("listen-beast")),
+			WithTLSCertificate(c.String("cert"), c.String("key")),
+			WithTracker(trk),
+			WithNatsURL(c.String("sink")),
+			WithFeederAuthenticator(feederAuthenticator),
+		)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to listen for beast")
 		}
-		return nil
 	})
 
 	// MLAT Listener
-	wg.Go(func() error {
+	wg.Go(func() {
 		defer cancel()
-		for {
-			//todo(mikenye): implement a way to exit loop when app is quit (eg: SIGTERM/SIGINT) or similar.
-			//  consider adding a "WithCancel" or "WithContext" for this
-			_, err := mlatbridge.ListenForIncomingPlaneWatchMLAT(
-				ctx,
-				mlatbridge.WithListenHostPort(c.String("listen-mlat")),
-				mlatbridge.WithTLSCertificate(c.String("cert"), c.String("key")),
-				mlatbridge.WithNatsURL(c.String("sink")),
-				mlatbridge.WithFeederCache(feeders),
-			)
-			if err != nil {
-				return fmt.Errorf("failed to listen for mlat: %w", err)
-			}
-			feeders.Reset(feedercache.MLAT)
-			time.Sleep(time.Second * 10) // back-off between loops
+		_, err := mlatbridge.ListenForIncomingPlaneWatchMLAT(
+			ctx,
+			mlatbridge.WithListenHostPort(c.String("listen-mlat")),
+			mlatbridge.WithTLSCertificate(c.String("cert"), c.String("key")),
+			mlatbridge.WithNatsURL(c.String("sink")),
+			mlatbridge.WithFeederAuthenticator(feederAuthenticator),
+		)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to listen for mlat")
 		}
-		return nil
 	})
 
 	go trk.StopOnCancel()
-	err = wg.Wait()
+	wg.Wait()
 	trk.Wait()
 
 	return err
