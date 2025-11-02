@@ -195,7 +195,9 @@ func (f *FeederCache) Authenticate(apiKey string, p Protocol) (bool, error) {
 }
 
 func (f *FeederCache) Close() error {
-	f.refresherCancelFunc()
+	if f != nil {
+		f.refresherCancelFunc()
+	}
 	return nil
 }
 

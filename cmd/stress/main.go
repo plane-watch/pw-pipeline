@@ -131,6 +131,7 @@ func runStress(c *cli.Context) error {
 	// spawn workers
 	logTicker := time.NewTicker(time.Second)
 	log.Info().Msgf("spawning %d workers", maxWorkers)
+spawnLoop:
 	for i := 0; i < maxWorkers; i++ {
 		wg.Go(func() {
 
@@ -203,13 +204,16 @@ func runStress(c *cli.Context) error {
 		})
 		select {
 		case <-ctx.Done():
-			break
+			// stop spawning new feeders if there's been an error
+			log.Info().Msg("stopping feeder spawning due to error")
+			break spawnLoop
 		case <-logTicker.C:
 			log.Info().Msgf("%d/%d feeders spawned", i, maxWorkers)
 		default:
 		}
 		time.Sleep(c.Duration("spawndelay"))
 	}
+
 	log.Info().Msgf("workers spawned, running for %s", c.Duration("duration").String())
 
 	errors := false

@@ -210,7 +210,9 @@ func runDaemon(c *cli.Context) error {
 		}
 	})
 
-	go trk.StopOnCancel()
+	go trk.StopOnCancel(func() {
+		cancel()
+	})
 	wg.Wait()
 	trk.Wait()
 

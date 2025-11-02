@@ -53,7 +53,7 @@ func NewAccounting(opts ...AccountingOption) *Accounting {
 		opt(a)
 	}
 	a.stats = make(map[string]feederStat, 1000)
-	
+
 	a.handleQueue = make(chan *tracker.FrameSource, 1000)
 	a.atcUpdateQueue = make(chan feederStat, 1000)
 

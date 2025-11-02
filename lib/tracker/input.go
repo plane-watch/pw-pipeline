@@ -212,11 +212,16 @@ func (t *Tracker) Stop() {
 }
 
 // StopOnCancel listens for SigInt etc. and gracefully stops
-func (t *Tracker) StopOnCancel() {
+func (t *Tracker) StopOnCancel(callbacks ...func()) {
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
 	isStopping := false
 	exitChan := make(chan bool, 3)
+	defer func() {
+		for _, f := range callbacks {
+			f()
+		}
+	}()
 	for {
 		select {
 		case sig := <-ch:
