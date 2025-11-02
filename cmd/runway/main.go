@@ -139,6 +139,19 @@ func runDaemon(c *cli.Context) error {
 	}
 	trk.SetSink(sinkDest)
 
+	// middleware order matters
+
+	// add in the frame accounting middleware before we deduplicate the incoming streams
+	if sinkType, ok := sinkDest.(*sink.Sink); ok {
+		if ns, ok := sinkType.Server().(*nats_io.Server); ok {
+			trk.AddMiddleware(middleware.NewAccounting(middleware.WithNats(ns)))
+		}
+	}
+
+	// no need to process the same ADSB from the same plane more than once
+	trk.AddMiddleware(dedupe.NewFilter(dedupe.WithDedupeCounter(prometheusOutputFrameDedupe)))
+
+	// allow our ingest tap to see what is going on
 	if sinkType, ok := sinkDest.(*sink.Sink); ok {
 		if ns, ok := sinkType.Server().(*nats_io.Server); ok {
 			trk.AddMiddleware(middleware.NewIngestTap(ns))
@@ -207,9 +220,8 @@ func runDaemon(c *cli.Context) error {
 		return nil
 	})
 
-	err = wg.Wait()
-
 	go trk.StopOnCancel()
+	err = wg.Wait()
 	trk.Wait()
 
 	return err

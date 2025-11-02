@@ -61,6 +61,7 @@ type (
 		fmt.Stringer
 		monitoring.HealthCheck
 		Handle(*FrameEvent) Frame
+		Stop()
 	}
 )
 
@@ -102,6 +103,12 @@ func (t *Tracker) Finish() {
 	t.muProducers.RUnlock()
 	for _, f := range stopFuncs {
 		f()
+	}
+
+	for _, m := range t.middlewares {
+		t.log.Debug().Str("func", "Finish()").Str("middleware", m.String()).Msg("Stopping middleware")
+		m.Stop()
+		t.middlewareWaiter.Done()
 	}
 
 	t.log.Debug().Str("func", "Finish()").Msg("Closing Decoding Queue")
@@ -171,6 +178,7 @@ func (t *Tracker) AddMiddleware(m Middleware) {
 	monitoring.AddHealthCheck(m)
 	t.log.Debug().Str("name", m.String()).Msg("Adding middleware")
 	t.middlewares = append(t.middlewares, m)
+	t.middlewareWaiter.Add(1)
 
 	t.log.Debug().Msg("Just added a middleware")
 }

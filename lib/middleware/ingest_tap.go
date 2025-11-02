@@ -56,7 +56,7 @@ func NewIngestTap(natsServer *nats_io.Server) tracker.Middleware {
 	return tap
 }
 
-func (tap *IngestTap) Close() {
+func (tap *IngestTap) Stop() {
 	close(tap.queue)
 	tap.queueWg.Wait()
 	err := tap.sub.Unsubscribe()

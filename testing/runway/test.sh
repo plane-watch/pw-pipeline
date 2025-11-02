@@ -13,7 +13,7 @@ cleanup() {
 }
 
 # Register the cleanup function to run on exit (normal or error)
-trap cleanup EXIT
+#trap cleanup EXIT
 
 # === CERT and KEY CREATION ===
 

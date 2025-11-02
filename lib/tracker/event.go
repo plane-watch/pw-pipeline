@@ -25,10 +25,10 @@ type (
 	FrameSource struct {
 		RefLat           *float64
 		RefLon           *float64
-		OriginIdentifier string
-		Name             string
-		Tag              string
-		VelocityCheck    bool
+		OriginIdentifier string // ip, file name etc
+		Name             string // a displayable name
+		Tag              string // API Key or other source unique identifier
+		VelocityCheck    bool   // perform velocity checks for this source
 	}
 )
 
