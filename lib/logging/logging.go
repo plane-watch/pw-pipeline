@@ -2,6 +2,7 @@ package logging
 
 import (
 	"os"
+	"path/filepath"
 	"runtime/pprof"
 	"time"
 
@@ -43,7 +44,7 @@ func IncludeVerbosityFlags(app *cli.App) {
 		},
 	)
 	// append our after func to stop profiling
-	if nil == app.After {
+	if app.After == nil {
 		app.After = StopProfiling
 	} else {
 		f := app.After
@@ -108,7 +109,8 @@ func StopProfiling(c *cli.Context) error {
 		println("To analyze the profile, use this cmd")
 		println("go tool pprof -http=:7777", fileName)
 
-		f, err := os.Create("mem-" + fileName)
+		fileNameHeapProfile := filepath.Join(filepath.Dir(fileName), "mem-"+filepath.Base(fileName))
+		f, err := os.Create(fileNameHeapProfile)
 		if nil != err {
 			panic(err)
 		}
