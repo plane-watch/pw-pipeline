@@ -2,13 +2,14 @@ package main
 
 import (
 	"fmt"
+	"sync"
+	"time"
+
 	"github.com/urfave/cli/v2"
 	"plane.watch/lib/logging"
 	"plane.watch/lib/producer"
 	"plane.watch/lib/tracker"
 	"plane.watch/lib/tracker/mode_s"
-	"sync"
-	"time"
 )
 
 type TimeFiddler struct {
@@ -79,3 +80,5 @@ func (fm *TimeFiddler) Handle(fe *tracker.FrameEvent) tracker.Frame {
 
 	return f
 }
+
+func (fm *TimeFiddler) Stop() {}
