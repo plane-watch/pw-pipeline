@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/pprof"
+	"runtime"
 	"sync"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -57,6 +58,8 @@ func RunWebServer(c *cli.Context) {
 		// Conditionally enable pprof endpoints
 		if c.Bool("enable-net-pprof") {
 			log.Info().Int("Port", monitoringPort).Msg("Enabling /debug/pprof endpoints")
+			runtime.SetBlockProfileRate(10_000) // ~10µs resolution
+			runtime.SetMutexProfileFraction(5)  // sample ~1 in 5 contentions
 			mux.HandleFunc("/debug/pprof/", pprof.Index)
 			mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
 			mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
