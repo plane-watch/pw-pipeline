@@ -3,6 +3,7 @@ package monitoring
 import (
 	"fmt"
 	"net/http"
+	"net/http/pprof"
 	"sync"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -34,6 +35,12 @@ func IncludeMonitoringFlags(app *cli.App, defaultPort int) {
 			Value:   defaultPort,
 			EnvVars: []string{"MONITORING_PORT"},
 		},
+		&cli.BoolFlag{
+			Name:    "enable-net-pprof",
+			Usage:   "Enable net pprof profiling at /debug/pprof",
+			Value:   false,
+			EnvVars: []string{"MONITORING_NET_PPROF"},
+		},
 	)
 }
 
@@ -46,6 +53,16 @@ func RunWebServer(c *cli.Context) {
 
 		mux.Handle("/metrics", promhttp.Handler())
 		mux.HandleFunc("/status", healthCheck)
+
+		// Conditionally enable pprof endpoints
+		if c.Bool("enable-net-pprof") {
+			log.Info().Int("Port", monitoringPort).Msg("Enabling /debug/pprof endpoints")
+			mux.HandleFunc("/debug/pprof/", pprof.Index)
+			mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+			mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+			mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+			mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+		}
 
 		// TODO(MikeNye): Do we want to add error handling around this?
 		_ = http.ListenAndServe(fmt.Sprintf(":%d", monitoringPort), mux)
@@ -66,7 +83,7 @@ func RemoveHealthCheck(f HealthCheck) {
 	delete(healthChecks, f.HealthCheckName())
 }
 
-func healthCheck(w http.ResponseWriter, r *http.Request) {
+func healthCheck(w http.ResponseWriter, _ *http.Request) {
 	healthChecksLock.RLock()
 	defer healthChecksLock.RUnlock()
 	healthy := len(healthChecks) > 0
