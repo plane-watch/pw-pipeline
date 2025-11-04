@@ -251,8 +251,8 @@ func (mb *MLATBridge) handler(feederConn net.Conn, apiKey string) error {
 func (mb *MLATBridge) simplexBridge(ctx context.Context, cancel context.CancelFunc, from, to net.Conn, counter prometheus.Counter) error {
 
 	var (
-		err error
-		n   int
+		err  error
+		m, n int
 	)
 
 	// close both sides of the bridge when done
@@ -264,18 +264,18 @@ func (mb *MLATBridge) simplexBridge(ctx context.Context, cancel context.CancelFu
 	}()
 
 	// make buffer to hold data in flight
-	buf := make([]byte, 65745) // todo(mikenye): set to tcp maximum segment size - is this realistic?
+	buf := make([]byte, 64*1024) // 64KiB is a good general-purpose size
 
 	for {
 
-		// check for context closure
+		// Fast path: bail if context is cancelled.
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("context canceled: %w", ctx.Err())
 		default:
 		}
 
-		// set/extend read/write deadlines
+		// Keep deadlines short so we can poll ctx regularly.
 		err = from.SetReadDeadline(time.Now().Add(1 * time.Second))
 		if err != nil {
 			cancel()
@@ -296,11 +296,31 @@ func (mb *MLATBridge) simplexBridge(ctx context.Context, cancel context.CancelFu
 			cancel()
 			return fmt.Errorf("read error: %w", err)
 		}
-		counter.Add(float64(n))
-		_, err = to.Write(buf[:n])
-		if err != nil && !errors.Is(err, os.ErrDeadlineExceeded) {
-			cancel()
-			return fmt.Errorf("write error: %w", err)
+
+		if n == 0 {
+			// No bytes read and no error — unlikely, but just continue.
+			continue
+		}
+
+		// Write all n bytes, handling short writes and write timeouts.
+		written := 0
+		for written < n {
+
+			// Short write retry loop still respects ctx via deadlines.
+			if err = to.SetWriteDeadline(time.Now().Add(1 * time.Second)); err != nil {
+				cancel()
+				return fmt.Errorf("failed to set write deadline: %w", err)
+			}
+
+			m, err = to.Write(buf[written:n])
+			if m > 0 {
+				written += m
+				counter.Add(float64(m)) // count only bytes actually forwarded
+			}
+			if err != nil && !errors.Is(err, os.ErrDeadlineExceeded) {
+				cancel()
+				return fmt.Errorf("write error: %w", err)
+			}
 		}
 	}
 }
