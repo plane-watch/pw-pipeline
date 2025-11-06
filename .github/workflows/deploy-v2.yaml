@@ -76,17 +76,17 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # Get metadata from repo
-      - name: Extract metadata (tags, labels) for Docker
-        id: meta
-        uses: docker/metadata-action@v3
-        with:
-          images: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}
-          labels: |
-            org.opencontainers.image.version=${{ steps.semantic-gitcommit.outputs.version }}
-            org.opencontainers.image.source=${{github.repository}}
-          tags: |
-            ghcr.io/${{ env.GHCR_ORG }}/${{ matrix.image }}:latest
-            ghcr.io/${{ env.GHCR_ORG }}/${{ matrix.image }}:${{ steps.semantic-gitcommit.outputs.version }}
+      # - name: Extract metadata (tags, labels) for Docker
+      #   id: meta
+      #   uses: docker/metadata-action@v5
+      #   with:
+      #     images: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}
+      #     labels: |
+      #       org.opencontainers.image.version=${{ steps.semantic-gitcommit.outputs.version }}
+      #       org.opencontainers.image.source=${{ github.repository }}
+      #     tags: |
+      #       type=raw,latest
+      #       type=raw,${{ steps.semantic-gitcommit.outputs.version }}
 
       # Set up QEMU for multi-arch builds
       - name: Set up QEMU
@@ -97,9 +97,9 @@ jobs:
         id: buildx
         uses: docker/setup-buildx-action@v1
 
-      # Build only (if not push to main branch)
+      # Build only (if not push to main branch, or it's a manual dispatch)
       - name: Build only - ${{ matrix.image }}
-        if: ${{ github.event_name != 'push' && github.ref != 'refs/heads/main' }}
+        if: ${{ (github.event_name != 'push' && github.ref != 'refs/heads/main' ) || github.event_name == 'workflow_dispatch' }}
         uses: docker/build-push-action@v6
         with:
           build-args: IMAGE_VERSION="${{ steps.semantic-gitcommit.outputs.version }}"
@@ -107,8 +107,12 @@ jobs:
           file: docker/${{ matrix.image }}/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: false
-          tags: ${{steps.meta.outputs.tags}}
-          labels: ${{ steps.meta.outputs.labels }}
+          labels: |
+            org.opencontainers.image.version=${{ steps.semantic-gitcommit.outputs.version }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          tags: |
+            ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_ORG }}/${{ matrix.image }}:latest
+            ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_ORG }}/${{ matrix.image }}:${{ steps.semantic-gitcommit.outputs.version }}
 
       # Build & Push (if push to main branch)
       - name: Build & Push - ${{ matrix.image }}
@@ -120,5 +124,9 @@ jobs:
           file: docker/${{ matrix.image }}/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{steps.meta.outputs.tags}}
-          labels: ${{ steps.meta.outputs.labels }}
+          labels: |
+            org.opencontainers.image.version=${{ steps.semantic-gitcommit.outputs.version }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          tags: |
+            ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_ORG }}/${{ matrix.image }}:latest
+            ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_ORG }}/${{ matrix.image }}:${{ steps.semantic-gitcommit.outputs.version }}
