@@ -146,9 +146,8 @@ func WithCleanUpTasks(tasks ...func() error) Option {
 func WithListener(host, port string) Option {
 	return func(p *Producer) {
 		p.run = func() {
-			defer func() {
-				p.Cleanup()
-			}()
+			defer p.Cleanup()
+
 			addr := net.JoinHostPort(host, port)
 			ln, err := net.Listen("tcp", addr)
 			if err != nil {
@@ -188,9 +187,8 @@ func WithFetcher(host, port string) Option {
 		p.hasFetcher = true
 		p.FrameSource.OriginIdentifier = hp
 		p.run = func() {
-			defer func() {
-				p.Cleanup()
-			}()
+			defer p.Cleanup()
+
 			p.addInfo("Fetching From Host: %s:%s", host, port)
 			p.fetcher(host, port, func(conn net.Conn) error {
 				scan := bufio.NewScanner(conn)
@@ -207,9 +205,8 @@ func WithConnection(conn net.Conn) Option {
 		p.run = func() {
 			p.addInfo("Fetching From Host: %s", p.FrameSource.OriginIdentifier)
 			go func() {
-				defer func() {
-					p.Cleanup()
-				}()
+				defer p.Cleanup()
+
 				defer func() {
 					p.log.Debug().Msg("closing connection")
 					_ = conn.Close()
@@ -240,9 +237,8 @@ func WithFiles(filePaths []string) Option {
 	return func(p *Producer) {
 		p.FrameSource.VelocityCheck = p.beastDelay
 		p.run = func() {
-			defer func() {
-				p.Cleanup()
-			}()
+			// note: we do cleanup in readFiles so the producer doesn't close
+
 			p.readFiles(filePaths, func(reader io.Reader, fileName string) error {
 				scanner := bufio.NewScanner(reader)
 				p.FrameSource.OriginIdentifier = "file://" + fileName
@@ -406,6 +402,7 @@ func (p *Producer) Cleanup() {
 			p.log.Debug().Msg("Finished Cleanup")
 		}
 	}()
+
 	close(p.out)
 }
 
@@ -414,6 +411,8 @@ func (p *Producer) readFiles(dataFiles []string, read func(io.Reader, string) er
 	var inFile *os.File
 	var gzipFile *gzip.Reader
 	go func() {
+		defer p.Cleanup()
+
 		for _, inFileName := range dataFiles {
 			log.Debug().Str("FileName", inFileName).Msg("Loading contents...")
 			p.FrameSource.OriginIdentifier = "file://" + inFileName
@@ -453,7 +452,6 @@ func (p *Producer) readFiles(dataFiles []string, read func(io.Reader, string) er
 				Msg("Finished with file")
 		}
 		log.Debug().Msg("Done loading contents from files")
-		//p.Cleanup()
 	}()
 
 	go func() {
