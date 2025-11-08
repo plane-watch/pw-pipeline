@@ -25,6 +25,7 @@ type (
 )
 
 var ErrNoOp = errors.New("frame is NoOp")
+var ErrInvalidChecksum = errors.New("invalid checksum")
 
 func DecodeString(rawFrame string, t time.Time) (*Frame, error) {
 	frame := NewFrame(rawFrame, t)
@@ -516,7 +517,8 @@ func decodeFlightNumber(b []byte) []byte {
 		return nil
 	}
 
-	// Reject common invalid patterns
+	// Reject common invalid patterns, because occasionally misconfigured aircraft send bogus call signs.
+	// For example-- we've seen things like: A90004A0200000000000007D8DB4 which is basically all nulls.
 	s := string(callsign)
 	if s == "@@@@@@@@" || s == "        " || s == "--------" {
 		return nil

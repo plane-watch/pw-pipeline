@@ -7,48 +7,118 @@ import (
 	"time"
 )
 
+// Test Utilities for generating frames with correct CRC values
+
+// ComputePIField computes the correct PI field (CRC) for a message
+// Used for generating valid test frames
+// Pass in a message with 0x00 in the last 3 bytes
+func ComputePIField(message []byte) []byte {
+	if len(message) != 7 && len(message) != 14 {
+		panic(fmt.Sprintf("message must be 7 or 14 bytes, got %d", len(message)))
+	}
+
+	result := make([]byte, len(message))
+	copy(result, message)
+
+	// Zero out last 3 bytes
+	result[len(result)-3] = 0
+	result[len(result)-2] = 0
+	result[len(result)-1] = 0
+
+	// Calculate CRC
+	crc := calculateCRC(result, uint32(len(result)-3))
+
+	// Set PI field
+	result[len(result)-3] = byte((crc >> 16) & 0xff)
+	result[len(result)-2] = byte((crc >> 8) & 0xff)
+	result[len(result)-1] = byte(crc & 0xff)
+
+	return result
+}
+
+// ComputeAPField computes the correct AP field (CRC ⊕ ICAO) for a message
+// Used for generating valid test frames
+// Pass in a message with 0x00 in the last 3 bytes and the ICAO address
+func ComputeAPField(message []byte, icao uint32) []byte {
+	if len(message) != 7 && len(message) != 14 {
+		panic(fmt.Sprintf("message must be 7 or 14 bytes, got %d", len(message)))
+	}
+
+	result := make([]byte, len(message))
+	copy(result, message)
+
+	// Zero out last 3 bytes
+	result[len(result)-3] = 0
+	result[len(result)-2] = 0
+	result[len(result)-1] = 0
+
+	// Calculate CRC
+	crc := calculateCRC(result, uint32(len(result)-3))
+
+	// AP = CRC ⊕ ICAO
+	ap := crc ^ (icao & 0xffffff)
+
+	// Set AP field
+	result[len(result)-3] = byte((ap >> 16) & 0xff)
+	result[len(result)-2] = byte((ap >> 8) & 0xff)
+	result[len(result)-1] = byte(ap & 0xff)
+
+	return result
+}
+
+// CorruptCRC intentionally corrupts the last 3 bytes for testing
+func CorruptCRC(message []byte) []byte {
+	corrupted := make([]byte, len(message))
+	copy(corrupted, message)
+
+	// Flip bits in the last byte
+	corrupted[len(corrupted)-1] ^= 0x55
+
+	return corrupted
+}
+
 // TestAPFieldValidation tests AP field CRC validation (DF 0, 4, 5, 16, 20, 21, 24)
 func TestAPFieldValidation(t *testing.T) {
 	tests := []struct {
-		name        string
-		frame       string
-		expectedDF  byte
+		name         string
+		frame        string
+		expectedDF   byte
 		expectedICAO string
 	}{
 		{
-			name:        "DF0 - Short air-air surveillance",
-			frame:       "*00050319AB8C22;",
-			expectedDF:  0,
+			name:         "DF0 - Short air-air surveillance",
+			frame:        "*00050319AB8C22;",
+			expectedDF:   0,
 			expectedICAO: "7C7B5A",
 		},
 		{
-			name:        "DF4 - Surveillance altitude reply",
-			frame:       "*210000992F8C48;",
-			expectedDF:  4,
+			name:         "DF4 - Surveillance altitude reply",
+			frame:        "*210000992F8C48;",
+			expectedDF:   4,
 			expectedICAO: "7C7539",
 		},
 		{
-			name:        "DF5 - Surveillance identity reply",
-			frame:       "28001B1F2181F6;",
-			expectedDF:  5,
+			name:         "DF5 - Surveillance identity reply",
+			frame:        "28001B1F2181F6;",
+			expectedDF:   5,
 			expectedICAO: "7C1B28",
 		},
 		{
-			name:        "DF16 - Long air-air surveillance",
-			frame:       "8061902258822EFC8B9486FDA3BF",
-			expectedDF:  16,
+			name:         "DF16 - Long air-air surveillance",
+			frame:        "8061902258822EFC8B9486FDA3BF",
+			expectedDF:   16,
 			expectedICAO: "7C431F",
 		},
 		{
-			name:        "DF20 - Comm-B altitude reply",
-			frame:       "A000033610020A80F00000270BAA;",
-			expectedDF:  20,
+			name:         "DF20 - Comm-B altitude reply",
+			frame:        "A000033610020A80F00000270BAA;",
+			expectedDF:   20,
 			expectedICAO: "7C1666",
 		},
 		{
-			name:        "DF21 - Comm-B identity reply",
-			frame:       "A80011892058F6B9C38DA09C6D38",
-			expectedDF:  21,
+			name:         "DF21 - Comm-B identity reply",
+			frame:        "A80011892058F6B9C38DA09C6D38",
+			expectedDF:   21,
 			expectedICAO: "7C1BE8",
 		},
 	}
@@ -77,21 +147,21 @@ func TestAPFieldValidation(t *testing.T) {
 // TestPIFieldValidation tests PI field CRC validation (DF 11, 17, 18)
 func TestPIFieldValidation(t *testing.T) {
 	tests := []struct {
-		name        string
-		frame       string
-		expectedDF  byte
+		name         string
+		frame        string
+		expectedDF   byte
 		expectedICAO string
 	}{
 		{
-			name:        "DF17 - Extended squitter",
-			frame:       "*8D4840D6202CC371C32CE0576098;",
-			expectedDF:  17,
+			name:         "DF17 - Extended squitter",
+			frame:        "*8D4840D6202CC371C32CE0576098;",
+			expectedDF:   17,
 			expectedICAO: "4840D6",
 		},
 		{
-			name:        "DF17 - Airborne position",
-			frame:       "*8D75804B580FF2CF7E9BA6F701D0;",
-			expectedDF:  17,
+			name:         "DF17 - Airborne position",
+			frame:        "*8D75804B580FF2CF7E9BA6F701D0;",
+			expectedDF:   17,
 			expectedICAO: "75804B",
 		},
 	}
@@ -157,16 +227,16 @@ func TestCorruptedFrames(t *testing.T) {
 // TestMLATFrameValidation tests that MLAT frames are validated
 func TestMLATFrameValidation(t *testing.T) {
 	tests := []struct {
-		name        string
-		frame       string
+		name         string
+		frame        string
 		expectedICAO string
-		shouldPass  bool
+		shouldPass   bool
 	}{
 		{
-			name:        "Valid MLAT DF17",
-			frame:       "@000000EF31C08D4840D6202CC371C32CE0576098;",
+			name:         "Valid MLAT DF17",
+			frame:        "@000000EF31C08D4840D6202CC371C32CE0576098;",
 			expectedICAO: "4840D6",
-			shouldPass:  true,
+			shouldPass:   true,
 		},
 	}
 

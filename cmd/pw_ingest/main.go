@@ -1,11 +1,12 @@
 package main
 
 import (
+	"os"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/rs/zerolog/log"
 	"github.com/urfave/cli/v2"
-	"os"
 	"plane.watch/lib/dedupe"
 	"plane.watch/lib/example_finder"
 	"plane.watch/lib/logging"
@@ -71,7 +72,7 @@ func main() {
 	app.Commands = []*cli.Command{
 		{
 			Name:      "simple",
-			Usage:     "Gather ADSB data and sends it to the configured output. just a log of info",
+			Usage:     "Gather ADS-B data and sends it to the configured output. just a log of info",
 			Action:    runSimple,
 			ArgsUsage: "[app.log - A file name to output to or stdout if not specified]",
 		},

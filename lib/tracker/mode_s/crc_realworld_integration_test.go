@@ -55,6 +55,9 @@ func TestCRCWithRealWorldData(t *testing.T) {
 				continue // Skip NoOp frames
 			}
 			// Some other decode error - skip
+			if testing.Verbose() {
+				t.Logf("Beast frame decode error: %v", err)
+			}
 			continue
 		}
 
@@ -75,14 +78,12 @@ func TestCRCWithRealWorldData(t *testing.T) {
 			}
 
 			// Track what kind of error
-			errMsg := err.Error()
-			if strings.Contains(errMsg, "invalid checksum") ||
-				strings.Contains(errMsg, "AP validation failed") {
+			if errors.Is(err, mode_s.ErrInvalidChecksum) {
 				stats.invalidCRC++
 				if testing.Verbose() {
 					t.Logf("CRC Error DF%d: %v", modeS.DownLinkType(), err)
 				}
-			} else if strings.Contains(errMsg, "do not know how to CRC") {
+			} else if strings.Contains(err.Error(), "do not know how to CRC") {
 				stats.unknownDF++
 			} else {
 				stats.parseErrors++
@@ -176,50 +177,46 @@ func TestCRCRejectionWithCorruptedRealWorldData(t *testing.T) {
 	rejectedCount := 0
 	piFieldFrames := 0
 
-	// Parse and test first 1000 PI field frames
-	i := 0
-	for i < len(data) && piFieldFrames < 1000 {
-		if data[i] != 0x1A {
-			i++
+	// Use the Beast scanner to properly handle escapes
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	scanner.Split(producer.ScanBeast)
+
+	for scanner.Scan() && piFieldFrames < 1000 {
+		beastFrame := scanner.Bytes()
+
+		// Parse Beast frame
+		frame, err := beast.NewFrame(beastFrame, false)
+		if err != nil {
+			continue // Skip bad beast frames
+		}
+
+		// Decode the Beast frame
+		err = frame.Decode()
+		if err != nil {
+			continue // Skip frames that don't decode
+		}
+
+		// Get Mode S frame
+		modeS := frame.AvrFrame()
+		if modeS == nil {
 			continue
 		}
-
-		if i+1 >= len(data) {
-			break
-		}
-
-		msgType := data[i+1]
-		var frameLen int
-
-		switch msgType {
-		case 0x32:
-			frameLen = 7 + 8
-		case 0x33:
-			frameLen = 14 + 8
-		default:
-			i++
-			continue
-		}
-
-		if i+frameLen > len(data) {
-			break
-		}
-
-		messageStart := i + 9
-		messageLen := frameLen - 9
-		message := make([]byte, messageLen)
-		copy(message, data[messageStart:messageStart+messageLen])
 
 		// Check if it's a PI field frame (DF 11, 17, 18)
-		df := message[0] >> 3
+		df := modeS.DownLinkType()
 		if df != 11 && df != 17 && df != 18 {
-			i += frameLen
 			continue
 		}
 
-		// Test original frame
-		frame := mode_s.NewFrameFromBytes(0, message, time.Now())
-		originalErr := frame.Decode()
+		// Test original frame - get the raw message bytes
+		message := modeS.Raw()
+		if len(message) == 0 {
+			continue
+		}
+
+		// Create a fresh frame from the bytes
+		testFrame := mode_s.NewFrameFromBytes(0, message, time.Now())
+		originalErr := testFrame.Decode()
 
 		if originalErr == nil {
 			piFieldFrames++
@@ -236,8 +233,14 @@ func TestCRCRejectionWithCorruptedRealWorldData(t *testing.T) {
 				t.Logf("Warning: Corrupted frame was accepted! DF%d: %X", df, corrupted)
 			}
 		}
+	}
 
-		i += frameLen
+	if err := scanner.Err(); err != nil {
+		t.Fatalf("Scanner error: %v", err)
+	}
+
+	if validCount == 0 {
+		t.Skip("No valid PI field frames found in test data")
 	}
 
 	rejectionRate := 100.0 * float64(rejectedCount) / float64(validCount)

@@ -96,13 +96,13 @@ func (f *Frame) checkCrc() error {
 		if f.checkSum == 0 {
 			return nil
 		}
-		return fmt.Errorf("invalid checksum for DF %d (%s)", f.downLinkFormat, f.raw)
+		return fmt.Errorf("%w for DF %d (%s)", ErrInvalidChecksum, f.downLinkFormat, f.raw)
 
 	case 0, 4, 5, 16, 20, 21, 24: // AP Field (Address/Parity)
 		// For AP fields, we extract ICAO and verify consistency
 		icao, err := f.validateAPField()
 		if err != nil {
-			return fmt.Errorf("DF%d AP validation failed: %w", f.downLinkFormat, err)
+			return err
 		}
 
 		// For frames where we don't already have ICAO from AA field,
@@ -111,7 +111,7 @@ func (f *Frame) checkCrc() error {
 			f.icao = icao
 		} else if f.icao != icao {
 			// If we already decoded ICAO from AA field, it should match
-			return fmt.Errorf("ICAO mismatch: AA field=0x%06X, AP field=0x%06X", f.icao, icao)
+			return fmt.Errorf("%w: AA field=0x%06X, AP field=0x%06X", ErrInvalidChecksum, f.icao, icao)
 		}
 
 		return nil
@@ -146,78 +146,8 @@ func (f *Frame) validateAPField() (uint32, error) {
 	// Sanity check: verify by re-encoding
 	expectedAP := crc ^ icao
 	if apField != expectedAP {
-		return 0, fmt.Errorf("AP field corrupt: got 0x%06X, expected 0x%06X", apField, expectedAP)
+		return 0, fmt.Errorf("%w: AP field corrupt: got 0x%06X, expected 0x%06X", ErrInvalidChecksum, apField, expectedAP)
 	}
 
 	return icao, nil
-}
-
-// Test Utilities for generating frames with correct CRC values
-
-// ComputePIField computes the correct PI field (CRC) for a message
-// Used for generating valid test frames
-// Pass in a message with 0x00 in the last 3 bytes
-func ComputePIField(message []byte) []byte {
-	if len(message) != 7 && len(message) != 14 {
-		panic(fmt.Sprintf("message must be 7 or 14 bytes, got %d", len(message)))
-	}
-
-	result := make([]byte, len(message))
-	copy(result, message)
-
-	// Zero out last 3 bytes
-	result[len(result)-3] = 0
-	result[len(result)-2] = 0
-	result[len(result)-1] = 0
-
-	// Calculate CRC
-	crc := calculateCRC(result, uint32(len(result)-3))
-
-	// Set PI field
-	result[len(result)-3] = byte((crc >> 16) & 0xff)
-	result[len(result)-2] = byte((crc >> 8) & 0xff)
-	result[len(result)-1] = byte(crc & 0xff)
-
-	return result
-}
-
-// ComputeAPField computes the correct AP field (CRC ⊕ ICAO) for a message
-// Used for generating valid test frames
-// Pass in a message with 0x00 in the last 3 bytes and the ICAO address
-func ComputeAPField(message []byte, icao uint32) []byte {
-	if len(message) != 7 && len(message) != 14 {
-		panic(fmt.Sprintf("message must be 7 or 14 bytes, got %d", len(message)))
-	}
-
-	result := make([]byte, len(message))
-	copy(result, message)
-
-	// Zero out last 3 bytes
-	result[len(result)-3] = 0
-	result[len(result)-2] = 0
-	result[len(result)-1] = 0
-
-	// Calculate CRC
-	crc := calculateCRC(result, uint32(len(result)-3))
-
-	// AP = CRC ⊕ ICAO
-	ap := crc ^ (icao & 0xffffff)
-
-	// Set AP field
-	result[len(result)-3] = byte((ap >> 16) & 0xff)
-	result[len(result)-2] = byte((ap >> 8) & 0xff)
-	result[len(result)-1] = byte(ap & 0xff)
-
-	return result
-}
-
-// CorruptCRC intentionally corrupts the last 3 bytes for testing
-func CorruptCRC(message []byte) []byte {
-	corrupted := make([]byte, len(message))
-	copy(corrupted, message)
-
-	// Flip bits in the last byte
-	corrupted[len(corrupted)-1] ^= 0x55
-
-	return corrupted
 }
