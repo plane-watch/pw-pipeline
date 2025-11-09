@@ -107,7 +107,7 @@ func TestDecodeDF17MT19ST1(t *testing.T) {
 func TestBeastAvrTimestampDecode112BitModeS(t *testing.T) {
 	// info taken from https://wiki.jetvision.de/wiki/Mode-S_Beast:Data_Output_Formats#:~:text=The%20Mode%2DS%20Beast%20supports,time%20and%20signal%20level%20information
 
-	raw := "@016CE3671AA88D00199A8BB80030A8000628F400;"
+	raw := "@016CE3671AA88D00199A8BB80030A80006520316;"
 	t1 := time.Now()
 	frame, err := DecodeString(raw, t1)
 	if nil != err || nil == frame {

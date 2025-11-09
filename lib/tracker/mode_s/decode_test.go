@@ -610,6 +610,33 @@ func Test_decodeFlightNumber(t *testing.T) {
 			args: encodeFlightNumber("99999999"),
 			want: []byte{'9', '9', '9', '9', '9', '9', '9', '9'},
 		},
+		// Test cases for corrupted callsigns (from real-world production issues)
+		// These characters should NEVER appear in valid aircraft callsigns
+		{
+			name: "Corrupted with semicolon - _; (invalid)",
+			args: encodeFlightNumber("_D8_LU+["),
+			want: nil,
+		},
+		{
+			name: "Corrupted with brackets - [AC] (invalid)",
+			args: encodeFlightNumber("_,ACJ\\+K"),
+			want: nil,
+		},
+		{
+			name: "Corrupted with asterisk - * (invalid)",
+			args: encodeFlightNumber("_,'B0AK*"),
+			want: nil,
+		},
+		{
+			name: "Corrupted with equals - = (invalid)",
+			args: encodeFlightNumber("^TT5Q2=5"),
+			want: nil,
+		},
+		{
+			name: "Corrupted with special chars (invalid)",
+			args: encodeFlightNumber("\\<@ERS(U"),
+			want: nil,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

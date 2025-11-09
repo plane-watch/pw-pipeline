@@ -2,6 +2,20 @@ package mode_s
 
 import "fmt"
 
+// CRC Validation Framework for Mode S
+//
+// Mode S uses two types of CRC fields:
+//
+// 1. PI Field (Parity/Interrogator Identity) - DF 11, 17, 18
+//    - Last 3 bytes contain pure CRC
+//    - Validation: CRC of entire message should equal 0
+//
+// 2. AP Field (Address/Parity) - DF 0, 4, 5, 16, 20, 21, 24
+//    - Last 3 bytes contain CRC ⊕ ICAO Address
+//    - Validation: Extract ICAO and verify consistency
+//
+// Reference: ICAO Annex 10, Volume IV
+
 var (
 	modesChecksumTable [256]uint32
 )
@@ -27,20 +41,29 @@ func init() {
 	}
 }
 
+// calculateCRC computes the Mode S CRC for the given message bytes.
+// It processes 'length' bytes from the message and returns a 24-bit CRC value.
+func calculateCRC(message []byte, length uint32) uint32 {
+	var crc uint32
+	var index uint32
+	for i := uint32(0); i < length; i++ {
+		index = uint32(message[i]) ^ ((crc & 0xff0000) >> 16)
+		crc = (crc << 8) ^ modesChecksumTable[index]
+		crc &= 0xffffff
+	}
+	return crc
+}
+
 func (f *Frame) decodeModeSChecksum() uint32 {
 	var n = f.getMessageLengthBytes()
-	var i, index uint32
 
-	var checkSum uint32
-	for i = 0; i < n-3; i++ {
-		index = uint32(f.message[i]) ^ ((f.checkSum & 0xff0000) >> 16)
-		f.checkSum = (f.checkSum << 8) ^ modesChecksumTable[index]
-		f.checkSum &= 0xffffff
-	}
+	// Calculate CRC over first n-3 bytes
+	f.checkSum = calculateCRC(f.message, n-3)
 
+	// XOR with the PI field (last 3 bytes)
 	f.checkSum = f.checkSum ^ (uint32(f.message[n-3]) << 16) ^ (uint32(f.message[n-2]) << 8) ^ uint32(f.message[n-1])
 
-	return checkSum
+	return f.checkSum
 }
 func (f *Frame) decodeModeSChecksumAddr() uint32 {
 	var n = f.getMessageLengthBytes()
@@ -66,21 +89,65 @@ func (f *Frame) decodeModeSChecksumAddr() uint32 {
 }
 
 func (f *Frame) checkCrc() error {
-	if "MLAT" == f.mode {
-		// not currently able to checksum beast AVR timestamp format messages
-		return nil
-	}
+
 	switch f.downLinkFormat {
-	case 0, 4, 5, 16, 20, 21, 24:
-		// decoding/checking CRC here is tricky. Field Type AP
-		return nil
-	case 11, 17, 18: // Field Type PI
+	case 11, 17, 18: // PI Field (Parity/Interrogator Identity)
 		f.checkSum = f.decodeModeSChecksum()
 		if f.checkSum == 0 {
 			return nil
 		}
-		return fmt.Errorf("invalid checksum for DF %d (%s)", f.downLinkFormat, f.raw)
+		return fmt.Errorf("%w for DF %d (%s)", ErrInvalidChecksum, f.downLinkFormat, f.raw)
+
+	case 0, 4, 5, 16, 20, 21, 24: // AP Field (Address/Parity)
+		// For AP fields, we extract ICAO and verify consistency
+		icao, err := f.validateAPField()
+		if err != nil {
+			return err
+		}
+
+		// For frames where we don't already have ICAO from AA field,
+		// use the extracted ICAO from AP field
+		if f.icao == 0 {
+			f.icao = icao
+		} else if f.icao != icao {
+			// If we already decoded ICAO from AA field, it should match
+			return fmt.Errorf("%w: AA field=0x%06X, AP field=0x%06X", ErrInvalidChecksum, f.icao, icao)
+		}
+
+		return nil
+
 	default:
 		return fmt.Errorf("do not know how to CRC Downlink Format %d", f.downLinkFormat)
 	}
+}
+
+// validateAPField validates frames with AP field and extracts ICAO
+func (f *Frame) validateAPField() (uint32, error) {
+	var n = f.getMessageLengthBytes()
+
+	// Create message copy with AP field zeroed
+	msg := make([]byte, len(f.message))
+	copy(msg, f.message)
+	msg[n-3] = 0
+	msg[n-2] = 0
+	msg[n-1] = 0
+
+	// Calculate CRC of message with zeroed AP field
+	crc := calculateCRC(msg, n-3)
+
+	// Extract AP field from original message
+	apField := uint32(f.message[n-3])<<16 |
+		uint32(f.message[n-2])<<8 |
+		uint32(f.message[n-1])
+
+	// ICAO = CRC ⊕ AP
+	icao := crc ^ apField
+
+	// Sanity check: verify by re-encoding
+	expectedAP := crc ^ icao
+	if apField != expectedAP {
+		return 0, fmt.Errorf("%w: AP field corrupt: got 0x%06X, expected 0x%06X", ErrInvalidChecksum, apField, expectedAP)
+	}
+
+	return icao, nil
 }

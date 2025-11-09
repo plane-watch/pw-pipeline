@@ -25,6 +25,7 @@ type (
 )
 
 var ErrNoOp = errors.New("frame is NoOp")
+var ErrInvalidChecksum = errors.New("invalid checksum")
 
 func DecodeString(rawFrame string, t time.Time) (*Frame, error) {
 	frame := NewFrame(rawFrame, t)
@@ -494,21 +495,34 @@ func decodeFlightNumber(b []byte) []byte {
 	callsign[6] = aisCharset[((b[4]&15)<<2)|(b[5]>>6)]
 	callsign[7] = aisCharset[b[5]&63]
 
-	score := 0
+	// Validate callsign characters - matches readsb validation logic
+	// Valid characters: A-Z, -./ (ASCII 45-47), 0-9, space, @
+	// Reference: readsb mode_s.c:824-840
+	callsignValid := true
 	for i := 0; i < 8; i++ {
-		if (callsign[i] >= 'A' && callsign[i] <= 'Z') || callsign[i] == '-' || callsign[i] == ' ' || (callsign[i] >= '0' && callsign[i] <= '9') {
-			score++
+		c := callsign[i]
+		if (c >= 'A' && c <= 'Z') ||
+			(c >= '-' && c <= '9') || // ASCII 45-57: -./ and 0-9
+			c == ' ' ||
+			c == '@' {
+			// valid character
+		} else {
+			// Invalid character - reject entire callsign
+			callsignValid = false
+			break
 		}
 	}
-	if score < 4 {
-		// do not trust a callsign with fewer than 4 A-Z0-9 chars
-		callsign = nil
+
+	if !callsignValid {
+		return nil
 	}
 
-	// because planes have sent us things like A90004A0200000000000007D8DB4
-	// we need
-	if string(callsign) == "@@@@@@@@" || string(callsign) == "--------" {
-		callsign = nil
+	// Reject common invalid patterns, because occasionally misconfigured aircraft send bogus call signs.
+	// For example-- we've seen things like: A90004A0200000000000007D8DB4 which is basically all nulls.
+	s := string(callsign)
+	if s == "@@@@@@@@" || s == "        " || s == "--------" {
+		return nil
 	}
+
 	return callsign
 }
