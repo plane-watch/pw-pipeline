@@ -118,6 +118,12 @@ func (t *Tracker) Finish() {
 	t.log.Debug().Str("func", "Finish()").Msg("done...")
 }
 
+func (t *Tracker) producerCount() int {
+	t.muProducers.RLock()
+	defer t.muProducers.RUnlock()
+	return len(t.producers)
+}
+
 // AddProducer wires up a Producer to start feeding data into the tracker
 func (t *Tracker) AddProducer(p Producer) {
 	if p == nil {

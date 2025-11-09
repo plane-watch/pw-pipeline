@@ -27,14 +27,14 @@ func TestAddRemoveProducer(t *testing.T) {
 		WithDecodeWorkerCount(1),
 	)
 
-	if len(trk.producers) != 0 {
+	if trk.producerCount() != 0 {
 		t.Error("Expected there to be 0 producers")
 	}
 
 	tp := &addRemoveTestProducer{}
 	trk.AddProducer(tp)
 
-	if len(trk.producers) != 1 {
+	if trk.producerCount() != 1 {
 		t.Error("Expected there to be 1 producer")
 	}
 	for tp.ch == nil {
@@ -46,7 +46,7 @@ func TestAddRemoveProducer(t *testing.T) {
 	t.Log("and now here")
 	time.Sleep(1 * time.Millisecond)
 
-	if len(trk.producers) != 0 {
+	if trk.producerCount() != 0 {
 		t.Error("Expected there to be 0 producers after stopping")
 	}
 }
