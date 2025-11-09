@@ -80,11 +80,26 @@ func runMLATClient(c *cli.Context) error {
 				return fmt.Errorf("could not parse frame: %w", err)
 			}
 
+			// Drop Mode AC frames
+			if f.Type() == beast.MODE_AC {
+				return nil
+			}
+
+			// Drop unknown/invalid ICAO
+			if f.Icao() == 0 {
+				return nil
+			}
+
 			// todo(mikenye): currently just dump frames to stdout.
 			//  - Idea is to use ark ecs to track vessels.
 			//  - For vessels without a position, use MLAT.
 			//  - For vessels with a position, use as reference.
-			fmt.Println(f.String())
+			fmt.Println(f.IcaoStr(), f.String())
+
+			err = f.Decode()
+			if err != nil {
+				return fmt.Errorf("could not decode frame: %w", err)
+			}
 
 			return nil
 		}),
