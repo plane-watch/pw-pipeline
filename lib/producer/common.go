@@ -300,11 +300,13 @@ func (p *Producer) readFromScanner(scan *bufio.Scanner) error {
 }
 
 // WithReferenceLatLon sets up the reference lat/lon for decoding surface position messages
-func WithReferenceLatLon(lat, lon float64) Option {
+func WithReferenceLatLon(lat, lon *float64) Option {
 	return func(p *Producer) {
-		p.log.Debug().Float64("lat", lat).Float64("lon", lon).Msg("With Reference Lat/Lon")
-		p.FrameSource.RefLat = &lat
-		p.FrameSource.RefLon = &lon
+		if lat != nil && lon != nil {
+			p.log.Debug().Float64("lat", *lat).Float64("lon", *lon).Msg("With Reference Lat/Lon")
+			p.FrameSource.RefLat = lat
+			p.FrameSource.RefLon = lon
+		}
 	}
 }
 func WithKeepAliveRepeater() Option {

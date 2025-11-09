@@ -168,7 +168,7 @@ func handleSource(urlSource, defaultTag string, defaultRefLat, defaultRefLon flo
 	refLon := getRef(parsedUrl, "refLon", defaultRefLon)
 
 	if refLat != 0 && refLon != 0 {
-		producerOpts = append(producerOpts, producer.WithReferenceLatLon(refLat, refLon))
+		producerOpts = append(producerOpts, producer.WithReferenceLatLon(&refLat, &refLon))
 	} else {
 		log.Error().
 			Float64("ref-lat", refLat).
@@ -218,7 +218,7 @@ func handleFileSource(urlFile, defaultTag string, defaultRefLat, defaultRefLon f
 	refLat := getRef(parsedUrl, "refLat", defaultRefLat)
 	refLon := getRef(parsedUrl, "refLon", defaultRefLon)
 	if refLat != 0 && refLon != 0 {
-		producerOpts = append(producerOpts, producer.WithReferenceLatLon(refLat, refLon))
+		producerOpts = append(producerOpts, producer.WithReferenceLatLon(&refLat, &refLon))
 	}
 
 	producerOpts = append(

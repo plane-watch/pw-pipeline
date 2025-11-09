@@ -31,6 +31,8 @@ LABEL org.opencontainers.image.description="Plane.Watch Runway"
 
 WORKDIR /app
 COPY --from=build /app/runway /app
+COPY ./cmd/runway/test.key /app/
+COPY ./cmd/runway/test.crt /app/
 
 HEALTHCHECK --interval=15s --timeout=3s CMD wget --spider http://localhost:9602/status
 
