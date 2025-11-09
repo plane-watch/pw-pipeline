@@ -4,9 +4,17 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"plane.watch/lib/tracker/mode_s"
 	"sync"
 	"time"
+
+	"plane.watch/lib/tracker/mode_s"
+)
+
+const (
+	MODE_AC          = 0x31
+	MODE_S_SHORT     = 0x32
+	MODE_S_LONG      = 0x33
+	RADARCAPE_STATUS = 0x34
 )
 
 type (
@@ -66,6 +74,11 @@ func Release(frame *Frame) {
 //	0x33: 14,
 //	0x34: 2,
 // }
+
+// Type returns the frame type
+func (f *Frame) Type() byte {
+	return f.msgType
+}
 
 // Icao returns the airframes ICAO code as an int
 func (f *Frame) Icao() uint32 {
