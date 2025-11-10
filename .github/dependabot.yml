@@ -3,6 +3,14 @@ version: 2
 
 updates:
   - package-ecosystem: "docker"
+    directory: "/docker/runway"
+    schedule:
+      interval: "daily"
+  - package-ecosystem: "docker"
+    directory: "/docker/mlat-server"
+    schedule:
+      interval: "daily"
+  - package-ecosystem: "docker"
     directory: "/docker/pw_ingest"
     schedule:
       interval: "daily"
@@ -16,6 +24,10 @@ updates:
       interval: "daily"
   - package-ecosystem: "docker"
     directory: "/docker/pw_ws_broker"
+    schedule:
+      interval: "daily"
+  - package-ecosystem: "docker"
+    directory: "/docker/stress"
     schedule:
       interval: "daily"
   - package-ecosystem: "gomod"
