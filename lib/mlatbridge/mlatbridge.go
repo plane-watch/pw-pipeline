@@ -153,13 +153,15 @@ func (mb *MLATBridge) handler(feederConn net.Conn, apiKey string) error {
 	}()
 
 	// lookup which mlat server to use
-	mlatHost, ok := muxes[feeder.Mux]
-	if !ok {
-		return fmt.Errorf("could not find mux %q", feeder.Mux)
+	region, err := mb.feeders.Region(apiKey)
+	if err != nil {
+		return fmt.Errorf("failed to get region for %s: %w", apiKey, err)
 	}
 
+	mlatServer := MLATServer(region)
+
 	// establish a connection to mlat server
-	mlatConn, err := net.Dial("tcp", mlatHost)
+	mlatConn, err := net.Dial("tcp", mlatServer)
 	if err != nil {
 		return fmt.Errorf("could not connect to mlat server: %w", err)
 	}
@@ -179,7 +181,7 @@ func (mb *MLATBridge) handler(feederConn net.Conn, apiKey string) error {
 			"feeder_id":    strconv.FormatInt(int64(feeder.Id), 10),
 			"feeder_label": feeder.Label,
 			"feeder_user":  feeder.User,
-			"feeder_mux":   feeder.Mux,
+			"mlat_server":  mlatServer,
 		},
 	})
 	err = prometheus.Register(prometheusMLATBytesRx)
@@ -198,7 +200,7 @@ func (mb *MLATBridge) handler(feederConn net.Conn, apiKey string) error {
 			"feeder_id":    strconv.FormatInt(int64(feeder.Id), 10),
 			"feeder_label": feeder.Label,
 			"feeder_user":  feeder.User,
-			"feeder_mux":   feeder.Mux,
+			"mlat_server":  mlatServer,
 		},
 	})
 	err = prometheus.Register(prometheusMLATBytesTx)
