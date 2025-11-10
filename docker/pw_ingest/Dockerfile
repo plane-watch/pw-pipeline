@@ -38,7 +38,8 @@ ENV PUBLISH_TYPES=location-updates
 HEALTHCHECK --interval=15s --timeout=3s CMD wget --spider http://localhost:9602/status
 
 # Command to run
-CMD [ "/app/pw_ingest", "daemon" ]
+ENTRYPOINT [ "/app/pw_ingest" ]
+CMD [ "daemon" ]
 
 FROM alpine:3.22.2
 LABEL org.opencontainers.image.description="Plane.Watch Ingest"
@@ -52,4 +53,5 @@ ENV PUBLISH_TYPES=location-updates
 HEALTHCHECK --interval=15s --timeout=3s CMD wget --spider http://localhost:9602/status
 
 # Command to run
-CMD [ "/app/pw_ingest", "daemon" ]
+ENTRYPOINT [ "/app/pw_ingest" ]
+CMD [ "daemon" ]
