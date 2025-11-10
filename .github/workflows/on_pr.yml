@@ -67,6 +67,7 @@ jobs:
           - pw_ingest
           - pw_router
           - pw_ws_broker
+          - mlat-server
         arch:
           - linux/amd64
           - linux/arm64
