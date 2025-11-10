@@ -7,6 +7,8 @@
 // collapsing (0x1a 0x1a --> 0x1a).
 //
 // The scanner is robust to buffer wrap and to escape pairs that straddle the wrap boundary.
+//
+// See: https://github.com/firestuff/adsb-tools/blob/master/protocols/beast.md for further information
 
 package beastscanner
 
