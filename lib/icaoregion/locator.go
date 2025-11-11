@@ -109,6 +109,28 @@ func (l *Locator) RegionOfLatLon(lat, lon float64) Region {
 	return l.RegionOfPoint(orb.Point{lon, lat})
 }
 
+// FIDOfLatLon looks up the Flight Information Region (FID) of a given lat/long
+func (l *Locator) FIDOfLatLon(lat, lon float64) int {
+	return l.FIDOfPoint(orb.Point{lon, lat})
+}
+
+// FIDOfLatLon looks up the Flight Information Region (FID) of a given point
+func (l *Locator) FIDOfPoint(p orb.Point) int {
+	for _, f := range l.fc.Features {
+		switch geom := f.Geometry.(type) {
+		case orb.Polygon:
+			if planar.PolygonContains(geom, p) {
+				return f.Properties.MustInt("fid")
+			}
+		case orb.MultiPolygon:
+			if planar.MultiPolygonContains(geom, p) {
+				return f.Properties.MustInt("fid")
+			}
+		}
+	}
+	return -1
+}
+
 // RegionOfPoint returns the ICAO region of point p
 func (l *Locator) RegionOfPoint(p orb.Point) Region {
 	for _, f := range l.fc.Features {
