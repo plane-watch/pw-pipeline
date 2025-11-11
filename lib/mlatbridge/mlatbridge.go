@@ -153,12 +153,12 @@ func (mb *MLATBridge) handler(feederConn net.Conn, apiKey string) error {
 	}()
 
 	// lookup which mlat server to use
-	region, err := mb.feeders.Region(apiKey)
+	fid, err := mb.feeders.FID(apiKey)
 	if err != nil {
 		return fmt.Errorf("failed to get region for %s: %w", apiKey, err)
 	}
 
-	mlatServer := MLATServer(region)
+	mlatServer := MLATServer(fid)
 
 	// establish a connection to mlat server
 	mlatConn, err := net.Dial("tcp", mlatServer)

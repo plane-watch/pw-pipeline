@@ -1,26 +1,327 @@
 package mlatbridge
 
-import "plane.watch/lib/icaoregion"
+import (
+	"slices"
+)
 
-func MLATServer(r icaoregion.Region) string {
-	switch r {
-	case icaoregion.AFI:
-		return "mlat-server-afi:12346"
-	case icaoregion.ASIA:
-		return "mlat-server-asia:12346"
-	case icaoregion.CAR:
-		return "mlat-server-car:12346"
-	case icaoregion.EUR:
-		return "mlat-server-eur:12346"
-	case icaoregion.MID:
-		return "mlat-server-mid:12346"
-	case icaoregion.NAM:
-		return "mlat-server-nam:12346"
-	case icaoregion.NAT:
-		return "mlat-server-nat:12346"
-	case icaoregion.SAM:
-		return "mlat-server-sam:12346"
-	default:
-		return "mlat-server-unknown:12346"
+func MLATServer(fid int) string {
+	for region, rfids := range MLATRegionByFID {
+		if slices.Contains(rfids, fid) {
+			return MLATServers[region]
+		}
 	}
+	return MLATServers[Unknown]
+}
+
+type MLATRegion uint8
+
+const (
+	Unknown MLATRegion = iota
+	CA_Alaska
+	US_West
+	US_East
+	EU_West
+	EU_Central
+	Oceania
+	Asia
+	South_America
+)
+
+var MLATServers = map[MLATRegion]string{
+	Unknown:       "mlat-server-unknown:12346",
+	CA_Alaska:     "mlat-server-ca-alaska:12346",
+	US_West:       "mlat-server-us-west:12346",
+	US_East:       "mlat-server-us-east:12346",
+	EU_West:       "mlat-server-eu-west:12346",
+	EU_Central:    "mlat-server-eu-central:12346",
+	Oceania:       "mlat-server-oceania:12346",
+	Asia:          "mlat-server-asia:12346",
+	South_America: "mlat-server-south-america:12346",
+}
+
+var MLATRegionByFID = map[MLATRegion][]int{
+	CA_Alaska: {
+		49,  // FIR ANCHORAGE CONTINENTAL
+		107, // FIR EDMONTON
+		269, // FIR VANCOUVER
+		276, // FIR WINNIPEG
+		261, // FIR TORONTO
+		190, // FIR MONTREAL
+		188, // FIR MONCTON SOUTHERN
+		115, // FIR GANDER DOMESTIC
+	},
+	US_West: {
+		243, // FIR SEATTLE
+		232, // FIR SALT LAKE
+		103, // FIR DENVER
+		165, // FIR LOS ANGELES
+		208, // FIR OAKLAND
+		45,  // FIR ALBUQUERQUE
+		347, // FIR MEXICO
+	},
+	US_East: {
+		185, // FIR MINNEAPOLIS
+		138, // FIR KANSAS CITY
+		112, // FIR FT WORTH
+		125, // FIR HOUSTON
+		353, // FIR CHICAGO
+		91,  // UIR CHICAGO
+		180, // FIR MEMPHIS
+		355, // FIR CLEVELAND
+		93,  // UIR CLEVELAND
+		358, // FIR BOSTON
+		74,  // UIR BOSTON
+		354, // FIR INDIANAPOLIS
+		128, // UIR INDIANAPOLIS
+		352, // FIR ATLANTA
+		60,  // UIR ATLANTA
+		131, // UIR ATLANTA
+		351, // FIR JACKSONVILLE
+		182, // FIR MIAMI
+		357, // FIR WASHINGTON
+		273, // UIR WASHINGTON
+		356, // FIR NEW YORK
+		293, // UIR NEW YORK
+	},
+	EU_West: {
+		242, // FIR SCOTTISH
+		246, // FIR SHANNON (Ireland)
+		24,  // UIR SCOTTISH
+		225, // UIR SCOTTISH
+		25,  // UIR SHANNON
+		164, // FIR LONDON
+		18,  // UIR LONDON
+		78,  // FIR BREST
+		33,  // UIR FRANCE
+		167, // FIR MADRID
+		19,  // UIR MADRID
+		16,  // UIR LISBOA
+		162, // FIR LISBOA
+		88,  // FIR CASABLANCA
+		65,  // FIR BARCELONA
+		13,  // UIR BARCELONA
+		73,  // FIR BORDEAUX
+		176, // FIR MARSEILLE
+		214, // FIR PARIS
+		223, // FIR REIMS
+		32,  // UIR BRUXELLES
+		81,  // FIR BRUXELLES
+		46,  // FIR AMSTERDAM
+		30,  // UIR AMSTERDAM
+	},
+	EU_Central: {
+		20,  // FIR NORWAY
+		251, // FIR SWEDEN
+		111, // FIR FINLAND
+		14,  // UIR FINLAND
+		336, // FIR MURMANSK 1
+		334, // FIR SANKT-PETERBURG
+		255, // FIR TALLINN
+		26,  // UIR TALLINN
+		147, // FIR KOBENHAVN
+		226, // FIR RIGA
+		21,  // UIR RIGA
+		27,  // UIR VILNIUS
+		271, // FIR VILNIUS
+		136, // FIR KALININGRAD
+		15,  // UIR KALININGRAD
+		77,  // FIR BREMEN
+		297, // UIR RHEIN
+		272, // FIR WARSZAWA
+		158, // FIR LANGEN
+		193, // FIR MUNICH
+		219, // FIR PRAHA
+		186, // FIR MINSK
+		155, // FIR L VIV
+		154, // FIR KYIV
+		252, // FIR SWITZERLAND
+		274, // FIR WIEN
+		75,  // FIR BRATISLAVA
+		83,  // FIR BUDAPEST
+		82,  // FIR BUCURESTI
+		92,  // FIR CHISINAU
+		296, // FIR ODESA
+		22,  // UIR ITALIA
+		184, // FIR MILANO
+		229, // FIR ROMA
+		79,  // FIR BRINDISI
+		17,  // UIR LJUBLJANA
+		163, // UIR LJUBLJANA
+		280, // FIR ZAGREB
+		28,  // UIR ZAGREB
+		23,  // UIR SARAJEVO
+		241, // FIR SARAJEVO
+		282, // FIR BEOGRAD
+		31,  // UIR BEOGRAD
+		260, // FIR TIRANA
+		281, // FIR SKOPJE
+		29,  // UIR SKOPJE
+		34,  // UIR SOFIA
+		250, // FIR SOFIA
+		59,  // FIR ATHINAI
+		12,  // UIR HELLAS
+		130, // FIR ISTANBUL
+	},
+	Oceania: {
+		179, // FIR MELBOURNE
+		80,  // FIR BRISBANE
+		344, // FIR NEW ZEALAND
+		124, // FIR HONIARA
+		198, // FIR NADI EAST
+		218, // FIR PORT MORESBY
+		305, // UIR UJUNG PANDANG
+		266, // FIR UJUNG PANDANG
+		306, // UIR JAKARTA
+		132, // FIR JAKARTA
+		151, // FIR KUALA LUMPUR
+		249, // FIR SINGAPORE
+		303, // FIR SINGAPORE
+		304, // FIR SINGAPORE
+		149, // FIR KOTA KINABALU
+		175, // FIR MANILA
+	},
+	Asia: {
+		171, // FIR MAGADAN WEST
+		170, // FIR MAGADAN EAST
+		340, // FIR YAKUTSK
+		346, // FIR PETROPAVLOVSK KAMCHATSKY EAST
+		349, // FIR PETROPAVLOVSK KAMCHATSKY HIGHT
+		150, // FIR KRASNOYARSK
+		329, // FIR KAMENNY
+		338, // FIR SYKTYVKAR
+		194, // FIR MURMANSK OCEANIC EAST
+		71,  //
+		332, // FIR NARYAN-MAR
+		331, // FIR ARKHANGELSK
+		328, // FIR SALEKHARD
+		327, // FIR TARKO-SALE
+		343, // FIR POLIARNY
+		342, // FIR MIRNY
+		265, // FIR TYUMEN ROSCHINO
+		333, // FIR KOTLAS
+		335, // FIR VOLOGDA
+		325, // FIR YEKATERINBURG
+		191, // FIR MOSCOW
+		326, // FIR KIROV
+		324, // FIR PERM
+		206, // FIR NOVOSIBIRSK
+		129, // FIR IRKUTSK
+		341, // FIR OLEKMINSK
+		339, // FIR OLEKMINSK
+		141, // FIR KHABAROVSK
+		142, // FIR DNIPROPETROVS'K
+		295, // FIR SIMFEROPOL
+		205, // FIR NICOSIA
+		52,  // FIR ANKARA
+		321, // FIR KAZAN
+		233, // FIR SAMARA
+		230, // FIR ROSTOV-NA-DONU
+		99,  // FIR DAMASCUS
+		69,  // FIR BEIRUT
+		259, // FIR TEL AVIV
+		284, // FIR AMMAN
+		318, // FIR JEDDAH
+		236, // FIR SANA A
+		196, // FIR MUSCAT
+		63,  // FIR BAGHDAD
+		257, // FIR TBILISI
+		153, // FIR KUWAIT
+		319, // FIR BAHRAIN
+		108, // FIR EMIRATES
+		258, // FIR TEHRAN
+		279, // FIR YEREVAN ZVARTNOTS
+		64,  // FIR BAKU
+		323, // FIR CHELYABINSK
+		44,  // FIR AKTOBE
+		264, // FIR TURKMENBASHI
+		322, // FIR MAGNITOGORSK
+		57,  // FIR ASTANA
+		207, // FIR NUKUS
+		101, // FIR DASHOGUZ
+		55,  // FIR ASHGABAT
+		345, // FIR SHYMKENT
+		263, // FIR TURKMENABAT
+		256, // FIR TASHKENT
+		234, // FIR SAMARKAND
+		135, // FIR KABUL
+		139, // FIR KARACHI
+		192, // FIR MUMBAI
+		90,  // FIR CHENNAI
+		94,  // FIR COLOMBO
+		330, // FIR ALMATY
+		70,  // FIR BISHKEK
+		211, // FIR OSH
+		105, // FIR DUSHANBE
+		157, // FIR LAHORE
+		102, // FIR DELHI
+		268, // FIR URUMQI
+		140, // FIR KATHMANDU
+		148, // FIR KOLKATA
+		152, // FIR KUNMING
+		267, // FIR ULAN BATOR
+		159, // FIR LANZHOU
+		104, // FIR DHAKA
+		278, // FIR YANGON
+		320, // FIR BANGKOK
+		270, // FIR VIENTIANE
+		215, // FIR PHNOM PENH
+		120, // FIR HANOI
+		122, // FIR HO-CHI-MINH
+		240, // FIR SANYA
+		117, // FIR GUANGZHOU
+		123, // FIR HONG KONG
+		254, // FIR TAIPEI
+		248, // FIR SHENYANG
+		67,  // FIR BEIJING
+		277, // FIR WUHAN
+		245, // FIR SHANGHAI
+		222, // FIR PYONGYANG
+		127, // FIR INCHEON
+		113, // FIR FUKUOKA
+	},
+	South_America: {
+		95,  // FIR COMODORO RIVADAVIA
+		221, // FIR PUNTA ARENAS
+		220, // FIR PUERTO MONTT
+		238, // FIR SANTIAGO
+		110, // FIR EZEIZA
+		181, // FIR MENDOZA
+		54,  // FIR ANTOFAGASTA
+		189, // FIR MONTEVIDEO
+		96,  // FIR CORDOBA
+		313, // FIR CURITIBA
+		224, // FIR RESISTENCIA
+		58,  // FIR ASUNCION
+		156, // FIR LA PAZ
+		161, // FIR LIMA (where Paddington Bear comes from)
+		314, // FIR AMAZONICA
+		315, // FIR BRASILIA
+		316, // FIR RECIFE
+		118, // FIR GUAYAQUIL
+		307, // UIR BOGOTA
+		72,  // FIR BOGOTA
+		11,  // UIR BOGOTA
+		89,  // FIR CENTRAL AMERICAN
+		212, // FIR PANAMA
+		119, // FIR HABANA
+		39,  // FIR MIAMI OCEANIC
+		201, // FIR NASSAU
+		183, // FIR MIAMI OCEANIC
+		145, // FIR KINGSTON
+		217, // FIR PORT AU PRINCE
+		239, // FIR SANTO DOMINGO
+		235, // FIR SAN JUAN
+		216, // FIR PIARCO
+		66,  // FIR BARRANQUILLA
+		97,  // FIR CURACAO
+		172, // FIR MAIQUETIA
+		308, // UIR GEORGETOWN
+		116, // FIR GEORGETOWN
+		309, // FIR PARAMARIBO
+		213, // FIR PARAMARIBO
+		37,  // UIR PARAMARIBO
+		310, // FIR CAYENNE
+		228, // FIR CAYENNE
+		38,  // UIR CAYENNE
+	},
 }
