@@ -30,6 +30,12 @@ type (
 		// muFeederRegion is the mutex for Manifest.feederRegion
 		muFeederRegion sync.RWMutex
 
+		// feederFIDs is a map containing a cache of feeder UUIDs and their FID
+		feederFIDs map[string]int
+
+		// muFeederRegion is the mutex for Manifest.feederRegion
+		muFeederFIDs sync.RWMutex
+
 		// feedersConnected map has a key for each connected feeder. The key is the feeder's api key.
 		// This is used to limit the number of connections per feeder to one.
 		feedersConnected map[string]map[Protocol]struct{}
@@ -248,6 +254,30 @@ func (f *FeederCache) Region(apiKey string) (icaoregion.Region, error) {
 	}
 
 	return r, nil
+}
+
+func (f *FeederCache) FID(apiKey string) (int, error) {
+
+	// get feeder for lat & lon
+	feeder, err := f.Get(apiKey)
+	if err != nil {
+		return -1, fmt.Errorf("failed to get feeder %s: %w", apiKey, err)
+	}
+
+	// get region if possible
+	f.muFeederFIDs.RLock()
+	fid, ok := f.feederFIDs[apiKey]
+	f.muFeederFIDs.RUnlock()
+
+	// if not possible, look up & set region
+	if !ok {
+		fid = f.locator.FIDOfLatLon(*feeder.Latitude, *feeder.Longitude)
+		f.muFeederFIDs.Lock()
+		f.feederFIDs[apiKey] = fid
+		f.muFeederFIDs.Unlock()
+	}
+
+	return fid, nil
 }
 
 func (f *FeederCache) populate(feeders *export.Feeders) {
