@@ -97,19 +97,26 @@ func (t *Tracker) Finish() {
 	wg := sync.WaitGroup{}
 	// stop all producers
 	t.muProducers.RLock()
+	t.log.Debug().Str("func", "Finish()").Int("producer-count", len(t.producers)).Msg("Stopping Producers")
 	for _, p := range t.producers {
-		t.log.Debug().Str("func", "Finish()").Str("producer", p.String()).Msg("Stopping Producer")
-		wg.Go(p.Stop)
+		wg.Go(func() {
+			t.log.Debug().Str("func", "Finish()").Str("producer", p.String()).Msg("Stopping Producer")
+			p.Stop()
+			t.log.Debug().Str("func", "Finish()").Str("producer", p.String()).Msg("Stopped Producer")
+		})
 	}
 	t.muProducers.RUnlock()
 
+	t.log.Debug().Str("func", "Finish()").Int("middleware-count", len(t.middlewares)).Msg("Stopping Producers")
 	for _, m := range t.middlewares {
 		wg.Go(func() {
 			t.log.Debug().Str("func", "Finish()").Str("middleware", m.String()).Msg("Stopping middleware")
 			m.Stop()
 			t.middlewareWaiter.Done()
+			t.log.Debug().Str("func", "Finish()").Str("middleware", m.String()).Msg("Stopped middleware")
 		})
 	}
+	t.log.Debug().Str("func", "Finish()").Msg("awaiting stoppers")
 
 	wg.Wait()
 

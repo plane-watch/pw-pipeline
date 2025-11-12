@@ -153,11 +153,27 @@ func WithListener(host, port string) Option {
 			if err != nil {
 				// handle error
 				p.log.Error().Err(err).Str("host:port", addr).Msg("Failed to listen")
+				return
 			}
+			go func() {
+				for cmd := range p.cmdChan {
+					switch cmd {
+					case cmdExit:
+						p.log.Debug().Msg("Exiting...")
+						_ = ln.Close()
+						return
+					}
+				}
+			}()
 			for {
 				conn, errConn := ln.Accept()
 				if errConn != nil {
 					// handle error
+					if errors.Is(errConn, net.ErrClosed) {
+						p.log.Info().Msg("Closed Network Connection")
+						return
+					}
+
 					p.log.Error().Err(errConn).Msg("Failed to accept a connection")
 				}
 
@@ -212,8 +228,6 @@ func WithConnection(conn net.Conn) Option {
 					_ = conn.Close()
 				}()
 
-				// TODO: im not sure if we can use bufio.Scanner here, as we need the ability to set a read deadline
-				//       on the connection.
 				scan := bufio.NewScanner(conn)
 				p.log.Debug().Msg("start reading from scanner")
 				errRead := p.readFromScanner(scan)
