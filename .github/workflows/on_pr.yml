@@ -1,5 +1,5 @@
 ---
-name: Test Container Builds
+name: Pull Request
 
 on:
   workflow_dispatch:
