@@ -2,6 +2,7 @@ package beast
 
 import (
 	"errors"
+
 	"plane.watch/lib/tracker2/modes2"
 )
 
@@ -27,6 +28,7 @@ var (
 	ErrBadBeastFrame       = errors.New("bad beast frame")
 	ErrUnhandledBeastFrame = errors.New("unhandled Beast Frame")
 	ErrNilFrame            = errors.New("nil message")
+	ErrConfigFrame         = errors.New("beast message is config data")
 )
 
 // var msgLenLookup = map[byte]int{
@@ -70,7 +72,7 @@ func Decode(rawBytes []byte) (modes2.AvrFrame, error) {
 		frame.SignalLevel = rawBytes[8] + 0
 	case 0x34:
 		// decodeConfig
-		err = ErrUnhandledBeastFrame
+		err = ErrConfigFrame
 	default:
 		err = ErrUnhandledBeastFrame
 	}

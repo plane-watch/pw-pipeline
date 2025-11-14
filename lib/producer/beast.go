@@ -24,7 +24,6 @@ func (p *Producer) beastScanner(scan *bufio.Scanner) error {
 			continue
 		}
 
-		// TODO(mikenye): Ask Boxie what this does.
 		if p.beastDelay {
 			currentTs := frame.BeastTicksNs()
 			if lastTimeStamp > 0 && lastTimeStamp < currentTs {

@@ -4,9 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"plane.watch/lib/tracker/mode_s"
 	"sync"
 	"time"
+
+	"plane.watch/lib/tracker/mode_s"
 )
 
 type (
@@ -34,6 +35,7 @@ var (
 
 	magicTimestampMLAT = []byte{0xFF, 0x00, 0x4D, 0x4C, 0x41, 0x54}
 	ErrBadBeastFrame   = errors.New("bad beast frame")
+	ErrConfigFrame     = errors.New("beast message is config data")
 )
 
 func init() {
@@ -168,6 +170,7 @@ func newFrameInto(f *Frame, rawBytes []byte, isRadarCape bool) (*Frame, error) {
 		//}
 		// signal strength 10 bytes
 		f.decodeConfig()
+		return f, ErrConfigFrame
 	default:
 	}
 	return f, nil
