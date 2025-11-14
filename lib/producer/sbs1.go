@@ -2,6 +2,7 @@ package producer
 
 import (
 	"bufio"
+
 	"plane.watch/lib/tracker/sbs1"
 )
 

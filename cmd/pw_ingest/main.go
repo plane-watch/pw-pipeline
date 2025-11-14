@@ -22,6 +22,7 @@ const (
 	DedupeFilter       = "dedupe-filter"
 	FilterLocationOnly = "locations-only"
 	FilterIcao         = "icao"
+	DecodeWorkerCount  = "decode-worker-count"
 )
 
 var (
@@ -102,6 +103,11 @@ func main() {
 		Usage:   "Include the usage of the ADSB Message Deduplication Filter. Useful for combo feeds",
 		EnvVars: []string{"DEDUPE"},
 	})
+	app.Flags = append(app.Flags, &cli.IntFlag{
+		Name:  DecodeWorkerCount,
+		Usage: "The number of tracker workers we spawn to handle the incoming traffic",
+		Value: 1,
+	})
 
 	app.Before = func(c *cli.Context) error {
 		logging.SetLoggingLevel(c)
@@ -123,7 +129,11 @@ func commonSetup(c *cli.Context) (*tracker.Tracker, error) {
 	}
 
 	trackerOpts := make([]tracker.Option, 0)
-	trackerOpts = append(trackerOpts, tracker.WithPrometheusCounters(prometheusGaugeCurrentPlanes, prometheusCounterFramesDecoded))
+	trackerOpts = append(
+		trackerOpts,
+		tracker.WithPrometheusCounters(prometheusGaugeCurrentPlanes, prometheusCounterFramesDecoded),
+		tracker.WithDecodeWorkerCount(c.Int(DecodeWorkerCount)),
+	)
 	trk := tracker.NewTracker(trackerOpts...)
 
 	if c.Bool(DedupeFilter) {

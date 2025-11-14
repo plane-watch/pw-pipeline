@@ -145,7 +145,9 @@ func WithCleanUpTasks(tasks ...func() error) Option {
 
 func WithListener(host, port string) Option {
 	return func(p *Producer) {
+		p.addDebug("configuring listener")
 		p.run = func() {
+			p.addDebug("about to start listening")
 			defer p.Cleanup()
 
 			addr := net.JoinHostPort(host, port)
@@ -155,6 +157,7 @@ func WithListener(host, port string) Option {
 				p.log.Error().Err(err).Str("host:port", addr).Msg("Failed to listen")
 				return
 			}
+			p.addDebug("here we go, listening")
 			go func() {
 				for cmd := range p.cmdChan {
 					switch cmd {
@@ -166,18 +169,22 @@ func WithListener(host, port string) Option {
 				}
 			}()
 			for {
+				p.addDebug("Top of listener loop")
 				conn, errConn := ln.Accept()
 				if errConn != nil {
 					// handle error
 					if errors.Is(errConn, net.ErrClosed) {
 						p.log.Info().Msg("Closed Network Connection")
-						return
+						break
 					}
 
 					p.log.Error().Err(errConn).Msg("Failed to accept a connection")
+					continue
 				}
+				p.addDebug("After Accept")
 
 				go func(c net.Conn) {
+					p.addDebug("handling conn")
 					scan := bufio.NewScanner(c)
 					scan.Split(p.splitter)
 					errRead := p.readFromScanner(scan)
@@ -187,6 +194,8 @@ func WithListener(host, port string) Option {
 					_ = c.Close()
 				}(conn)
 			}
+
+			p.addInfo("Listener Closing")
 		}
 	}
 }
@@ -200,6 +209,7 @@ func WithSourceTag(tag string) Option {
 func WithFetcher(host, port string) Option {
 	hp := net.JoinHostPort(host, port)
 	return func(p *Producer) {
+		p.addDebug("configuring fetcher %s:%s", host, port)
 		p.hasFetcher = true
 		p.FrameSource.OriginIdentifier = hp
 		p.run = func() {
@@ -340,7 +350,7 @@ func (p *Producer) String() string {
 }
 
 func (p *Producer) Listen() chan tracker.FrameEvent {
-	p.log.Debug().Msg("Listening")
+	p.log.Debug().Msg("Producer starting operations")
 	p.runningLock.Lock()
 	defer p.runningLock.Unlock()
 	if !p.running {
@@ -360,15 +370,25 @@ func (p *Producer) addFrame(f tracker.Frame, s *tracker.FrameSource) {
 }
 
 func (p *Producer) addDebug(sfmt string, v ...interface{}) {
-	p.log.Debug().Str("section", p.FrameSource.Name).Msgf(sfmt, v...)
+	p.log.Debug().
+		Str("Section", "Producer").
+		Str("frame-source", p.FrameSource.Name).
+		Msgf(sfmt, v...)
 }
 
 func (p *Producer) addInfo(sfmt string, v ...interface{}) {
-	p.log.Info().Str("section", p.FrameSource.Name).Msgf(sfmt, v...)
+	p.log.Info().
+		Str("Section", "Producer").
+		Str("frame-source", p.FrameSource.Name).
+		Msgf(sfmt, v...)
 }
 
 func (p *Producer) addError(err error) {
-	p.log.Error().Str("section", p.FrameSource.Name).Err(err).Send()
+	p.log.Error().
+		Str("Section", "Producer").
+		Str("frame-source", p.FrameSource.Name).
+		Err(err).
+		Send()
 }
 
 func (p *Producer) HealthCheck() bool {
@@ -518,25 +538,22 @@ func (p *Producer) fetcher(host, port string, read func(net.Conn) error) {
 			}
 		}
 		p.addDebug("Done with Producer %s", p)
-		//p.Cleanup()
-		//p.addDebug("cleanup is done %s", p)
 	}()
 
-	go func() {
-		for cmd := range p.cmdChan {
-			switch cmd {
-			case cmdExit:
-				p.addDebug("Got Cmd Exit")
-				wLock.Lock()
-				working = false
-				if conn != nil {
-					if err := conn.Close(); err != nil {
-						p.log.Error().Err(err).Msg("Err when closing socket")
-					}
+	for cmd := range p.cmdChan {
+		p.addDebug("Got a Command... %d", cmd)
+		switch cmd {
+		case cmdExit:
+			p.addDebug("Got Cmd Exit")
+			wLock.Lock()
+			working = false
+			if conn != nil {
+				if err := conn.Close(); err != nil {
+					p.log.Error().Err(err).Msg("Err when closing socket")
 				}
-				wLock.Unlock()
-				return
 			}
+			wLock.Unlock()
+			return
 		}
-	}()
+	}
 }
