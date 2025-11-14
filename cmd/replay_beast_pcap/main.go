@@ -75,6 +75,9 @@ func runApp(c *cli.Context) error {
 	if err != nil {
 		return fmt.Errorf("could not open %s: %v", c.String("pcap-file"), err)
 	}
+	defer func() {
+		handle.Close()
+	}()
 
 	// iterate through packets, playing back
 	log.Info().Msg("Replaying packets")
