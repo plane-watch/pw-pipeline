@@ -55,7 +55,9 @@ jobs:
       - name: go test (with race detection)
         run: go test -v -race -skip="TestRepeater" ./...
       - name: Report unreachable code
-        uses: lost-coders/deadcode-action@v0.1.0
+        run: |
+          go install golang.org/x/tools/cmd/deadcode@latest
+          deadcode ./...
 
   test_build:
     name: Test Build
