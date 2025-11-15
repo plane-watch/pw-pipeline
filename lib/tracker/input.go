@@ -72,16 +72,31 @@ func WithDecodeWorkerCount(numDecodeWorkers int) Option {
 	}
 }
 
+// WithNumFramesToBeViable sets the number of received mode_s frames we need to receive before sending
+// a plane information
+func WithNumFramesToBeViable(numFramesToBeViable int) Option {
+	return func(t *Tracker) {
+		t.numFramesToBeViable = numFramesToBeViable
+	}
+}
+
 func WithPruneTiming(pruneTick, pruneAfter time.Duration) Option {
 	return func(t *Tracker) {
 		t.pruneTick = pruneTick
 		t.pruneAfter = pruneAfter
 	}
 }
-func WithPrometheusCounters(currentPlanes prometheus.Gauge, decodedFrames prometheus.Counter) Option {
+func WithPrometheusCounters(
+	currentPlanes prometheus.Gauge,
+	decodedFrames prometheus.Counter,
+	erroredFrames prometheus.Counter,
+	purgedBeforeViable prometheus.Counter,
+) Option {
 	return func(t *Tracker) {
 		t.stats.currentPlanes = currentPlanes
 		t.stats.decodedFrames = decodedFrames
+		t.stats.erroredFrames = erroredFrames
+		t.stats.purgedBeforeViable = purgedBeforeViable
 	}
 }
 
@@ -287,8 +302,9 @@ func (t *Tracker) decodeQueue(decodingQueue chan FrameEvent, done chan bool) {
 		frame := frameEvent.Frame()
 		err := frame.Decode()
 		if nil != err {
-			var rawFrame string
+			t.stats.erroredFrames.Inc()
 			if !errors.Is(mode_s.ErrNoOp, err) {
+				var rawFrame string
 				// the decode operation failed to produce valid output, and we tell someone about it in debug mode
 				if t.log.Debug().Enabled() {
 					if b, ok := frame.(*beast.Frame); ok {

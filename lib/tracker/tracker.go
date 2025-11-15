@@ -20,8 +20,10 @@ type (
 	Tracker struct {
 		log   zerolog.Logger
 		stats struct {
-			currentPlanes prometheus.Gauge
-			decodedFrames prometheus.Counter
+			currentPlanes      prometheus.Gauge
+			decodedFrames      prometheus.Counter
+			erroredFrames      prometheus.Counter
+			purgedBeforeViable prometheus.Counter
 		}
 		startTime           time.Time
 		sink                Sink
@@ -32,10 +34,12 @@ type (
 		eventsWaiter        sync.WaitGroup
 		decodingQueueWaiter sync.WaitGroup
 		middlewareWaiter    sync.WaitGroup
-		decodeWorkerCount   int
 		pruneAfter          time.Duration
 		pruneTick           time.Duration
 		finishDone          bool
+
+		decodeWorkerCount   int
+		numFramesToBeViable int
 
 		muProducers sync.RWMutex
 	}
@@ -44,7 +48,7 @@ type (
 	}
 )
 
-func (d dummySink) OnEvent(event Event) {
+func (d dummySink) OnEvent(_ Event) {
 }
 
 func (d dummySink) Stop() {
@@ -61,13 +65,14 @@ func (d dummySink) HealthCheck() bool {
 // NewTracker creates a new tracker with which we can populate with plane tracking data
 func NewTracker(opts ...Option) *Tracker {
 	t := &Tracker{
-		producers:         []Producer{},
-		middlewares:       []Middleware{},
-		decodeWorkerCount: 5,
-		pruneTick:         10 * time.Second,
-		pruneAfter:        5 * time.Minute,
-		sink:              dummySink{},
-		startTime:         time.Now(),
+		producers:           []Producer{},
+		middlewares:         []Middleware{},
+		decodeWorkerCount:   5,
+		numFramesToBeViable: 1,
+		pruneTick:           10 * time.Second,
+		pruneAfter:          5 * time.Minute,
+		sink:                dummySink{},
+		startTime:           time.Now(),
 
 		log: log.With().Str("Section", "Tracker").Logger(),
 	}
@@ -82,11 +87,6 @@ func NewTracker(opts ...Option) *Tracker {
 			if nil != t.stats.currentPlanes {
 				t.stats.currentPlanes.Dec()
 			}
-
-			if plane, ok := value.(*Plane); ok {
-				// now send an event
-				t.sink.OnEvent(newPlaneActionEvent(plane, false, true))
-			}
 			if t.log.Trace().Enabled() {
 				t.log.Trace().
 					Str("ICAO", fmt.Sprintf("%06X", key)).
@@ -99,6 +99,10 @@ func NewTracker(opts ...Option) *Tracker {
 				oldest := time.Now().Add(-t.pruneAfter)
 				// remove the plane from the list if it is older than our oldest allowable
 				result = plane.LastSeen().Before(oldest)
+
+				if result && nil != t.stats.purgedBeforeViable && plane.MsgCount() <= uint64(t.numFramesToBeViable) {
+					t.stats.purgedBeforeViable.Inc()
+				}
 			}
 			if t.log.Trace().Enabled() {
 				t.log.Trace().
@@ -406,7 +410,7 @@ func (p *Plane) HandleModeSFrame(frame *mode_s.Frame, source *FrameSource) {
 	}
 
 	// we only transmit events if we have a few frames from this plane to prevent junk data
-	if hasChanged && p.MsgCount() > 3 {
+	if hasChanged && p.MsgCount() > uint64(p.tracker.numFramesToBeViable) {
 		p.tracker.sink.OnEvent(NewPlaneLocationEvent(p))
 	}
 }
