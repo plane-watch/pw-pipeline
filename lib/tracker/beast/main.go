@@ -185,7 +185,7 @@ func newFrameInto(f *Frame, rawBytes []byte, isRadarCape bool) (*Frame, error) {
 
 	// note: our parts here refer to the underlying slice that was passed in
 	f.raw = rawBytes
-	f.msgType = rawBytes[1] + 0
+	f.msgType = rawBytes[1]
 	f.mlatTimestamp = rawBytes[2:8]
 	f.signalLevel = rawBytes[8]
 	f.body = rawBytes[9:]
