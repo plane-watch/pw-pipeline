@@ -263,5 +263,15 @@ func (f *Frame) RawString() string {
 }
 
 func (f *Frame) SignalRssi() float64 {
-	return 10 * math.Log10(float64(f.signalLevel))
+	// we get the raw 0-255 byte value
+	rawRSSI := float64(f.signalLevel)
+
+	// we scale it to 0.0 - 1.0 (voltage = rawRSSI / 255)
+	RSSIRatio := rawRSSI / 255
+
+	// we convert it to a dBFS power value (rolling the squaring of the voltage into the dB calculation)
+	signalLevel := RSSIRatio * RSSIRatio
+	RSSI := 10 * math.Log10(signalLevel)
+
+	return RSSI
 }
