@@ -36,6 +36,7 @@ var (
 	magicTimestampMLAT = []byte{0xFF, 0x00, 0x4D, 0x4C, 0x41, 0x54}
 	ErrBadBeastFrame   = errors.New("bad beast frame")
 	ErrConfigFrame     = errors.New("beast message is config data")
+	ErrModeAC          = errors.New("beast message is ModeAC")
 )
 
 func init() {
@@ -160,6 +161,7 @@ func newFrameInto(f *Frame, rawBytes []byte, isRadarCape bool) (*Frame, error) {
 		//}
 		// mode-ac 10 bytes (2+8)
 		f.decodeModeAc()
+		return f, ErrModeAC
 	case 0x32, 0x33:
 		// 0x32 = mode-s short 15 bytes
 		// 0x33 = mode-s long 22 bytes

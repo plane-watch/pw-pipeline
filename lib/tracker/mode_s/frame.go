@@ -409,11 +409,10 @@ var (
 	}
 
 	utilityMessageField = []string{
-		0: "No operating ACAS",
-		1: "Not assigned",
-		2: "ACAS with resolution capability inhibited",
-		3: "ACAS with vertical-only resolution capability",
-		4: "ACAS with vertical and horizontal resolution capability",
+		0: "no information",
+		1: "IIS contains Comm-B interrogator identifier code",
+		2: "IIS contains Comm-C interrogator identifier code",
+		3: "IIS contains Comm-D interrogator identifier code",
 	}
 
 	aircraftCategory = [][]string{

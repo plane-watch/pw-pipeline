@@ -3,11 +3,12 @@ package mode_s
 import (
 	"bytes"
 	"fmt"
-	"github.com/rs/zerolog/log"
 	"io"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/rs/zerolog/log"
 )
 
 type featureDescriptionType struct {
@@ -693,8 +694,22 @@ func (f *Frame) showDownLinkRequest(output io.Writer) {
 	fprintf(output, "DR: Downlink Request: (%d) %s\n", f.dr, downlinkRequestField[f.dr])
 }
 
+// showUtilityMessage displays our utilty message in all of its glory
+// Utility message (UM): 6 bits, contains transponder communication status information.
+//
+//	IIS: The first 4 bits of UM indicate the interrogator identifier code.
+//
+//	IDS: The last 2 bits indicate the type of reservation made by the interrogator.
+//
+//	    00: no information
+//	    01: IIS contains Comm-B interrogator identifier code
+//	    10: IIS contains Comm-C interrogator identifier code
+//	    11: IIS contains Comm-D interrogator identifier code
 func (f *Frame) showUtilityMessage(output io.Writer) {
-	fprintf(output, "UM: Utility Request : (%d) %s\n", f.um, utilityMessageField[f.um])
+	iis := f.um >> 2
+	ids := f.um & 0x3
+
+	fprintf(output, "UM: Utility Request : IIS=%04b - IDS=%02b (%s)\n", iis, ids, utilityMessageField[ids])
 }
 
 func (f *Frame) showHae(output io.Writer) {

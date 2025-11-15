@@ -287,9 +287,21 @@ func (t *Tracker) decodeQueue(decodingQueue chan FrameEvent, done chan bool) {
 		frame := frameEvent.Frame()
 		err := frame.Decode()
 		if nil != err {
+			var rawFrame string
 			if !errors.Is(mode_s.ErrNoOp, err) {
-				// the decode operation failed to produce valid output, and we tell someone about it
-				t.log.Error().Err(err).Str("Tag", frameEvent.Source().Tag).Send()
+				// the decode operation failed to produce valid output, and we tell someone about it in debug mode
+				if t.log.Debug().Enabled() {
+					if b, ok := frame.(*beast.Frame); ok {
+						rawFrame = b.AvrFrame().RawString()
+					} else {
+						rawFrame = fmt.Sprintf("@%X", frame.Raw())
+					}
+					t.log.Error().
+						Err(err).
+						Str("Tag", frameEvent.Source().Tag).
+						Str("AVR", rawFrame).
+						Msg("failed to decode message")
+				}
 			}
 			continue
 		}
@@ -311,6 +323,7 @@ func (t *Tracker) decodeQueue(decodingQueue chan FrameEvent, done chan bool) {
 
 		switch typeFrame := frame.(type) {
 		case *beast.Frame:
+			t.log.Debug().Msg(typeFrame.AvrFrame().RawString())
 			plane.HandleModeSFrame(typeFrame.AvrFrame(), frameEvent.Source())
 			plane.setSignalLevel(typeFrame.SignalRssi())
 			beast.Release(typeFrame)

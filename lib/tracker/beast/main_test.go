@@ -2,6 +2,7 @@ package beast
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"reflect"
 	"testing"
@@ -16,8 +17,8 @@ var (
 func TestNewBeastMsgModeAC(t *testing.T) {
 	f, err := NewFrame(beastModeAc, false)
 
-	if nil != err {
-		t.Error("Did not get a beast message")
+	if !errors.Is(err, ErrModeAC) {
+		t.Error("failed to detect beast mode ac frame")
 		return
 	}
 

@@ -24,7 +24,7 @@ func (f *Frame) decodeAdsbLatLon() {
 	f.cprFlagOddEven = int(msg6&0x04) >> 2
 }
 
-func (f *Frame) decodeAdsb() {
+func (f *Frame) decodeAdsb() error {
 	// Down Link Format 17 Message Types
 	f.messageType = f.message[4] >> 3
 	f.messageSubType = f.message[4] & 7
@@ -175,7 +175,7 @@ func (f *Frame) decodeAdsb() {
 		case 1, 2, 3, 4, 5, 6: // Reserved
 		case 7: // Allocated for national use
 			// TEST MESSAGE with  squawk - decode it!
-			f.decodeSquawkIdentity(5, 6)
+			return f.decodeSquawkIdentity(5, 6)
 		}
 
 	case 24:
@@ -310,6 +310,8 @@ func (f *Frame) decodeAdsb() {
 		f.nicCrossCheck = f.message[10] & 0x08 >> 3
 		f.northReference = f.message[10] & 0x04 >> 2
 	}
+
+	return nil
 }
 
 func (f *Frame) bitString() string {
