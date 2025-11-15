@@ -98,8 +98,43 @@ func (f *Frame) checkCrc() error {
 		}
 		return fmt.Errorf("%w for DF %d (%s)", ErrInvalidChecksum, f.downLinkFormat, f.raw)
 
-	case 0, 4, 5, 16, 20, 21, 24: // AP Field (Address/Parity)
-		// For AP fields, we extract ICAO and verify consistency
+	case 0, 4, 5, 16: // AP Field (Address/Parity) - basic surveillance replies
+		// AP field contains CRC XOR'd with Interrogator ID. Extract ICAO and validate
+		// using frame count threshold to distinguish real aircraft from interrogator IDs.
+		// Real aircraft transmit repeatedly (~3+ frames), interrogator IDs are random (1 frame).
+		icao, err := f.validateAPField()
+		if err != nil {
+			return fmt.Errorf("DF%d AP validation failed: %w", f.downLinkFormat, err)
+		}
+
+		// Only accept if ICAO has been seen in enough frames (avoids ghost aircraft from interrogator IDs)
+		if !testICAOFrameCount(icao) {
+			return fmt.Errorf("DF%d from ICAO 0x%06X with insufficient frame count", f.downLinkFormat, icao)
+		}
+
+		// ICAO has sufficient history, accept the frame
+		f.icao = icao
+		return nil
+
+	case 20, 21: // AP Field - Comm-B altitude/identity replies
+		// DF20/21 contain valuable Comm-B data (BDS registers) not available in ADS-B.
+		// Extract ICAO and only accept if it's from a known aircraft (via ICAO filter).
+		icao, err := f.validateAPField()
+		if err != nil {
+			return fmt.Errorf("DF%d AP validation failed: %w", f.downLinkFormat, err)
+		}
+
+		// Test if this ICAO is already being tracked (from DF11/17/18 frames)
+		if !testICAO(icao) {
+			return fmt.Errorf("DF%d from unknown ICAO 0x%06X (not in filter)", f.downLinkFormat, icao)
+		}
+
+		// ICAO is known, accept the frame
+		f.icao = icao
+		return nil
+
+	case 24: // AP Field for Comm-D
+		// DF24 is different - AP field may be usable
 		icao, err := f.validateAPField()
 		if err != nil {
 			return err

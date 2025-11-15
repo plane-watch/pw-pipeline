@@ -115,6 +115,10 @@ func NewTracker(opts ...Option) *Tracker {
 		}),
 	)
 
+	// Register ICAO filter for surveillance reply validation
+	mode_s.RegisterICAOFilter(t.HasICAO)
+	mode_s.RegisterICAOMessageCounter(t.GetPlaneMessageCount)
+
 	return t
 }
 
@@ -146,6 +150,25 @@ func (t *Tracker) EachPlane(pi PlaneIterator) {
 	t.planeList.Range(func(key, value interface{}) bool {
 		return pi(value.(*Plane))
 	})
+}
+
+// HasICAO checks if an ICAO is currently being tracked
+func (t *Tracker) HasICAO(icao uint32) bool {
+	return t.planeList.HasKey(icao)
+}
+
+// GetPlaneMessageCount returns the message count for a given ICAO
+// Returns 0 if the plane is not being tracked
+func (t *Tracker) GetPlaneMessageCount(icao uint32) int {
+	plane, ok := t.planeList.Load(icao)
+	if !ok {
+		return 0
+	}
+	p, ok := plane.(*Plane)
+	if !ok {
+		return 0
+	}
+	return int(p.MsgCount())
 }
 
 func (p *Plane) HandleModeSFrame(frame *mode_s.Frame, source *FrameSource) {
