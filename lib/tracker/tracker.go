@@ -405,7 +405,8 @@ func (p *Plane) HandleModeSFrame(frame *mode_s.Frame, source *FrameSource) {
 		hasChanged = p.location.TileGrid() != "" || hasChanged
 	}
 
-	if hasChanged {
+	// we only transmit events if we have a few frames from this plane to prevent junk data
+	if hasChanged && p.MsgCount() > 3 {
 		p.tracker.sink.OnEvent(NewPlaneLocationEvent(p))
 	}
 }

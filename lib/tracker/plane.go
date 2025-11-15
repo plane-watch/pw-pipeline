@@ -4,13 +4,14 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"plane.watch/lib/tile_grid"
-	"plane.watch/lib/tracker/mode_s"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"plane.watch/lib/tile_grid"
+	"plane.watch/lib/tracker/mode_s"
 )
 
 const (
