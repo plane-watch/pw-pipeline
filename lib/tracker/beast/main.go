@@ -13,16 +13,44 @@ import (
 type (
 	// Frame represents our Beast frame and is used to decode into AVR
 	Frame struct {
-		raw           []byte
-		mlatTimestamp []byte
-		body          []byte
-		msgType       byte
-		signalLevel   byte
-		bodyString    string
 
-		isRadarCape  bool
-		hasDecoded   bool
-		isPool       bool
+		// raw represents the entire BEAST message, including the first 0x1a byte
+		raw []byte
+
+		// mlatTimestamp represents the 6-byte MLAT timestamp from the BEAST message
+		mlatTimestamp []byte
+
+		// body represents the message payload, Mode S long/short or Mode AC data
+		body []byte
+
+		// msgType represents the encapsulated message type:
+		//  - 0x31 = 2 byte Mode-AC
+		//  - 0x32 = 7 byte Mode-S short frame
+		//  - 0x33 = 14 byte Mode-S long frame
+		//  - 0x34 = DIP switch configuration settings, time stamp error ticks as int8_t (1 tick is 15ns) (message "4" not on Mode-S Beast classic)
+		msgType byte
+
+		// signalLevel represents the received signal level for Mode-AC and Mode-S messages.
+		//
+		// To get the actual dBFS value:
+		//  - The raw 0-255 byte value is converted to 0.0 - 1.0 (by dividing bt 255).
+		//  - It should then be squared, base 10 log'd, and multiplied by 10.
+		signalLevel byte
+
+		// bodyString is the string representation of the Mode-AC/S message encapsulated in the BEAST frame.
+		// It is populated when Frame.RawString is run.
+		bodyString string
+
+		// todo(mikenye): isRadarCape appears to be unused. It is set in newFrameInto but then never read?
+		isRadarCape bool
+
+		// hasDecoded indicates whether the Mode-AC/S message encapsulated in the BEAST frame has been decoded.
+		hasDecoded bool
+
+		// todo(mikenye): isPool appears to be unused.
+		isPool bool
+
+		// decodedModeS contains the decoded Mode-S frame (if the msgType is 0x32 or 0x33 - Mode-S short or Mode-S long).
 		decodedModeS mode_s.Frame
 	}
 )
