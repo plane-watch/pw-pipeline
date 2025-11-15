@@ -84,3 +84,5 @@ _testmain.go
 dist/
 
 gitleaks-report.json
+/cmd/replay_beast_pcap/beast.pcap
+/cmd/replay_beast_pcap/replay_beast_pcap
