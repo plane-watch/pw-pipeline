@@ -86,6 +86,17 @@ func init() {
 
 func Release(frame *Frame) {
 	if UsePoolAllocator {
+		// clear frame before returning to the pool
+		clear(frame.raw)
+		frame.msgType = 0
+		clear(frame.mlatTimestamp)
+		frame.signalLevel = 0
+		clear(frame.body)
+		frame.bodyString = "                            " // 28 chars to fit 112bit squitters
+		frame.isRadarCape = false
+		frame.hasDecoded = false
+		frame.decodedModeS = mode_s.Frame{}
+		// return to pool
 		beastPool.Put(frame)
 	}
 }
