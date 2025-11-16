@@ -1,6 +1,9 @@
 package mode_s
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 // CRC Validation Framework for Mode S
 //
@@ -18,6 +21,12 @@ import "fmt"
 
 var (
 	modesChecksumTable [256]uint32
+	doIcaoCheck        bool = true
+
+	ErrUnreliableICAOInsufficientFrameCount = errors.New("insufficient frames from plane to trust DF00 data")
+	ErrUnreliableICAOUnableToDetermine      = errors.New("unable to determine icao from data")
+	ErrUnreliableICAONotPreviouslySeen      = errors.New("not trusting frame from unseen aircraft")
+	ErrUnreliableICAODidNotMatch            = errors.New("crc icao did not match previously decoded icao")
 )
 
 const modesGeneratorPoly uint32 = 0xfff409
@@ -39,6 +48,10 @@ func init() {
 
 		modesChecksumTable[i] = c & 0x00ffffff
 	}
+}
+
+func DisableICAOChecking() {
+	doIcaoCheck = false
 }
 
 // calculateCRC computes the Mode S CRC for the given message bytes.
@@ -108,8 +121,9 @@ func (f *Frame) checkCrc() error {
 		}
 
 		// Only accept if ICAO has been seen in enough frames (avoids ghost aircraft from interrogator IDs)
-		if !testICAOFrameCount(icao) {
-			return fmt.Errorf("DF%d from ICAO 0x%06X with insufficient frame count", f.downLinkFormat, icao)
+		if doIcaoCheck && !testICAOFrameCount(icao) {
+			return ErrUnreliableICAOInsufficientFrameCount
+			//return fmt.Errorf("DF%d from ICAO 0x%06X with insufficient frame count", f.downLinkFormat, icao)
 		}
 
 		// ICAO has sufficient history, accept the frame
@@ -121,12 +135,14 @@ func (f *Frame) checkCrc() error {
 		// Extract ICAO and only accept if it's from a known aircraft (via ICAO filter).
 		icao, err := f.validateAPField()
 		if err != nil {
-			return fmt.Errorf("DF%d AP validation failed: %w", f.downLinkFormat, err)
+			return ErrUnreliableICAOUnableToDetermine
+			//return fmt.Errorf("DF%d AP validation failed: %w", f.downLinkFormat, err)
 		}
 
 		// Test if this ICAO is already being tracked (from DF11/17/18 frames)
-		if !testICAO(icao) {
-			return fmt.Errorf("DF%d from unknown ICAO 0x%06X (not in filter)", f.downLinkFormat, icao)
+		if doIcaoCheck && !testICAO(icao) {
+			return ErrUnreliableICAONotPreviouslySeen
+			//return fmt.Errorf("DF%d from unknown ICAO 0x%06X (not in filter)", f.downLinkFormat, icao)
 		}
 
 		// ICAO is known, accept the frame
@@ -146,7 +162,8 @@ func (f *Frame) checkCrc() error {
 			f.icao = icao
 		} else if f.icao != icao {
 			// If we already decoded ICAO from AA field, it should match
-			return fmt.Errorf("%w: AA field=0x%06X, AP field=0x%06X", ErrInvalidChecksum, f.icao, icao)
+			return ErrUnreliableICAODidNotMatch
+			//return fmt.Errorf("%w: AA field=0x%06X, AP field=0x%06X", ErrInvalidChecksum, f.icao, icao)
 		}
 
 		return nil

@@ -138,6 +138,7 @@ func TestTracking(t *testing.T) {
 
 func TestTracking2(t *testing.T) {
 	zerolog.SetGlobalLevel(zerolog.PanicLevel)
+	mode_s.DisableICAOChecking()
 	frames := []string{
 		"*8D7C7DAA99146D0980080D6131A1;",
 		"*5D7C7DAACD3CE9;",
