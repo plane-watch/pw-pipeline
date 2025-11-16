@@ -9,6 +9,7 @@ import (
 
 func TestMain(m *testing.M) {
 	DisableICAOChecking()
+	m.Run()
 }
 
 // Test Utilities for generating frames with correct CRC values

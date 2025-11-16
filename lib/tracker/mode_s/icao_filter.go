@@ -31,16 +31,8 @@ func RegisterICAOMessageCounter(f ICAOMessageCountFunc) {
 	icaoMsgCountFunc = f
 }
 
-// SetFrameCountThreshold sets the minimum number of frames required for
-// accepting DF0/4/5/16 surveillance replies from an ICAO
-func SetFrameCountThreshold(threshold int) {
-	icaoFilterMu.Lock()
-	defer icaoFilterMu.Unlock()
-	frameCountThreshold = threshold
-}
-
-// testICAO checks if an ICAO is in the registered filter (for DF20/21)
-func testICAO(icao uint32) bool {
+// hasAnyExistingMessages checks if an ICAO is in the registered filter (for DF20/21)
+func hasAnyExistingMessages(icao uint32) bool {
 	icaoFilterMu.RLock()
 	defer icaoFilterMu.RUnlock()
 
@@ -51,8 +43,8 @@ func testICAO(icao uint32) bool {
 	return icaoFilterFunc(icao)
 }
 
-// testICAOFrameCount checks if an ICAO has enough frames for DF0/4/5/16 validation
-func testICAOFrameCount(icao uint32) bool {
+// hasSufficientExistingMessages checks if an ICAO has enough frames for DF0/4/5/16 validation
+func hasSufficientExistingMessages(icao uint32) bool {
 	icaoFilterMu.RLock()
 	defer icaoFilterMu.RUnlock()
 
