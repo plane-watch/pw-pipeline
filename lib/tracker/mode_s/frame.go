@@ -188,53 +188,73 @@ type (
 	}
 
 	Frame struct {
-		timeStamp               time.Time
-		err                     error
-		cccHasOperationalTcas   *bool
-		cccHasTargetChangeRpt   *bool
-		cccHasAirRefVel         *bool
-		cccHasLowTxPower        *bool
-		decodeLock              *sync.Mutex
-		cccHasTargetStateRpt    *bool
-		special                 string
-		full                    string
-		raw                     string
-		beastTimeStamp          string
-		mode                    string
-		emergency               string
-		flight                  []byte
-		message                 []byte
-		me                      uint64
-		eastWestDirection       int
-		mb                      uint64
-		beastTicksNs            uint64
-		beastAvrUptime          time.Duration
-		velocity                float64
-		heading                 float64
-		timeFlag                int
-		cprFlagOddEven          int
-		mv                      uint64
-		compatibilityClass      int
-		operationalModeCode     int
-		containmentRadius       int
-		emergencyID             int
-		unit                    int
-		rawLatitude             int
-		rawLongitude            int
-		beastTicks              uint64
-		eastWestVelocity        int
-		haeDelta                int
-		verticalRate            int
-		verticalRateSource      int
-		northSouthVelocity      int
-		northSouthDirection     int
-		ac                      uint32
-		ap                      uint32
-		id                      uint32
-		aa                      uint32
-		pi                      uint32
-		altitude                int32
-		icao                    uint32
+
+		// timeStamp is set when the frame is created
+		timeStamp time.Time
+
+		// todo(mikenye): err is unused
+		err error
+
+		cccHasOperationalTcas *bool
+		cccHasTargetChangeRpt *bool
+		cccHasAirRefVel       *bool
+		cccHasLowTxPower      *bool
+		decodeLock            *sync.Mutex
+		cccHasTargetStateRpt  *bool
+		special               string
+		full                  string
+		raw                   string
+		beastTimeStamp        string
+		mode                  string
+		emergency             string
+		flight                []byte
+
+		// message contains the raw message bytes.
+		// It is populated either via NewFrameFromBytes, or Decode.
+		message []byte
+
+		// todo(mikenye): me is unused
+		me uint64
+
+		// eastWestDirection indicates the direction for the E-W velocity component.
+		//  - 0: from West to East
+		//  - 1: from East to West
+		eastWestDirection int
+
+		// todo(mikenye): mb is unused
+		mb uint64
+
+		beastTicksNs        uint64
+		beastAvrUptime      time.Duration
+		velocity            float64
+		heading             float64
+		timeFlag            int
+		cprFlagOddEven      int
+		mv                  uint64
+		compatibilityClass  int
+		operationalModeCode int
+		containmentRadius   int
+		emergencyID         int
+		unit                int
+		rawLatitude         int
+		rawLongitude        int
+		beastTicks          uint64
+		eastWestVelocity    int
+		haeDelta            int
+		verticalRate        int
+		verticalRateSource  int
+		northSouthVelocity  int
+		northSouthDirection int
+		ac                  uint32
+		ap                  uint32
+		id                  uint32
+		aa                  uint32
+		pi                  uint32
+		altitude            int32
+
+		// icao contains the icao number of the aircraft extracted from the frame
+		icao uint32
+
 		crc                     uint32
 		checkSum                uint32
 		identity                uint32
@@ -1019,4 +1039,11 @@ func (f *Frame) DecodeAuIcaoRegistration() (*string, error) {
 	decodeStr := fmt.Sprintf("VH-%s%s%s", string(charset[char1]), string(charset[char2]), string(charset[char3]))
 
 	return &decodeStr, nil
+}
+
+func (f *Frame) NACv() (byte, error) {
+	if !f.validNacV {
+		return 0, fmt.Errorf("NACv is not valid")
+	}
+	return f.nacV, nil
 }
