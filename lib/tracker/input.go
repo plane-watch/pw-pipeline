@@ -302,7 +302,9 @@ func (t *Tracker) decodeQueue(decodingQueue chan FrameEvent, done chan bool) {
 		frame := frameEvent.Frame()
 		err := frame.Decode()
 		if nil != err {
-			t.stats.erroredFrames.Inc()
+			if nil != t.stats.erroredFrames {
+				t.stats.erroredFrames.Inc()
+			}
 			if !errors.Is(mode_s.ErrNoOp, err) {
 				var rawFrame string
 				// the decode operation failed to produce valid output, and we tell someone about it in debug mode
