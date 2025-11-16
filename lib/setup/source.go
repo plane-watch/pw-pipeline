@@ -59,7 +59,7 @@ func IncludeSourceFlags(app *cli.App) {
 		},
 		&cli.StringSliceFlag{
 			Name:    File,
-			Usage:   "The Source in URL Form. [avr|beast|sbs1]:///path/to/file?tag=MYTAG&refLat=-31.0&refLon=115.0&delay=no",
+			Usage:   "The Source in URL Form. [avr|beast|sbs1]:///path/to/file?tag=MYTAG&refLat=-31.0&refLon=115.0&delay=no&isRadarCape=false",
 			EnvVars: []string{"FILE"},
 		},
 
@@ -202,16 +202,9 @@ func handleFileSource(urlFile, defaultTag string, defaultRefLat, defaultRefLon f
 		producerOpts[0] = producer.WithType(producer.Avr)
 	case "beast":
 		producerOpts[0] = producer.WithType(producer.Beast)
-		delay := false
-		if parsedUrl.Query().Has("delay") {
-			switch strings.ToLower(parsedUrl.Query().Get("delay")) {
-			case "", "no", "false", "0":
-				delay = false
-			default:
-				delay = true
-			}
-		}
-		producerOpts = append(producerOpts, producer.WithBeastDelay(delay))
+		delay := strToBool(parsedUrl.Query().Get("delay"))
+		isRadarCape := strToBool(parsedUrl.Query().Get("isRadarCape"))
+		producerOpts = append(producerOpts, producer.WithBeastDelay(delay, isRadarCape))
 	case "sbs1":
 		producerOpts[0] = producer.WithType(producer.Sbs1)
 	default:
@@ -230,4 +223,13 @@ func handleFileSource(urlFile, defaultTag string, defaultRefLat, defaultRefLon f
 	)
 
 	return producer.New(producerOpts...), nil
+}
+
+func strToBool(s string) bool {
+	switch strings.ToLower(s) {
+	case "", "no", "false", "0":
+		return false
+	default:
+		return true
+	}
 }

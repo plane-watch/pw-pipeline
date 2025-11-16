@@ -41,18 +41,23 @@ type (
 
 		cmdChan chan int
 
-		splitter                      bufio.SplitFunc
-		beastDelay, keepAliveRepeater bool
+		splitter bufio.SplitFunc
 
-		run         func()
-		running     bool
+		hasFetcher       bool
+		fetcherConnected bool
+
+		beastDelay        bool
+		keepAliveRepeater bool
+		isRadarCape       bool
+
+		running bool
+		run     func()
+
 		runningLock sync.Mutex
 
 		stats struct {
 			avr, beast, sbs1 prometheus.Counter
 		}
-
-		hasFetcher, fetcherConnected bool
 
 		repeater *keepAliveRepeater
 
@@ -272,9 +277,10 @@ func WithFiles(filePaths []string) Option {
 	}
 }
 
-func WithBeastDelay(beastDelay bool) Option {
+func WithBeastDelay(beastDelay bool, isRadarCape bool) Option {
 	return func(p *Producer) {
 		p.beastDelay = beastDelay
+		p.isRadarCape = isRadarCape
 	}
 }
 

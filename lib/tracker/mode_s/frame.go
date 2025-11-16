@@ -508,6 +508,8 @@ var (
 		2: "Temporary alert (change in Mode A identity code other than emergency condition)",
 		3: "SPI condition",
 	}
+
+	ErrNoAuIcaoCode = errors.New("not an AU aircraft ICAO")
 )
 
 func (f *Frame) MessageTypeString() string {
@@ -995,11 +997,14 @@ func (f *Frame) GetAirplaneLengthWidth() (*float32, *float32, error) {
 
 // DecodeAuIcaoRegistration takes the ICAO of an australian aircraft and can decode it into a callsign
 func (f *Frame) DecodeAuIcaoRegistration() (*string, error) {
+
+	// at least according to https://www.microair.aero/wp-content/uploads/2023/05/RAAUS-xpdr-programming-2015.pdf
+	// this is the list of au assigned ICAO codes
 	start := uint32(0x7C0000)
-	end := uint32(0x7C822D)
+	end := uint32(0x7F0000)
 
 	if f.icao < start || f.icao > end {
-		return nil, errors.New("not an AU aircraft ICAO")
+		return nil, ErrNoAuIcaoCode
 	}
 
 	charset := "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -1015,7 +1020,7 @@ func (f *Frame) DecodeAuIcaoRegistration() (*string, error) {
 	auNum -= char2 * 36
 	char1 = (auNum / (36 * 36)) % 36
 
-	decodeStr := fmt.Sprintf("VH-%s%s%s", string(charset[char1]), string(charset[char2]), string(charset[char3]))
+	decodeStr := "VH-" + string(charset[char1]) + string(charset[char2]) + string(charset[char3])
 
 	return &decodeStr, nil
 }

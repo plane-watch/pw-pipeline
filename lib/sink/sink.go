@@ -39,8 +39,10 @@ func NewSink(conf *Config, dest Destination) tracker.Sink {
 		sendList: make(map[string]*tracker.PlaneLocationEvent),
 	}
 
-	s.sendTicker = time.NewTicker(s.config.sendDelay)
-	go s.doSend()
+	if s.config.sendDelay > 0 {
+		s.sendTicker = time.NewTicker(s.config.sendDelay)
+		go s.doSend()
+	}
 
 	return &s
 }

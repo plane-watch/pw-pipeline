@@ -2,11 +2,17 @@ package main
 
 import (
 	"os"
+	"strconv"
+	"strings"
 
+	"github.com/olekukonko/tablewriter"
+	"github.com/olekukonko/tablewriter/renderer"
+	"github.com/olekukonko/tablewriter/tw"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/rs/zerolog/log"
 	"github.com/urfave/cli/v2"
+	"golang.org/x/exp/slices"
 	"plane.watch/lib/dedupe"
 	"plane.watch/lib/example_finder"
 	"plane.watch/lib/logging"
@@ -108,16 +114,23 @@ func main() {
 			},
 		},
 	}
-	app.Flags = append(app.Flags, &cli.BoolFlag{
-		Name:    DedupeFilter,
-		Usage:   "Include the usage of the ADSB Message Deduplication Filter. Useful for combo feeds",
-		EnvVars: []string{"DEDUPE"},
-	})
-	app.Flags = append(app.Flags, &cli.IntFlag{
-		Name:  DecodeWorkerCount,
-		Usage: "The number of tracker workers we spawn to handle the incoming traffic",
-		Value: 1,
-	})
+	app.Flags = append(
+		app.Flags,
+		&cli.BoolFlag{
+			Name:    DedupeFilter,
+			Usage:   "Include the usage of the ADSB Message Deduplication Filter. Useful for combo feeds",
+			EnvVars: []string{"DEDUPE"},
+		},
+		&cli.IntFlag{
+			Name:  DecodeWorkerCount,
+			Usage: "The number of tracker workers we spawn to handle the incoming traffic",
+			Value: 1,
+		},
+		&cli.BoolFlag{
+			Name:  "show-stats",
+			Usage: "When pw-ingest quits, show some stats about the processed plane data, handy when looking at files",
+		},
+	)
 
 	app.Before = func(c *cli.Context) error {
 		logging.SetLoggingLevel(c)
@@ -175,9 +188,6 @@ func commonSetup(c *cli.Context) (*tracker.Tracker, error) {
 }
 
 func runSimple(c *cli.Context) error {
-	//defer func() {
-	//	recover()
-	//}()
 	logging.ConfigureForCli()
 
 	trk, err := commonSetup(c)
@@ -188,7 +198,72 @@ func runSimple(c *cli.Context) error {
 
 	go trk.StopOnCancel()
 	trk.Wait()
+
+	if c.Bool("show-stats") {
+		showPlaneStats(trk)
+	}
+
 	return nil
+}
+
+func showPlaneStats(trk *tracker.Tracker) {
+	tbl := tablewriter.NewTable(
+		os.Stdout,
+		tablewriter.WithRenderer(
+			renderer.NewBlueprint(
+				tw.Rendition{
+					Borders: tw.BorderNone,
+					Symbols: tw.NewSymbols(tw.StyleASCII),
+					Settings: tw.Settings{
+						Separators: tw.Separators{
+							ShowHeader:     tw.On,
+							ShowFooter:     tw.Off,
+							BetweenRows:    tw.Off,
+							BetweenColumns: tw.On,
+						},
+						Lines: tw.Lines{
+							ShowTop:        tw.On,
+							ShowBottom:     tw.Off,
+							ShowHeaderLine: tw.On,
+							ShowFooterLine: tw.Off,
+						},
+						CompactMode: tw.Off,
+					},
+					Streaming: false,
+				})),
+	)
+	rows := make([][]string, 0)
+	headers := []string{"ICAO", "Squawk", "Reg", "Flight Number", "Type", "MSG Count"}
+	trk.EachPlane(func(p *tracker.Plane) bool {
+		rows = append(rows, []string{
+			p.IcaoIdentifierStr(),
+			p.SquawkIdentityStr(),
+			unPtr(p.Registration()),
+			p.FlightNumber(),
+			p.AirFrame(),
+			strconv.FormatUint(p.MsgCount(), 10),
+		})
+
+		return true
+	})
+
+	slices.SortFunc(rows, func(a, b []string) int {
+		return strings.Compare(a[0], b[0])
+	})
+
+	tbl.Header(headers)
+	for _, row := range rows {
+		_ = tbl.Append(row)
+	}
+	_ = tbl.Render()
+}
+
+func unPtr[T any](pt *T) T {
+	var def T
+	if pt == nil {
+		return def
+	}
+	return *pt
 }
 
 // runDfFilter is a special mode for hunting down DF examples from live inputs

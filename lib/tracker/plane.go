@@ -378,6 +378,12 @@ func (p *Plane) String() string {
 
 // setAltitude puts our plane in the sky
 func (p *Plane) setAltitude(altitude int32, altitudeUnits string, ts time.Time) bool {
+	if ts.IsZero() {
+		p.tracker.log.Info().Msg("Attempting to set altitude with zero time, ignoring")
+
+		return false
+	}
+
 	p.rwLock.Lock()
 	defer p.rwLock.Unlock()
 	// set the current altitude
@@ -406,7 +412,7 @@ func (p *Plane) Altitude() int32 {
 func (p *Plane) HasAltitude() bool {
 	p.rwLock.RLock()
 	defer p.rwLock.RUnlock()
-	// set the current altitude
+	// if we have a timestamp for the altitude, we have it set
 	return !p.location.altitudeTS.IsZero()
 }
 
@@ -515,6 +521,10 @@ func (p *Plane) setRegistration(reg *string, err error) bool {
 
 // setSquawkIdentity Sets the planes squawk. A squawk is set by the pilots for various reasons (including flight control)
 func (p *Plane) setSquawkIdentity(ident uint32, ts time.Time) bool {
+	if ts.IsZero() {
+		p.tracker.log.Info().Msg("Attempting to set squawk with zero time, ignoring")
+		return false
+	}
 	p.rwLock.Lock()
 	defer p.rwLock.Unlock()
 	hasChanged := p.squawk != ident

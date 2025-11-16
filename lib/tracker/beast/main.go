@@ -194,6 +194,11 @@ func (f *Frame) BeastTicksNs() time.Duration {
 		t |= uint64(f.mlatTimestamp[i]) << inc
 		inc -= 8
 	}
+
+	if f.isRadarCape {
+		return time.Duration(t)
+	}
+
 	return time.Duration(t * 500)
 }
 
