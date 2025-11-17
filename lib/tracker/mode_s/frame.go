@@ -513,6 +513,8 @@ var (
 	}
 
 	ErrNoAuIcaoCode = errors.New("not an AU aircraft ICAO")
+
+	ErrInvalidNACv = errors.New("invalid NACv")
 )
 
 func (f *Frame) MessageTypeString() string {
@@ -561,10 +563,22 @@ func (f *Frame) MessageTypeString() string {
 	return name
 }
 
+// DownLinkType returns the ADS-B Type Code (DF) of the Mode-S frame.
+//
+//   - 1–4: Aircraft identification
+//   - 5–8: Surface position
+//   - 9–18: Airborne position (w/Baro Altitude)
+//   - 19: Airborne velocities
+//   - 20–22 Airborne position (w/GNSS Height)
+//   - 23–27 Reserved
+//   - 28 Aircraft status
+//   - 29 Target state and status information
+//   - 31 Aircraft operation status
 func (f *Frame) DownLinkType() byte {
 	return f.downLinkFormat
 }
 
+// Icao returns the ICAO address from the vessel.
 func (f *Frame) Icao() uint32 {
 	if nil == f {
 		return 0
@@ -599,12 +613,15 @@ func (f *Frame) IcaoStr() string {
 	return fmt.Sprintf("%06X", f.icao)
 }
 
+// Latitude returns the Compact Position Reporting (CPR) encoded latitude
 func (f *Frame) Latitude() int {
 	if nil == f {
 		return -1
 	}
 	return f.rawLatitude
 }
+
+// Longitude returns the Compact Position Reporting (CPR) encoded longitude
 func (f *Frame) Longitude() int {
 	if nil == f {
 		return -1
@@ -612,12 +629,16 @@ func (f *Frame) Longitude() int {
 	return f.rawLongitude
 }
 
+// Altitude returns the altitude of the vessel, or an error if the data is unavailable.
+// AltitudeUnits is required to determine whether the altitude is in feet or metres.
 func (f *Frame) Altitude() (int32, error) {
 	if f.validAltitude {
 		return f.altitude, nil
 	}
 	return 0, errors.New("altitude is not valid")
 }
+
+// MustAltitude returns the altitude of the vessel, or panics if the data is unavailable.
 func (f *Frame) MustAltitude() int32 {
 	if f.validAltitude {
 		return f.altitude
@@ -625,6 +646,7 @@ func (f *Frame) MustAltitude() int32 {
 	panic("altitude is not valid")
 }
 
+// AltitudeUnits return metres or feet depending on how the altitude has been calculated.
 func (f *Frame) AltitudeUnits() string {
 	if nil == f {
 		return "metres"
@@ -686,12 +708,15 @@ func (f *Frame) VelocityValid() bool {
 	return f.validVelocity
 }
 
+// Heading returns the current heading of the vessel in degrees, or returns an error if the data is unavailable.
 func (f *Frame) Heading() (float64, error) {
 	if f.validHeading {
 		return f.heading, nil
 	}
 	return 0, errors.New("heading is not valid")
 }
+
+// MustHeading returns the current heading of the vessel in degrees, or panics if the data is unavailable.
 func (f *Frame) MustHeading() float64 {
 	if f.validHeading {
 		return f.heading
@@ -748,6 +773,7 @@ func (f *Frame) SquawkIdentityStr() string {
 	return fmt.Sprintf("%04d", f.identity)
 }
 
+// OnGround returns true if the vessel is on the ground, or an error if the data is unavailable.
 func (f *Frame) OnGround() (bool, error) {
 	if f.VerticalStatusValid() {
 		return f.onGround, nil
@@ -790,10 +816,26 @@ func (f *Frame) CategoryType() string {
 	return fmt.Sprintf("%d/%d", f.catType, f.catSubType)
 }
 
+// MessageType returns the Mode-S type code.
+//   - 1-4: Wake vortex information
+//   - 5-8: Surface position message
+//   - 9–18: Airborne position, with barometric altitude encoded (in feet)
+//   - 19: Airborne velocity
+//   - 20–22: Airborne position, with GNSS Height encoded (in meters)
+//   - 31: Aircraft operational status
 func (f *Frame) MessageType() byte {
 	return f.messageType
 }
 
+// MessageSubType returns the Mode-S frame's type code's sub type.
+//
+// For TC=19:
+//   - Sub-type 1 and 2: Ground speed decoding
+//   - Sub-type 3 and 4: Airspeed decoding
+//
+// For TC=31:
+//
+//   - Sub-type 0: airborne, 1: surface, 2–7: reserved
 func (f *Frame) MessageSubType() byte {
 	return f.messageSubType
 }
@@ -1030,7 +1072,7 @@ func (f *Frame) DecodeAuIcaoRegistration() (*string, error) {
 
 func (f *Frame) NACv() (byte, error) {
 	if !f.validNacV {
-		return 0, fmt.Errorf("NACv is not valid")
+		return 0, ErrInvalidNACv
 	}
 	return f.nacV, nil
 }

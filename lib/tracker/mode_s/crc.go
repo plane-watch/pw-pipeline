@@ -137,6 +137,10 @@ func (f *Frame) decodeModeSChecksumAddr() uint32 {
 	return crc ^ apField
 }
 
+func (f *Frame) CRC() uint32 {
+	return f.checkSum
+}
+
 // checkCrc validates the CRC/parity field and extracts ICAO addresses from Mode S frames.
 //
 // Mode S uses two different parity field types:
