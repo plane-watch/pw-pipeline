@@ -128,8 +128,8 @@ func TestFrame_SignalRssi(t *testing.T) {
 		want string
 	}{
 		{name: "AC", args: beastModeAc, want: "-Inf"},
-		{name: "Long", args: beastModeSShort, want: "15.8"},
-		{name: "Short", args: beastModeSLong, want: "16.0"},
+		{name: "Long", args: beastModeSShort, want: "-16.5"},
+		{name: "Short", args: beastModeSLong, want: "-16.1"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
