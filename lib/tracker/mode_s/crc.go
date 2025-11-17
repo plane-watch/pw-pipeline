@@ -22,6 +22,10 @@ var (
 
 const modesGeneratorPoly uint32 = 0xfff409
 
+// init builds a 256-entry lookup table for a 24-bit CRC (the Mode-S/ADS-B checksum),
+// using the generator polynomial in modesGeneratorPoly.
+// The table is filled at package init time so later CRC calculations can be done fast,
+// a byte at a time.
 func init() {
 	var i uint32
 	var j int

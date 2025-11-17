@@ -291,6 +291,9 @@ func (f *Frame) RawString() string {
 	return f.bodyString
 }
 
+// SignalRssi returns the Received Signal Strength Indicator expressed in dBFS (decibels relative to full scale),
+// it means the signal strength is being measured relative to the maximum possible level the receiver’s
+// analogue-to-digital converter (ADC) can represent.
 func (f *Frame) SignalRssi() float64 {
 	// we get the raw 0-255 byte value
 	rawRSSI := float64(f.signalLevel)
