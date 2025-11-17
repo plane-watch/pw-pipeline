@@ -512,6 +512,8 @@ var (
 		2: "Temporary alert (change in Mode A identity code other than emergency condition)",
 		3: "SPI condition",
 	}
+
+	ErrInvalidNACv = errors.New("invalid NACv")
 )
 
 func (f *Frame) MessageTypeString() string {
@@ -1066,7 +1068,7 @@ func (f *Frame) DecodeAuIcaoRegistration() (*string, error) {
 
 func (f *Frame) NACv() (byte, error) {
 	if !f.validNacV {
-		return 0, fmt.Errorf("NACv is not valid")
+		return 0, ErrInvalidNACv
 	}
 	return f.nacV, nil
 }
