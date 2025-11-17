@@ -116,9 +116,12 @@ func (f *Frame) decodeAdsb() {
 
 			// Sub-type 2: Speed = 4 x (Decimal value - 1)
 			if f.messageSubType == 2 {
-				// supersonic - unit is 4 knots
-				f.eastWestVelocity *= 4
-				f.northSouthVelocity *= 4
+				// supersonic - unit is 4 knots.
+
+				// for unsigned integers or non-negative values, `<<= 2` is equivalent to `*= 4` but faster.
+				f.eastWestVelocity <<= 2
+				f.northSouthVelocity <<= 2
+
 				f.superSonic = true
 			}
 
