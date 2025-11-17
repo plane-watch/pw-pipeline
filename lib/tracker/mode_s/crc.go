@@ -92,6 +92,10 @@ func (f *Frame) decodeModeSChecksumAddr() uint32 {
 	return checkSum ^ crc
 }
 
+func (f *Frame) CRC() uint32 {
+	return f.checkSum
+}
+
 func (f *Frame) checkCrc() error {
 
 	switch f.downLinkFormat {
