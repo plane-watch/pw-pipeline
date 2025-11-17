@@ -47,9 +47,6 @@ type (
 		// hasDecoded indicates whether the Mode-AC/S message encapsulated in the BEAST frame has been decoded.
 		hasDecoded bool
 
-		// todo(mikenye): isPool appears to be unused.
-		isPool bool
-
 		// decodedModeS contains the decoded Mode-S frame (if the msgType is 0x32 or 0x33 - Mode-S short or Mode-S long).
 		decodedModeS mode_s.Frame
 	}

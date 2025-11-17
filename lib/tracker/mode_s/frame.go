@@ -192,9 +192,6 @@ type (
 		// timeStamp is set when the frame is created
 		timeStamp time.Time
 
-		// todo(mikenye): err is unused
-		err error
-
 		cccHasOperationalTcas *bool
 		cccHasTargetChangeRpt *bool
 		cccHasAirRefVel       *bool
@@ -213,16 +210,10 @@ type (
 		// It is populated either via NewFrameFromBytes, or Decode.
 		message []byte
 
-		// todo(mikenye): me is unused
-		me uint64
-
 		// eastWestDirection indicates the direction for the E-W velocity component.
 		//  - 0: from West to East
 		//  - 1: from East to West
 		eastWestDirection int
-
-		// todo(mikenye): mb is unused
-		mb uint64
 
 		beastTicksNs        uint64
 		beastAvrUptime      time.Duration
@@ -230,10 +221,8 @@ type (
 		heading             float64
 		timeFlag            int
 		cprFlagOddEven      int
-		mv                  uint64
 		compatibilityClass  int
 		operationalModeCode int
-		containmentRadius   int
 		emergencyID         int
 		unit                int
 		rawLatitude         int
@@ -246,19 +235,13 @@ type (
 		northSouthVelocity  int
 		northSouthDirection int
 		ac                  uint32
-		ap                  uint32
-		id                  uint32
-		aa                  uint32
-		pi                  uint32
 		altitude            int32
 
 		// icao contains the icao number of the aircraft extracted from the frame
 		icao uint32
 
-		crc                     uint32
 		checkSum                uint32
 		identity                uint32
-		md                      [10]byte
 		catSubType              byte
 		um                      byte
 		fs                      byte
