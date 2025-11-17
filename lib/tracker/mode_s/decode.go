@@ -69,6 +69,7 @@ func NewFrameFromBytes(beastTicks uint64, message []byte, t time.Time) Frame {
 	}
 }
 
+// Decode will decode the Mode-S frame, if not already decoded
 func (f *Frame) Decode() error {
 	if nil == f {
 		return nil
