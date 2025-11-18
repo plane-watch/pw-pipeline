@@ -9,9 +9,42 @@ import (
 )
 
 var (
-	beastModeAc     = []byte{0x1A, 0x31, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+	beastModeAc = []byte{0x1A, 0x31, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+
+	// beastModeSShort is a sample BEAST frame containing a Mode-S Short payload.
+	//
+	// From readsb:
+	//   *5d7c49f828e943;
+	//   CRC: 000000
+	//   RSSI: -16.5 dBFS
+	//   Time: 3125065375768.92us
+	//   DF:11 AA:7C49F8 IID:0 CA:5
+	//    All Call Reply
+	//     ICAO Address:  7C49F8 (Mode S / ADS-B)
+	//     Air/Ground:    airborne
 	beastModeSShort = []byte{0x1a, 0x32, 0x22, 0x1b, 0x54, 0xf0, 0x81, 0x2b, 0x26, 0x5d, 0x7c, 0x49, 0xf8, 0x28, 0xe9, 0x43}
-	beastModeSLong  = []byte{0x1a, 0x33, 0x22, 0x1b, 0x54, 0xac, 0xc2, 0xe9, 0x28, 0x8d, 0x7c, 0x49, 0xf8, 0x58, 0x41, 0xd2, 0x6c, 0xca, 0x39, 0x33, 0xe4, 0x1e, 0xcf}
+
+	// beastModeSLong is a sample BEAST frame containing a Mode-S Long payload.
+	//
+	// From readsb:
+	//   *8d7c49f85841d26cca3933e41ecf;
+	//   CRC: 000000
+	//   RSSI: -16.1 dBFS
+	//   Time: 3125065005800.75us
+	//   DF:17 AA:7C49F8 CA:5 ME:5841D26CCA3933
+	//    Extended Squitter Airborne position (barometric altitude) (11)
+	//     ICAO Address:  7C49F8 (Mode S / ADS-B)
+	//     Air/Ground:    airborne
+	//     Baro altitude: 12125 ft
+	//     CPR type:      Airborne
+	//     CPR odd flag:  even
+	//     CPR latitude:  (79461)
+	//     CPR longitude: (14643)
+	//     CPR decoding:  none
+	//     NIC-B:         0
+	//     NACp:          8
+	//     SIL:           2 (p <= 0.001%, unknown type)
+	beastModeSLong = []byte{0x1a, 0x33, 0x22, 0x1b, 0x54, 0xac, 0xc2, 0xe9, 0x28, 0x8d, 0x7c, 0x49, 0xf8, 0x58, 0x41, 0xd2, 0x6c, 0xca, 0x39, 0x33, 0xe4, 0x1e, 0xcf}
 )
 
 func TestNewBeastMsgModeAC(t *testing.T) {
