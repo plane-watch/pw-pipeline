@@ -99,18 +99,29 @@ func (f *Frame) decodeAdsb() error {
 		}
 
 		if f.messageSubType == 1 || f.messageSubType == 2 {
+
 			// speed over Ground Message
 			f.eastWestDirection = int(f.message[5]&4) >> 2
-			f.eastWestVelocity = (int(f.message[5]&3) << 8) | int(f.message[6])
 			f.northSouthDirection = int((f.message[7] & 0x80) >> 7)
-			f.northSouthVelocity = (int(f.message[7]&0x7f) << 3) | (int(f.message[8]&0xe0) >> 5)
+
+			// Source bit for vertical rate
+			//   0: GNSS, 1: Barometer
 			f.verticalRateSource = int((f.message[8] & 0x10) >> 4)
+
+			// Sub-type 1: Speed = Decimal value - 1
+			f.eastWestVelocity = ((int(f.message[5]&3) << 8) | int(f.message[6])) - 1
+			f.northSouthVelocity = ((int(f.message[7]&0x7f) << 3) | (int(f.message[8]&0xe0) >> 5)) - 1
+
 			/* Compute velocity and angle from the two speed components. */
 
+			// Sub-type 2: Speed = 4 x (Decimal value - 1)
 			if f.messageSubType == 2 {
-				// supersonic - unit is 4 knots
+				// supersonic - unit is 4 knots.
+
+				// for unsigned integers or non-negative values, `<<= 2` is equivalent to `*= 4` but faster.
 				f.eastWestVelocity <<= 2
 				f.northSouthVelocity <<= 2
+
 				f.superSonic = true
 			}
 
