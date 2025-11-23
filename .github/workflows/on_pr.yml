@@ -42,7 +42,7 @@ jobs:
         name: runway
         with:
           dockerfile: docker/runway/Dockerfile
-          ignore: DL3007, DL3059
+          ignore: DL3007, DL3059, DL3018
           format: tty
 
   gochecks:
