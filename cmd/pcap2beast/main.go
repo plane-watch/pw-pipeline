@@ -1,10 +1,9 @@
 package main
 
 import (
+	"encoding/hex"
 	"fmt"
-	"net"
 	"os"
-	"time"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
@@ -20,31 +19,21 @@ func main() {
 		&cli.StringFlag{
 			Category: "PCAP",
 			Name:     "pcap-file",
-			Required: true,
+			Required: false,
+			Value:    "-",
+			Usage:    "pcap file to read. By default, read from stdin",
 		},
 		&cli.StringFlag{
 			Category: "PCAP",
 			Name:     "pcap-beasthost",
 			Required: true,
+			Usage:    "IP address of BEAST host in pcap file",
 		},
 		&cli.StringFlag{
 			Category: "PCAP",
 			Name:     "pcap-beastport",
 			Required: true,
-		},
-		&cli.BoolFlag{
-			Category: "PCAP",
-			Name:     "no-sleep",
-		},
-		&cli.StringFlag{
-			Category: "OUTPUT",
-			Name:     "output-beasthost",
-			Required: true,
-		},
-		&cli.StringFlag{
-			Category: "OUTPUT",
-			Name:     "output-beastport",
-			Required: true,
+			Usage:    "TCP port of BEAST host in pcap file",
 		},
 	}
 
@@ -57,20 +46,13 @@ func main() {
 
 func runApp(c *cli.Context) error {
 
-	// open connection to beast host
-	beastOut := fmt.Sprintf("%s:%s", c.String("output-beasthost"), c.String("output-beastport"))
-	log.Info().Msgf("Dialling: %s", beastOut)
-	conn, err := net.Dial("tcp", beastOut)
-	if err != nil {
-		return fmt.Errorf("could not connect to %s: %v", beastOut, err)
-	}
-	defer func() {
-		_ = conn.Close()
-	}()
-	log.Info().Msgf("Connected to: %s", beastOut)
-
 	// open pcap file
-	log.Info().Msgf("Opening: %s", c.String("pcap-file"))
+	if c.String("pcap-file") != "-" {
+		log.Info().Msgf("Opening: %s", c.String("pcap-file"))
+	} else {
+		log.Info().Msg("Opening standard input")
+	}
+
 	handle, err := pcap.OpenOffline(c.String("pcap-file"))
 	if err != nil {
 		return fmt.Errorf("could not open %s: %v", c.String("pcap-file"), err)
@@ -80,21 +62,11 @@ func runApp(c *cli.Context) error {
 	}()
 
 	// iterate through packets, playing back
-	log.Info().Msg("Replaying packets")
+	log.Info().Msgf("Extracting BEAST data from %s:%s", c.String("pcap-beasthost"), c.String("pcap-beastport"))
 	bytesWritten := 0
+	frameCount := 0
 	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
-	n := 0
-	m := 0
-	var prevPacketTime time.Time
 	for packet := range packetSource.Packets() {
-		fmt.Print(".")
-		n++
-		if n > 1 && !c.Bool("no-sleep") {
-			// wait for time between packets unless no-sleep
-			sleepTime := packet.Metadata().Timestamp.Sub(prevPacketTime)
-			time.Sleep(sleepTime)
-		}
-		prevPacketTime = packet.Metadata().Timestamp
 
 		// skip packets that aren't from the pcap-beasthost and pcap-beastport
 		if packet.LinkLayer().LayerType() != layers.LayerTypeEthernet {
@@ -113,17 +85,13 @@ func runApp(c *cli.Context) error {
 			continue
 		}
 
-		m, err = conn.Write(packet.ApplicationLayer().Payload())
-		if err != nil {
-			return fmt.Errorf("could not write to %s: %v", beastOut, err)
-		}
-
-		bytesWritten += m
-
+		payload := packet.ApplicationLayer().Payload()
+		fmt.Println(hex.EncodeToString(payload))
+		bytesWritten += len(payload)
+		frameCount++
 	}
 
-	fmt.Print("\n")
-	log.Info().Msgf("Finished writing %d bytes", bytesWritten)
+	log.Info().Msgf("Finished writing %d bytes from %d ethernet frames", bytesWritten, frameCount)
 
 	return nil
 }
