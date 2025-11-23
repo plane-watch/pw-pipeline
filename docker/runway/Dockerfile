@@ -1,3 +1,16 @@
+FROM alpine:3.22.2 AS certmaker
+
+WORKDIR /ssl
+
+COPY /docker/runway/cert.cnf /ssl/cert.cnf
+
+RUN set -x && \
+    apk add --no-cache openssl && \
+    openssl genrsa -out /ssl/cert.key 2048 && \
+    openssl req -new -key /ssl/cert.key -out /ssl/cert.csr -config /ssl/cert.cnf -batch && \
+    openssl x509 -req -days 3650 -in /ssl/cert.csr -signkey /ssl/cert.key -out /ssl/cert.crt && \
+    openssl x509 -in /ssl/cert.crt -noout -text
+
 FROM golang:1.25 AS build
 
 # Set necessary environmet variables needed for our image
@@ -44,7 +57,13 @@ FROM alpine:3.22.2
 LABEL org.opencontainers.image.description="Plane.Watch Runway"
 
 WORKDIR /app
+
+# copy in app
 COPY --from=build /app/runway /app
+
+# copy in self-signed cert
+COPY --from=certmaker --chmod=600 /ssl/cert.key /app/cert.key
+COPY --from=certmaker --chmod=644 /ssl/cert.crt /app/cert.crt
 
 HEALTHCHECK --interval=15s --timeout=3s CMD wget --spider http://localhost:9602/status
 
