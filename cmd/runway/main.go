@@ -28,6 +28,16 @@ var (
 		Name:      "num_decoded_frames",
 		Help:      "The number of AVR frames decoded",
 	})
+	prometheusCounterFramesErrored = promauto.NewGauge(prometheus.GaugeOpts{
+		Namespace: "pw_ingest",
+		Name:      "num_decode_errors",
+		Help:      "The number of AVR frames decoded with errors",
+	})
+	prometheusCounterPlanesPurgedBeforeViable = promauto.NewGauge(prometheus.GaugeOpts{
+		Namespace: "pw_ingest",
+		Name:      "num_planes_purged_before_viable",
+		Help:      "The number aircraft that were purged before having received enough frames to be viable",
+	})
 	prometheusGaugeCurrentPlanes = promauto.NewGauge(prometheus.GaugeOpts{
 		Namespace: "pw_ingest",
 		Name:      "current_tracked_planes_count",
@@ -133,7 +143,12 @@ func runDaemon(c *cli.Context) error {
 	trackerOpts := make([]tracker.Option, 0)
 	trackerOpts = append(
 		trackerOpts,
-		tracker.WithPrometheusCounters(prometheusGaugeCurrentPlanes, prometheusCounterFramesDecoded),
+		tracker.WithPrometheusCounters(
+			prometheusGaugeCurrentPlanes,
+			prometheusCounterFramesDecoded,
+			prometheusCounterFramesErrored,
+			prometheusCounterPlanesPurgedBeforeViable,
+		),
 		tracker.WithDecodeWorkerCount(1), // only need a single decoder per source
 	)
 	trk := tracker.NewTracker(trackerOpts...)

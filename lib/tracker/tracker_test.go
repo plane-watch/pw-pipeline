@@ -3,10 +3,11 @@ package tracker
 import (
 	"flag"
 	"fmt"
-	"plane.watch/lib/tracker/beast"
 	"strconv"
 	"testing"
 	"time"
+
+	"plane.watch/lib/tracker/beast"
 
 	"github.com/rs/zerolog"
 	"plane.watch/lib/tracker/mode_s"
@@ -137,6 +138,7 @@ func TestTracking(t *testing.T) {
 
 func TestTracking2(t *testing.T) {
 	zerolog.SetGlobalLevel(zerolog.PanicLevel)
+	mode_s.DisableICAOChecking()
 	frames := []string{
 		"*8D7C7DAA99146D0980080D6131A1;",
 		"*5D7C7DAACD3CE9;",
@@ -177,7 +179,7 @@ func performTrackingTest(frames []string, t *testing.T) *Tracker {
 	for _, msg := range frames {
 		frame, err := mode_s.DecodeString(msg, time.Now())
 		if nil != err {
-			t.Errorf("%s", err)
+			t.Errorf("failed to decode (%s): %s", msg, err)
 		}
 		trk.GetPlane(frame.Icao()).HandleModeSFrame(frame, nil)
 	}

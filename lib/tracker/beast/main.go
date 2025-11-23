@@ -4,24 +4,50 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"plane.watch/lib/tracker/mode_s"
 	"sync"
 	"time"
+
+	"plane.watch/lib/tracker/mode_s"
 )
 
 type (
 	// Frame represents our Beast frame and is used to decode into AVR
 	Frame struct {
-		raw           []byte
-		mlatTimestamp []byte
-		body          []byte
-		msgType       byte
-		signalLevel   byte
-		bodyString    string
 
-		isRadarCape  bool
-		hasDecoded   bool
-		isPool       bool
+		// raw represents the entire BEAST message, including the first 0x1a byte
+		raw []byte
+
+		// mlatTimestamp represents the 6-byte MLAT timestamp from the BEAST message
+		mlatTimestamp []byte
+
+		// body represents the message payload, Mode S long/short or Mode AC data
+		body []byte
+
+		// msgType represents the encapsulated message type:
+		//  - 0x31 = 2 byte Mode-AC
+		//  - 0x32 = 7 byte Mode-S short frame
+		//  - 0x33 = 14 byte Mode-S long frame
+		//  - 0x34 = DIP switch configuration settings, time stamp error ticks as int8_t (1 tick is 15ns) (message "4" not on Mode-S Beast classic)
+		msgType byte
+
+		// signalLevel represents the received signal level for Mode-AC and Mode-S messages.
+		//
+		// To get the actual dBFS value:
+		//  - The raw 0-255 byte value is converted to 0.0 - 1.0 (by dividing bt 255).
+		//  - It should then be squared, base 10 log'd, and multiplied by 10.
+		signalLevel byte
+
+		// bodyString is the string representation of the Mode-AC/S message encapsulated in the BEAST frame.
+		// It is populated when Frame.RawString is run.
+		bodyString string
+
+		// todo(mikenye): isRadarCape appears to be unused. It is set in newFrameInto but then never read?
+		isRadarCape bool
+
+		// hasDecoded indicates whether the Mode-AC/S message encapsulated in the BEAST frame has been decoded.
+		hasDecoded bool
+
+		// decodedModeS contains the decoded Mode-S frame (if the msgType is 0x32 or 0x33 - Mode-S short or Mode-S long).
 		decodedModeS mode_s.Frame
 	}
 )
@@ -34,6 +60,8 @@ var (
 
 	magicTimestampMLAT = []byte{0xFF, 0x00, 0x4D, 0x4C, 0x41, 0x54}
 	ErrBadBeastFrame   = errors.New("bad beast frame")
+	ErrConfigFrame     = errors.New("beast message is config data")
+	ErrModeAC          = errors.New("beast message is ModeAC")
 )
 
 func init() {
@@ -56,6 +84,17 @@ func init() {
 
 func Release(frame *Frame) {
 	if UsePoolAllocator {
+		// clear frame before returning to the pool
+		clear(frame.raw)
+		frame.msgType = 0
+		clear(frame.mlatTimestamp)
+		frame.signalLevel = 0
+		clear(frame.body)
+		frame.bodyString = "                            " // 28 chars to fit 112bit squitters
+		frame.isRadarCape = false
+		frame.hasDecoded = false
+		frame.decodedModeS = mode_s.Frame{}
+		// return to pool
 		beastPool.Put(frame)
 	}
 }
@@ -143,7 +182,7 @@ func newFrameInto(f *Frame, rawBytes []byte, isRadarCape bool) (*Frame, error) {
 
 	// note: our parts here refer to the underlying slice that was passed in
 	f.raw = rawBytes
-	f.msgType = rawBytes[1] + 0
+	f.msgType = rawBytes[1]
 	f.mlatTimestamp = rawBytes[2:8]
 	f.signalLevel = rawBytes[8]
 	f.body = rawBytes[9:]
@@ -158,6 +197,7 @@ func newFrameInto(f *Frame, rawBytes []byte, isRadarCape bool) (*Frame, error) {
 		//}
 		// mode-ac 10 bytes (2+8)
 		f.decodeModeAc()
+		return f, ErrModeAC
 	case 0x32, 0x33:
 		// 0x32 = mode-s short 15 bytes
 		// 0x33 = mode-s long 22 bytes
@@ -168,6 +208,7 @@ func newFrameInto(f *Frame, rawBytes []byte, isRadarCape bool) (*Frame, error) {
 		//}
 		// signal strength 10 bytes
 		f.decodeConfig()
+		return f, ErrConfigFrame
 	default:
 	}
 	return f, nil
@@ -189,6 +230,11 @@ func (f *Frame) BeastTicksNs() time.Duration {
 		t |= uint64(f.mlatTimestamp[i]) << inc
 		inc -= 8
 	}
+
+	if f.isRadarCape {
+		return time.Duration(t)
+	}
+
 	return time.Duration(t * 500)
 }
 
@@ -252,6 +298,19 @@ func (f *Frame) RawString() string {
 	return f.bodyString
 }
 
+// SignalRssi returns the Received Signal Strength Indicator expressed in dBFS (decibels relative to full scale),
+// it means the signal strength is being measured relative to the maximum possible level the receiver’s
+// analogue-to-digital converter (ADC) can represent.
 func (f *Frame) SignalRssi() float64 {
-	return 10 * math.Log10(float64(f.signalLevel))
+	// we get the raw 0-255 byte value
+	rawRSSI := float64(f.signalLevel)
+
+	// we scale it to 0.0 - 1.0 (voltage = rawRSSI / 255)
+	RSSIRatio := rawRSSI / 255
+
+	// we convert it to a dBFS power value (rolling the squaring of the voltage into the dB calculation)
+	signalLevel := RSSIRatio * RSSIRatio
+	RSSI := 10 * math.Log10(signalLevel)
+
+	return RSSI
 }
