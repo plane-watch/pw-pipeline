@@ -13,32 +13,32 @@ jobs:
     name: Hadolint (Dockerfiles)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - uses: hadolint/hadolint-action@v1.6.0
+      - uses: actions/checkout@v4
+      - uses: hadolint/hadolint-action@v3.3.0
         name: pw_atc_api
         with:
           dockerfile: docker/pw_atc_api/Dockerfile
           ignore: DL3007 DL3059
           format: tty
-      - uses: hadolint/hadolint-action@v1.6.0
+      - uses: hadolint/hadolint-action@v3.3.0
         name: pw_ingest
         with:
           dockerfile: docker/pw_ingest/Dockerfile
           ignore: DL3007 DL3059
           format: tty
-      - uses: hadolint/hadolint-action@v1.6.0
+      - uses: hadolint/hadolint-action@v3.3.0
         name: pw_router
         with:
           dockerfile: docker/pw_router/Dockerfile
           ignore: DL3007 DL3059
           format: tty
-      - uses: hadolint/hadolint-action@v1.6.0
+      - uses: hadolint/hadolint-action@v3.3.0
         name: pw_ws_broker
         with:
           dockerfile: docker/pw_ws_broker/Dockerfile
           ignore: DL3007 DL3059
           format: tty
-      - uses: hadolint/hadolint-action@v1.6.0
+      - uses: hadolint/hadolint-action@v3.3.0
         name: runway
         with:
           dockerfile: docker/runway/Dockerfile
@@ -49,8 +49,8 @@ jobs:
     name: Go Checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
           go-version: '1.25.3'
           check-latest: true
@@ -82,25 +82,25 @@ jobs:
 
       # Check out our code
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       # Get metadata from repo
       - name: Extract metadata (tags, labels) for Docker
         id: meta
-        uses: docker/metadata-action@v3
+        uses: docker/metadata-action@v5
         with:
           images: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}
 
       # Set up QEMU for multi-arch builds
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v1
+        uses: docker/setup-qemu-action@v3
 
       # Set up buildx for multi platform builds
       - name: Set up Docker Buildx
         id: buildx
-        uses: docker/setup-buildx-action@v1
+        uses: docker/setup-buildx-action@v3
 
       # Test Build
       - name: Test Build - ${{ matrix.image }}
