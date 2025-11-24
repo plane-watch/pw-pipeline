@@ -140,14 +140,14 @@ func (m *model) handleWindowSizing() {
 
 	planesViewHeight := 20
 	if planesViewHeight+planeViewTop > m.height {
-		planesViewHeight = min(0, m.height-planeViewTop)
+		planesViewHeight = max(0, m.height-planeViewTop)
 	}
 	m.planesTable.SetHeight(planesViewHeight)
 
 	logViewTop := statsTableHeight + selectedTableHeight + planesViewHeight + (headingHeight * 4)
 	logViewHeight := 15
 	if logViewHeight+logViewTop > m.height {
-		logViewHeight = min(0, m.height-logViewTop)
+		logViewHeight = max(0, m.height-logViewTop)
 	}
 
 	if !m.logViewReady {
@@ -169,6 +169,7 @@ func (m *model) updateIncomingStats() {
 		{
 			// Number of feeders
 			strconv.Itoa(len(m.feederSources)),
+
 			// Number of Planes
 			strconv.Itoa(len(m.incomingIcaoFrames)),
 
