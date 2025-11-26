@@ -160,6 +160,133 @@ func (w *worker) isSignificant(last, candidate export.PlaneLocation) bool {
 	return false
 }
 
+// isOnlyMetadataChange returns true if the only differences between prev and next
+// are metadata fields (LastMsg, SourceTags, TrackedSince) that don't affect the
+// actual flight data visible to end users.
+func (w *worker) isOnlyMetadataChange(prev, next export.PlaneLocation) bool {
+	// Compare all flight data fields. If any differ, it's not just a metadata change.
+
+	// Position data
+	if prev.Lat != next.Lat || prev.Lon != next.Lon {
+		return false
+	}
+	if prev.TileLocation != next.TileLocation {
+		return false
+	}
+
+	// Altitude and vertical movement
+	if prev.Altitude != next.Altitude {
+		return false
+	}
+	if prev.HasVerticalRate != next.HasVerticalRate || prev.VerticalRate != next.VerticalRate {
+		return false
+	}
+
+	// Heading and velocity
+	if prev.HasHeading != next.HasHeading || prev.Heading != next.Heading {
+		return false
+	}
+	if prev.HasVelocity != next.HasVelocity || prev.Velocity != next.Velocity {
+		return false
+	}
+
+	// Flight status and ground state
+	if prev.OnGround != next.OnGround || prev.HasOnGround != next.HasOnGround {
+		return false
+	}
+	if prev.FlightStatus != next.FlightStatus {
+		return false
+	}
+
+	// Squawk and special codes
+	if prev.Squawk != next.Squawk {
+		return false
+	}
+	if prev.Special != next.Special {
+		return false
+	}
+
+	// Aircraft identification
+	if prev.Icao != next.Icao {
+		return false
+	}
+	if prev.Airframe != next.Airframe {
+		return false
+	}
+	if prev.AirframeType != next.AirframeType {
+		return false
+	}
+
+	// Enrichment data (pointers, need to handle nil)
+	if (prev.Registration == nil) != (next.Registration == nil) {
+		return false
+	}
+	if prev.Registration != nil && next.Registration != nil && *prev.Registration != *next.Registration {
+		return false
+	}
+	if (prev.TypeCode == nil) != (next.TypeCode == nil) {
+		return false
+	}
+	if prev.TypeCode != nil && next.TypeCode != nil && *prev.TypeCode != *next.TypeCode {
+		return false
+	}
+	if (prev.CallSign == nil) != (next.CallSign == nil) {
+		return false
+	}
+	if prev.CallSign != nil && next.CallSign != nil && *prev.CallSign != *next.CallSign {
+		return false
+	}
+	if (prev.RouteCode == nil) != (next.RouteCode == nil) {
+		return false
+	}
+	if prev.RouteCode != nil && next.RouteCode != nil && *prev.RouteCode != *next.RouteCode {
+		return false
+	}
+
+	// Source information (but not SourceTags which is metadata)
+	if prev.SourceTag != next.SourceTag {
+		return false
+	}
+
+	// Removed flag
+	if prev.Removed != next.Removed {
+		return false
+	}
+
+	// Field update timestamps - if any timestamp changed, it means new data arrived
+	// even if the value is the same
+	if !prev.Updates.Location.Equal(next.Updates.Location) {
+		return false
+	}
+	if !prev.Updates.Altitude.Equal(next.Updates.Altitude) {
+		return false
+	}
+	if !prev.Updates.Heading.Equal(next.Updates.Heading) {
+		return false
+	}
+	if !prev.Updates.Velocity.Equal(next.Updates.Velocity) {
+		return false
+	}
+	if !prev.Updates.VerticalRate.Equal(next.Updates.VerticalRate) {
+		return false
+	}
+	if !prev.Updates.Squawk.Equal(next.Updates.Squawk) {
+		return false
+	}
+	if !prev.Updates.Special.Equal(next.Updates.Special) {
+		return false
+	}
+	if !prev.Updates.OnGround.Equal(next.Updates.OnGround) {
+		return false
+	}
+	if !prev.Updates.FlightStatus.Equal(next.Updates.FlightStatus) {
+		return false
+	}
+
+	// If we got here, only metadata fields differ (LastMsg, SourceTags, TrackedSince)
+	return true
+}
+
 func (w *worker) run(ctx context.Context, ch <-chan []byte) {
 	for {
 		select {
@@ -302,6 +429,21 @@ func (w *worker) handleNewUpdate(update export.PlaneLocation, msg []byte) {
 
 func (w *worker) handleInsignificantUpdate(update export.PlaneLocation, msg []byte) {
 	updatesInsignificant.Inc()
+
+	// Check if only metadata changed (LastMsg, SourceTags, TrackedSince)
+	// If so, don't publish to save bandwidth and frontend CPU
+	if item, ok := w.router.syncSamples.Load(update.Icao); ok {
+		lastRecord := item.(export.PlaneLocation)
+		if w.isOnlyMetadataChange(lastRecord, update) {
+			updatesIgnored.Inc()
+			if log.Trace().Enabled() {
+				log.Trace().
+					Str("aircraft", update.Icao).
+					Msg("Suppressing metadata-only update (no flight data changed)")
+			}
+			return
+		}
+	}
 
 	w.publishLocationUpdate(w.destRoutingKeyHigh, msg) // all high speed messages
 
