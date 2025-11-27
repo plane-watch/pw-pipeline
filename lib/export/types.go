@@ -138,6 +138,23 @@ func (pl *PlaneLocation) PrepareSourceTags(m map[string]uint32) map[string]uint3
 	return m
 }
 
+func (pl *PlaneLocation) InitSourceTags() {
+	if nil == pl.sourceTagsMutex {
+		pl.sourceTagsMutex = &sync.Mutex{}
+	}
+	pl.sourceTagsMutex.Lock()
+	defer pl.sourceTagsMutex.Unlock()
+	if nil == pl.SourceTags {
+		pl.SourceTags = make(map[string]uint32)
+	}
+}
+
+func (pl *PlaneLocation) IncSourceTag(key string) {
+	pl.sourceTagsMutex.Lock()
+	defer pl.sourceTagsMutex.Unlock()
+	pl.SourceTags[key]++
+}
+
 // Clone returns a copy of m.  This is a shallow clone:
 // the new keys and values are set using ordinary assignment.
 func Clone[M ~map[K]V, K comparable, V any](m M) M {
