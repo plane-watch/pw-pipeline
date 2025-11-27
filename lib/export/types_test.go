@@ -1,11 +1,12 @@
 package export
 
 import (
-	"github.com/rs/zerolog"
 	"reflect"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/rs/zerolog"
 )
 
 func TestMain(m *testing.M) {
@@ -164,17 +165,37 @@ func TestPlaneLocation_PrepareSourceTags(t *testing.T) {
 			},
 		},
 	}
+	results := make([]map[string]uint32, 0)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := make(map[string]uint32, 1)
 			pl := &PlaneLocation{
 				SourceTags: map[string]uint32{
 					tt.fields: 1,
 				},
 				sourceTagsMutex: &sync.Mutex{},
 			}
-			if got := pl.PrepareSourceTags(m); !reflect.DeepEqual(got, tt.want) {
+			got := pl.PrepareSourceTags()
+			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("PrepareSourceTags() = %v, want %v", got, tt.want)
+				return
+			}
+			results = append(results, got)
+		})
+	}
+
+	for testIdx, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testResult := results[testIdx]
+			for k, v := range tt.want {
+				testResultValue, ok := testResult[k]
+				if !ok {
+					t.Errorf("failed to find key %s in test result %d", k, testIdx)
+					continue
+				}
+				if v != testResultValue {
+					t.Errorf("key in test result has wrong value got=%d, want=%d", testResultValue, v)
+					continue
+				}
 			}
 		})
 	}
