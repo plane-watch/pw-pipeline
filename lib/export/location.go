@@ -55,15 +55,15 @@ func NewPlaneLocation(plane *tracker.Plane, isNew, isRemoved bool, source string
 			Special:      plane.SpecialUpdatedAt().UTC(),
 			Squawk:       plane.SquawkUpdatedAt().UTC(),
 		},
-		sourceTagsMutex: &sync.Mutex{},
+		SourceTagsMutex: &sync.RWMutex{},
 	}
 }
 
 func (pl *PlaneLocation) ToJSONBytes() ([]byte, error) {
 	json := jsoniter.ConfigFastest
 
-	pl.sourceTagsMutex.Lock()
-	defer pl.sourceTagsMutex.Unlock()
+	pl.SourceTagsMutex.Lock()
+	defer pl.SourceTagsMutex.Unlock()
 
 	jsonBuf, err := json.Marshal(pl)
 	if nil != err {

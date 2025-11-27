@@ -55,7 +55,7 @@ type (
 		TileLocation    string
 
 		SourceTags      map[string]uint32 `json:",omitempty"`
-		sourceTagsMutex *sync.Mutex
+		SourceTagsMutex *sync.RWMutex
 
 		// TrackedSince is when we first started tracking this aircraft *this time*
 		TrackedSince time.Time
@@ -113,8 +113,8 @@ func (pl *PlaneLocation) Plane() string {
 }
 
 func (pl *PlaneLocation) CloneSourceTags() map[string]uint32 {
-	pl.sourceTagsMutex.Lock()
-	defer pl.sourceTagsMutex.Unlock()
+	pl.SourceTagsMutex.RLock()
+	defer pl.SourceTagsMutex.RUnlock()
 
 	return Clone(pl.SourceTags)
 }
@@ -123,8 +123,8 @@ func (pl *PlaneLocation) CloneSourceTags() map[string]uint32 {
 // YPPH-0001 -> 0001
 // YPAD-12345 -> 12345
 func (pl *PlaneLocation) PrepareSourceTags(m map[string]uint32) map[string]uint32 {
-	pl.sourceTagsMutex.Lock()
-	defer pl.sourceTagsMutex.Unlock()
+	pl.SourceTagsMutex.RLock()
+	defer pl.SourceTagsMutex.RUnlock()
 	var sk string
 	for k, v := range pl.SourceTags {
 		// allow up to 7 numbers
@@ -173,15 +173,15 @@ func MergePlaneLocations(prev, next PlaneLocation) (PlaneLocation, error) {
 	merged.Removed = false
 	merged.LastMsg = next.LastMsg
 	merged.SignalRssi = nil // makes no sense to merge this value as it is for the individual receiver
-	if nil == merged.sourceTagsMutex {
-		merged.sourceTagsMutex = &sync.Mutex{}
+	if nil == merged.SourceTagsMutex {
+		merged.SourceTagsMutex = &sync.RWMutex{}
 	}
-	merged.sourceTagsMutex.Lock()
+	merged.SourceTagsMutex.Lock()
 	if nil == merged.SourceTags {
 		merged.SourceTags = make(map[string]uint32)
 	}
 	merged.SourceTags[next.SourceTag]++
-	merged.sourceTagsMutex.Unlock()
+	merged.SourceTagsMutex.Unlock()
 
 	if next.TrackedSince.Before(prev.TrackedSince) {
 		merged.TrackedSince = next.TrackedSince

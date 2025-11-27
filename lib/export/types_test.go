@@ -171,7 +171,7 @@ func TestPlaneLocation_PrepareSourceTags(t *testing.T) {
 				SourceTags: map[string]uint32{
 					tt.fields: 1,
 				},
-				sourceTagsMutex: &sync.Mutex{},
+				SourceTagsMutex: &sync.RWMutex{},
 			}
 			if got := pl.PrepareSourceTags(m); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("PrepareSourceTags() = %v, want %v", got, tt.want)

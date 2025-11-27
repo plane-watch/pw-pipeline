@@ -3,16 +3,18 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"sync"
+	"time"
+
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"plane.watch/lib/export"
 	"plane.watch/lib/middleware"
 	"plane.watch/lib/nats_io"
 	"plane.watch/lib/randstr"
 	"plane.watch/lib/sink"
 	"plane.watch/lib/ws_protocol"
-	"sync"
-	"time"
 )
 
 const (
@@ -188,6 +190,7 @@ func (pw *PlaneWatchTapper) natsTap(icao, feederKey string, subject string, call
 		for {
 			select {
 			case msg := <-ch:
+				log.Info().Any("msg", string(msg.Data)).Msg("Received natsTap message")
 				var planeLocation export.PlaneLocation
 				err = json.Unmarshal(msg.Data, &planeLocation)
 				if nil != err {
@@ -279,7 +282,10 @@ func (pw *PlaneWatchTapper) maybeSend(ff *wsFilterFunc, loc *export.PlaneLocatio
 		return
 	}
 	if ff.feederTag != "" {
-		if _, ok := loc.SourceTags[ff.feederTag]; !ok {
+		loc.SourceTagsMutex.RLock()
+		_, ok := loc.SourceTags[ff.feederTag]
+		loc.SourceTagsMutex.RUnlock()
+		if !ok {
 			return
 		}
 	}

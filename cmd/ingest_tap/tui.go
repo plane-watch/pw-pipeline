@@ -268,6 +268,7 @@ func (m *model) updateAircraftTable() {
 	var p *export.PlaneLocation
 	for _, icaoStr := range data.icaos {
 		p = data.planes[icaoStr]
+		p.SourceTagsMutex.RLock()
 		rows = append(rows, table.Row{
 			icaoStr,
 			strconv.Itoa(len(p.SourceTags)),
@@ -279,6 +280,7 @@ func (m *model) updateAircraftTable() {
 			p.VerticalRateStr(),
 			p.HeadingStr(),
 		})
+		p.SourceTagsMutex.RUnlock()
 	}
 	m.planesTable.SetRows(rows)
 }
