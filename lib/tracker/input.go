@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"slices"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"golang.org/x/exp/slices"
 	"plane.watch/lib/monitoring"
 	"plane.watch/lib/tracker/beast"
 	"plane.watch/lib/tracker/mode_s"

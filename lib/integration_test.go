@@ -1,10 +1,10 @@
 package tracker
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
-	"golang.org/x/exp/slices"
 	"plane.watch/lib/producer"
 	"plane.watch/lib/tracker"
 )

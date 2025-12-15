@@ -3,6 +3,9 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"sync"
+	"time"
+
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
 	"plane.watch/lib/export"
@@ -11,8 +14,6 @@ import (
 	"plane.watch/lib/randstr"
 	"plane.watch/lib/sink"
 	"plane.watch/lib/ws_protocol"
-	"sync"
-	"time"
 )
 
 const (

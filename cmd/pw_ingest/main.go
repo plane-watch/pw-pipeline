@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -12,7 +13,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/rs/zerolog/log"
 	"github.com/urfave/cli/v2"
-	"golang.org/x/exp/slices"
 	"plane.watch/lib/dedupe"
 	"plane.watch/lib/example_finder"
 	"plane.watch/lib/logging"

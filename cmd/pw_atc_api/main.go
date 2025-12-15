@@ -4,6 +4,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
+	"os"
+	"strings"
+	"time"
+
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 	"github.com/prometheus/client_golang/prometheus"
@@ -12,14 +18,9 @@ import (
 	sqldblogger "github.com/simukti/sqldb-logger"
 	"github.com/simukti/sqldb-logger/logadapter/zerologadapter"
 	"github.com/urfave/cli/v2"
-	"net"
-	"net/url"
-	"os"
 	"plane.watch/lib/logging"
 	"plane.watch/lib/monitoring"
 	"plane.watch/lib/nats_io"
-	"strings"
-	"time"
 )
 
 var (
