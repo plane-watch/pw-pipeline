@@ -8,36 +8,41 @@ import (
 const (
 	WsProtocolPlanes = "planes"
 
-	RequestTypeSubscribe       = "sub"
-	RequestTypeSubscribeList   = "sub-list"
-	RequestTypeUnsubscribe     = "unsub"
-	RequestTypeGridPlanes      = "grid-planes"            // returns the current plane locations in grid
-	RequestTypePlaneLocHistory = "plane-location-history" // returns the requested planes path
-	RequestTypeTickAdjust      = "adjust-tick"            // adjusts how often we send updates
-	RequestTypeSearch          = "search"                 // adjusts how often we send updates
+	RequestTypeSubscribe          ProtocolRequest = "sub"
+	RequestTypeSubscribeList      ProtocolRequest = "sub-list"
+	RequestTypeSetSubscribedTiles ProtocolRequest = "set-sub-tile-list"
+	RequestTypeSendAllSubscribed  ProtocolRequest = "send-all-subscribed-grid-planes"
+	RequestTypeUnsubscribe        ProtocolRequest = "unsub"
+	RequestTypeGridPlanes         ProtocolRequest = "grid-planes"            // returns the current plane locations in grid
+	RequestTypePlaneLocHistory    ProtocolRequest = "plane-location-history" // returns the requested planes path
+	RequestTypeTickAdjust         ProtocolRequest = "adjust-tick"            // adjusts how often we send updates
+	RequestTypeSearch             ProtocolRequest = "search"                 // adjusts how often we send updates
 
-	ResponseTypeError           = "error"
-	ResponseTypeMsg             = "info"
-	ResponseTypeAckSub          = "ack-sub"
-	ResponseTypeAckUnsub        = "ack-unsub"
-	ResponseTypeSubTiles        = "sub-list"
-	ResponseTypePlaneLocation   = "plane-location"
-	ResponseTypePlaneLocations  = "plane-location-list"
-	ResponseTypePlaneLocHistory = "plane-location-history"
-	ResponseTypeSearchResults   = "search-results"
+	ResponseTypeError           ProtocolResponse = "error"
+	ResponseTypeMsg             ProtocolResponse = "info"
+	ResponseTypeAckSub          ProtocolResponse = "ack-sub"
+	ResponseTypeAckUnsub        ProtocolResponse = "ack-unsub"
+	ResponseTypeSubTiles        ProtocolResponse = "sub-list"
+	ResponseTypePlaneLocation   ProtocolResponse = "plane-location"
+	ResponseTypePlaneLocations  ProtocolResponse = "plane-location-list"
+	ResponseTypePlaneLocHistory ProtocolResponse = "plane-location-history"
+	ResponseTypeSearchResults   ProtocolResponse = "search-results"
 
 	GridTileAllLow  = "all_low"
 	GridTileAllHigh = "all_high"
 )
 
 type (
+	ProtocolRequest  string
+	ProtocolResponse string
+
 	WsRequest struct {
-		Type     string `json:"type"`
-		GridTile string `json:"gridTile"`
-		Icao     string `json:"icao,omitempty"`
-		CallSign string `json:"callSign,omitempty"`
-		Tick     int    `json:"tick,omitempty"`  // in Milliseconds
-		Query    string `json:"query,omitempty"` // in Milliseconds
+		Type     ProtocolRequest `json:"type"`
+		GridTile string          `json:"gridTile"`
+		Icao     string          `json:"icao,omitempty"`
+		CallSign string          `json:"callSign,omitempty"`
+		Tick     int             `json:"tick,omitempty"`  // in Milliseconds
+		Query    string          `json:"query,omitempty"` // in Milliseconds
 	}
 	LocationHistory struct {
 		Lat, Lon          float64
@@ -59,7 +64,7 @@ type (
 		Lat, Lon float64
 	}
 	WsResponse struct {
-		Type      string                  `json:"type"`
+		Type      ProtocolResponse        `json:"type"`
 		Message   string                  `json:"message,omitempty"`
 		Tiles     []string                `json:"tiles,omitempty"`
 		Location  *export.PlaneLocation   `json:"location,omitempty"`
@@ -101,4 +106,12 @@ func (l AircraftList) Swap(i, j int) {
 	x := l[i]
 	l[i] = l[j]
 	l[j] = x
+}
+
+func (pr ProtocolRequest) String() string {
+	return string(pr)
+}
+
+func (pr ProtocolResponse) String() string {
+	return string(pr)
 }

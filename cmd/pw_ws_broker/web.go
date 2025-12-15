@@ -12,20 +12,21 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"plane.watch/lib/nats_io"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/coder/websocket"
 	jsoniter "github.com/json-iterator/go"
 	"github.com/rs/zerolog"
-	"plane.watch/lib/dedupe/forgetfulmap"
-
-	"github.com/coder/websocket"
 	"github.com/rs/zerolog/log"
+	"golang.org/x/exp/maps"
+
+	"plane.watch/lib/dedupe/forgetfulmap"
 	"plane.watch/lib/export"
+	"plane.watch/lib/nats_io"
 	"plane.watch/lib/tile_grid"
 	"plane.watch/lib/ws_protocol"
 )
@@ -89,12 +90,13 @@ type (
 		sendTickDuration time.Duration
 	}
 	WsCmd struct {
-		action     string
+		action     ws_protocol.ProtocolRequest
 		what       string
 		extra      string
 		tick       time.Duration
 		locHistory []ws_protocol.LocationHistory
 		results    ws_protocol.SearchResult
+		list       []string
 	}
 	ClientList struct {
 		//clients     map[*WsClient]chan ws_protocol.WsResponse
@@ -363,7 +365,7 @@ func (c *WsClient) Handle(ctx context.Context) {
 	}
 	if nil != err {
 		if -1 == websocket.CloseStatus(err) {
-			log.Error().Err(err).Msg("Failure in protocol handler")
+			c.log.Error().Err(err).Msg("Failure in protocol handler")
 		}
 		return
 	}
@@ -371,32 +373,51 @@ func (c *WsClient) Handle(ctx context.Context) {
 
 // AddSub adds a "Please Subscribe this client to this tile" command to the clients command queue
 func (c *WsClient) AddSub(tileName string) {
-	log.Debug().Msg("Add Sub")
+	c.log.Debug().Msg("Add Sub")
 	c.cmdChan <- WsCmd{
 		action: ws_protocol.RequestTypeSubscribe,
 		what:   tileName,
 	}
-	log.Debug().Msg("Add Sub Done")
+	c.cmdChan <- WsCmd{
+		action: ws_protocol.RequestTypeGridPlanes,
+		what:   tileName,
+	}
+	c.log.Debug().Msg("Add Sub Done")
+}
+
+// SetSubscribedTiles Sets the list of tiles that should subscribed right now
+func (c *WsClient) SetSubscribedTiles(tileList []string) {
+	c.log.Debug().Msg("Setting Tile List")
+	c.cmdChan <- WsCmd{
+		action: ws_protocol.RequestTypeSetSubscribedTiles,
+		list:   tileList,
+	}
+
+	c.cmdChan <- WsCmd{
+		action: ws_protocol.RequestTypeSendAllSubscribed,
+	}
+
+	c.log.Debug().Msg("Setting Tile List Done")
 }
 
 // UnSub adds a "Please remove this tile from the clients list" command to the clients command queue
 func (c *WsClient) UnSub(tileName string) {
-	log.Debug().Msg("Unsub")
+	c.log.Debug().Msg("Unsub")
 	c.cmdChan <- WsCmd{
 		action: ws_protocol.RequestTypeUnsubscribe,
 		what:   tileName,
 	}
-	log.Debug().Msg("Unsub done")
+	c.log.Debug().Msg("Unsub done")
 }
 
 // SendSubscribedTiles adds a "Please send the list of tiles that we are currently subscribed to" command to the queue
 func (c *WsClient) SendSubscribedTiles() {
-	log.Debug().Msg("Unsub")
+	c.log.Debug().Msg("Unsub")
 	c.cmdChan <- WsCmd{
 		action: ws_protocol.RequestTypeSubscribeList,
 		what:   "",
 	}
-	log.Debug().Msg("Unsub done")
+	c.log.Debug().Msg("Unsub done")
 }
 
 // SendTilePlanes adds a "send to the client the list of planes on the requested tile" command to the queue
@@ -476,6 +497,8 @@ func (c *WsClient) planeProtocolHandler(ctx context.Context, conn *websocket.Con
 					c.AddSub(rq.GridTile)
 				case ws_protocol.RequestTypeSubscribeList:
 					c.SendSubscribedTiles()
+				case ws_protocol.RequestTypeSetSubscribedTiles:
+					c.SetSubscribedTiles(strings.Split(rq.GridTile, ","))
 				case ws_protocol.RequestTypeUnsubscribe:
 					c.UnSub(rq.GridTile)
 				case ws_protocol.RequestTypeGridPlanes:
@@ -497,7 +520,7 @@ func (c *WsClient) planeProtocolHandler(ctx context.Context, conn *websocket.Con
 	}()
 
 	// write a stream of location information
-	subs := make(map[string]bool)
+	subs := make(map[string]struct{})
 
 	grid := make(map[string]bool)
 	gridNames := make(map[string]bool)
@@ -531,7 +554,7 @@ func (c *WsClient) planeProtocolHandler(ctx context.Context, conn *websocket.Con
 				return nil
 			case ws_protocol.RequestTypeSubscribe:
 				if _, ok := grid[cmdMsg.what]; ok {
-					subs[cmdMsg.what] = true
+					subs[cmdMsg.what] = struct{}{}
 					err = c.sendAck(ctx, ws_protocol.ResponseTypeAckSub, cmdMsg.what)
 					prometheusSubscriptions.WithLabelValues(cmdMsg.what).Inc()
 				} else {
@@ -545,17 +568,39 @@ func (c *WsClient) planeProtocolHandler(ctx context.Context, conn *websocket.Con
 					err = c.sendError(ctx, "Not Subbed to: "+cmdMsg.what)
 				}
 				delete(subs, cmdMsg.what)
-			case ws_protocol.RequestTypeSubscribeList:
-				tiles := make([]string, 0, len(subs))
-				for k, v := range subs {
-					if v {
-						tiles = append(tiles, k)
+			case ws_protocol.RequestTypeSetSubscribedTiles:
+				clear(subs)
+				for _, tile := range cmdMsg.list {
+					if _, ok := grid[tile]; ok {
+						subs[tile] = struct{}{}
 					}
 				}
+				err = c.sendAck(ctx, ws_protocol.ResponseTypeAckUnsub, cmdMsg.what)
+				prometheusSubscriptions.WithLabelValues(cmdMsg.what).Set(float64(len(subs)))
+			case ws_protocol.RequestTypeSubscribeList:
+				tiles := maps.Keys(subs)
 				err = c.sendPlaneMessage(ctx, &ws_protocol.WsResponse{
 					Type:  ws_protocol.ResponseTypeSubTiles,
 					Tiles: tiles,
 				})
+
+			case ws_protocol.RequestTypeSendAllSubscribed:
+				matching := 0
+				// find all things currently in requested grid
+				c.parent.globalList.Range(func(key, value interface{}) bool {
+					loc := value.(*export.PlaneLocation)
+					if _, subbed := subs[loc.TileLocation]; subbed {
+						if id, ok := icaoIdLookup[loc.Icao]; ok {
+							locationMessages[id] = loc
+						} else {
+							locationMessages = append(locationMessages, loc)
+							icaoIdLookup[loc.Icao] = len(locationMessages) - 1
+						}
+						matching++
+					}
+					return true
+				})
+
 			case ws_protocol.RequestTypeGridPlanes:
 				if _, gridOk := gridNames[cmdMsg.what]; gridOk {
 					matching := 0
@@ -609,9 +654,9 @@ func (c *WsClient) planeProtocolHandler(ctx context.Context, conn *websocket.Con
 		case planeMsg := <-c.outChan:
 			// if we have a subscription to this planes tile or all tiles
 			// log.Debug().Str("tile", planeMsg.tile).Str("highlow", planeMsg.highLow).Msg("info")
-			tileSub, tileOk := subs[planeMsg.tile]
-			allSub, allOk := subs["all"+planeMsg.highLow]
-			if (tileSub && tileOk) || (allSub && allOk) {
+			_, tileOk := subs[planeMsg.tile]
+			_, allOk := subs["all"+planeMsg.highLow]
+			if tileOk || allOk {
 				if c.sendTickDuration > 0 {
 					// limit our updates to only 1 per icao, sent periodically
 					if id, ok := icaoIdLookup[planeMsg.out.Location.Icao]; ok {
@@ -635,7 +680,8 @@ func (c *WsClient) planeProtocolHandler(ctx context.Context, conn *websocket.Con
 				})
 				// reset the slice and lookup map
 				locationMessages = make([]*export.PlaneLocation, 0, 1000)
-				icaoIdLookup = make(map[string]int, 1000)
+				clear(locationMessages)
+				clear(icaoIdLookup)
 			}
 		}
 
@@ -652,7 +698,7 @@ func (c *WsClient) planeProtocolHandler(ctx context.Context, conn *websocket.Con
 }
 
 // sendAck sends an acknowledgement message to the client
-func (c *WsClient) sendAck(ctx context.Context, ackType, tile string) error {
+func (c *WsClient) sendAck(ctx context.Context, ackType ws_protocol.ProtocolResponse, tile string) error {
 	rs := ws_protocol.WsResponse{
 		Type:  ackType,
 		Tiles: []string{tile},
@@ -675,14 +721,14 @@ func (c *WsClient) sendPlaneMessage(ctx context.Context, planeMsg *ws_protocol.W
 	json := jsoniter.ConfigFastest
 	buf, err := json.Marshal(planeMsg)
 	if nil != err {
-		c.log.Debug().Err(err).Str("type", planeMsg.Type).Msg("Failed to marshal plane msg to send to client")
+		c.log.Debug().Err(err).Str("type", planeMsg.Type.String()).Msg("Failed to marshal plane msg to send to client")
 		return err
 	}
 	go func() {
 		if err = c.writeTimeout(ctx, 3*time.Second, buf); nil != err {
 			c.log.Debug().
 				Err(err).
-				Str("type", planeMsg.Type).
+				Str("type", planeMsg.Type.String()).
 				Msgf("Failed to send message to client. %+v", err)
 		}
 	}()
