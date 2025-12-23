@@ -577,6 +577,8 @@ func (c *WsClient) planeProtocolHandler(ctx context.Context, conn *websocket.Con
 				}
 				err = c.sendAck(ctx, ws_protocol.ResponseTypeAckUnsub, cmdMsg.what)
 				prometheusSubscriptions.WithLabelValues(cmdMsg.what).Set(float64(len(subs)))
+				clear(icaoIdLookup)
+				clear(locationMessages)
 			case ws_protocol.RequestTypeSubscribeList:
 				tiles := maps.Keys(subs)
 				err = c.sendPlaneMessage(ctx, &ws_protocol.WsResponse{
