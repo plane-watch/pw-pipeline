@@ -153,3 +153,47 @@ func TestNewFrame(t *testing.T) {
 		})
 	}
 }
+
+func Test_icaoStringToInt(t *testing.T) {
+	type args struct {
+		icao string
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    uint32
+		wantErr bool
+	}{
+		{
+			name:    "moo",
+			args:    args{icao: "moo"},
+			want:    0,
+			wantErr: true,
+		},
+		{
+			name:    "blank",
+			args:    args{icao: ""},
+			want:    0,
+			wantErr: true,
+		},
+		{
+			name:    "A",
+			args:    args{icao: "A"},
+			want:    0,
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := icaoStringToInt(tt.args.icao)
+			t.Logf("Err: %s", err)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("icaoStringToInt() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("icaoStringToInt() got = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

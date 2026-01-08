@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"slices"
+	"sync"
 	"syscall"
 	"time"
 
@@ -60,6 +62,7 @@ type (
 		fmt.Stringer
 		monitoring.HealthCheck
 		Handle(*FrameEvent) Frame
+		Stop()
 	}
 )
 
@@ -69,16 +72,31 @@ func WithDecodeWorkerCount(numDecodeWorkers int) Option {
 	}
 }
 
+// WithNumFramesToBeViable sets the number of received mode_s frames we need to receive before sending
+// a plane information
+func WithNumFramesToBeViable(numFramesToBeViable int) Option {
+	return func(t *Tracker) {
+		t.numFramesToBeViable = numFramesToBeViable
+	}
+}
+
 func WithPruneTiming(pruneTick, pruneAfter time.Duration) Option {
 	return func(t *Tracker) {
 		t.pruneTick = pruneTick
 		t.pruneAfter = pruneAfter
 	}
 }
-func WithPrometheusCounters(currentPlanes prometheus.Gauge, decodedFrames prometheus.Counter) Option {
+func WithPrometheusCounters(
+	currentPlanes prometheus.Gauge,
+	decodedFrames prometheus.Counter,
+	erroredFrames prometheus.Counter,
+	purgedBeforeViable prometheus.Counter,
+) Option {
 	return func(t *Tracker) {
 		t.stats.currentPlanes = currentPlanes
 		t.stats.decodedFrames = decodedFrames
+		t.stats.erroredFrames = erroredFrames
+		t.stats.purgedBeforeViable = purgedBeforeViable
 	}
 }
 
@@ -87,31 +105,65 @@ func (t *Tracker) Finish() {
 	if t.finishDone {
 		return
 	}
+
 	t.finishDone = true
 	t.log.Debug().Str("func", "Finish()").Msg("Starting...")
+
+	wg := sync.WaitGroup{}
+	// stop all producers
+	t.muProducers.RLock()
+	t.log.Debug().Str("func", "Finish()").Int("producer-count", len(t.producers)).Msg("Stopping Producers")
 	for _, p := range t.producers {
-		t.log.Debug().Str("func", "Finish()").Str("producer", p.String()).Msg("Stopping Producer")
-		p.Stop()
+		wg.Go(func() {
+			t.log.Debug().Str("func", "Finish()").Str("producer", p.String()).Msg("Stopping Producer")
+			p.Stop()
+			t.log.Debug().Str("func", "Finish()").Str("producer", p.String()).Msg("Stopped Producer")
+		})
 	}
+	t.muProducers.RUnlock()
+
+	t.log.Debug().Str("func", "Finish()").Int("middleware-count", len(t.middlewares)).Msg("Stopping Producers")
+	for _, m := range t.middlewares {
+		wg.Go(func() {
+			t.log.Debug().Str("func", "Finish()").Str("middleware", m.String()).Msg("Stopping middleware")
+			m.Stop()
+			t.middlewareWaiter.Done()
+			t.log.Debug().Str("func", "Finish()").Str("middleware", m.String()).Msg("Stopped middleware")
+		})
+	}
+	t.log.Debug().Str("func", "Finish()").Msg("awaiting stoppers")
+
+	wg.Wait()
+
 	t.log.Debug().Str("func", "Finish()").Msg("Closing Decoding Queue")
 	t.planeList.Stop()
 	t.log.Debug().Str("func", "Finish()").Msg("done...")
 }
 
+func (t *Tracker) producerCount() int {
+	t.muProducers.RLock()
+	defer t.muProducers.RUnlock()
+	return len(t.producers)
+}
+
 // AddProducer wires up a Producer to start feeding data into the tracker
 func (t *Tracker) AddProducer(p Producer) {
-	if nil == p {
+	if p == nil {
 		return
 	}
+
 	monitoring.AddHealthCheck(p)
+
+	t.muProducers.Lock()
+	defer t.muProducers.Unlock()
 
 	t.log.Debug().Str("producer", p.String()).Msg("Adding producer")
 	t.producers = append(t.producers, p)
-	t.producerWaiter.Add(1)
 
 	doneChan := make(chan bool)
 	inFlight := t.decodeWorkerCount
-	go func() {
+
+	t.producerWaiter.Go(func() {
 		for range doneChan {
 			inFlight--
 			if inFlight == 0 {
@@ -119,35 +171,54 @@ func (t *Tracker) AddProducer(p Producer) {
 			}
 		}
 		close(doneChan)
-		t.producerWaiter.Done()
-	}()
+		t.removeProducer(p)
+		monitoring.RemoveHealthCheck(p)
+	})
 	for i := 0; i < t.decodeWorkerCount; i++ {
 		go t.decodeQueue(p.Listen(), doneChan)
 	}
 	t.log.Info().
-		Int("num workers", t.decodeWorkerCount).
 		Str("source", p.String()).
-		Msg("Just added a producer")
+		Msg("Producer added")
+}
+
+func (t *Tracker) removeProducer(toRemove Producer) {
+	t.log.Debug().Str("func", "removeProducer()").Msg("Removing producer")
+	if toRemove == nil {
+		return
+	}
+	t.muProducers.Lock()
+	defer t.muProducers.Unlock()
+	for idx, p := range t.producers {
+		if toRemove.String() == p.String() {
+			t.producers = slices.Delete(t.producers, idx, idx+1)
+			t.log.Info().
+				Str("source", p.String()).
+				Msg("Producer removed")
+			return
+		}
+	}
 }
 
 // AddMiddleware wires up a Middleware which each message will go through before being added to the tracker
 func (t *Tracker) AddMiddleware(m Middleware) {
-	if nil == m {
+	if m == nil {
 		return
 	}
 	monitoring.AddHealthCheck(m)
 	t.log.Debug().Str("name", m.String()).Msg("Adding middleware")
 	t.middlewares = append(t.middlewares, m)
+	t.middlewareWaiter.Add(1)
 
 	t.log.Debug().Msg("Just added a middleware")
 }
 
 // SetSink wires up a Sink in the tracker. Whenever an event happens it gets sent to each Sink
 func (t *Tracker) SetSink(s Sink) {
-	t.log.Debug().Str("name", s.HealthCheckName()).Msg("Set Sink")
-	if nil == s {
+	if s == nil {
 		return
 	}
+	t.log.Debug().Str("name", s.HealthCheckName()).Msg("Set Sink")
 	t.sink = s
 	monitoring.AddHealthCheck(s)
 }
@@ -169,11 +240,16 @@ func (t *Tracker) Stop() {
 }
 
 // StopOnCancel listens for SigInt etc. and gracefully stops
-func (t *Tracker) StopOnCancel() {
+func (t *Tracker) StopOnCancel(callbacks ...func()) {
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
 	isStopping := false
 	exitChan := make(chan bool, 3)
+	defer func() {
+		for _, f := range callbacks {
+			f()
+		}
+	}()
 	for {
 		select {
 		case sig := <-ch:
@@ -226,9 +302,24 @@ func (t *Tracker) decodeQueue(decodingQueue chan FrameEvent, done chan bool) {
 		frame := frameEvent.Frame()
 		err := frame.Decode()
 		if nil != err {
+			if nil != t.stats.erroredFrames {
+				t.stats.erroredFrames.Inc()
+			}
 			if !errors.Is(mode_s.ErrNoOp, err) {
-				// the decode operation failed to produce valid output, and we tell someone about it
-				t.log.Error().Err(err).Str("Tag", frameEvent.Source().Tag).Send()
+				var rawFrame string
+				// the decode operation failed to produce valid output, and we tell someone about it in debug mode
+				if t.log.Debug().Enabled() {
+					if b, ok := frame.(*beast.Frame); ok {
+						rawFrame = b.AvrFrame().RawString()
+					} else {
+						rawFrame = fmt.Sprintf("@%X", frame.Raw())
+					}
+					t.log.Error().
+						Err(err).
+						Str("Tag", frameEvent.Source().Tag).
+						Str("AVR", rawFrame).
+						Msg("failed to decode message")
+				}
 			}
 			continue
 		}
@@ -239,7 +330,7 @@ func (t *Tracker) decodeQueue(decodingQueue chan FrameEvent, done chan bool) {
 				break
 			}
 		}
-		if nil == frame || frame.Icao() == 0 {
+		if frame == nil || frame.Icao() == 0 {
 			// invalid frame || unable to determine planes ICAO
 			continue
 		}
@@ -250,6 +341,7 @@ func (t *Tracker) decodeQueue(decodingQueue chan FrameEvent, done chan bool) {
 
 		switch typeFrame := frame.(type) {
 		case *beast.Frame:
+			t.log.Debug().Msg(typeFrame.AvrFrame().RawString())
 			plane.HandleModeSFrame(typeFrame.AvrFrame(), frameEvent.Source())
 			plane.setSignalLevel(typeFrame.SignalRssi())
 			beast.Release(typeFrame)

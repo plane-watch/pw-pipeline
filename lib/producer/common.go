@@ -4,19 +4,22 @@ import (
 	"bufio"
 	"compress/bzip2"
 	"compress/gzip"
+	"context"
 	"errors"
 	"fmt"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 	"io"
 	"math/rand"
 	"net"
 	"os"
-	"plane.watch/lib/tracker"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
+	"plane.watch/lib/timing"
+	"plane.watch/lib/tracker"
 )
 
 const (
@@ -38,20 +41,30 @@ type (
 
 		cmdChan chan int
 
-		splitter                      bufio.SplitFunc
-		beastDelay, keepAliveRepeater bool
+		splitter bufio.SplitFunc
 
-		run         func()
-		running     bool
+		hasFetcher       bool
+		fetcherConnected bool
+
+		beastDelay        bool
+		keepAliveRepeater bool
+		isRadarCape       bool
+
+		running bool
+		run     func()
+
 		runningLock sync.Mutex
 
 		stats struct {
 			avr, beast, sbs1 prometheus.Counter
 		}
 
-		hasFetcher, fetcherConnected bool
-
 		repeater *keepAliveRepeater
+
+		poisonPill       func() bool
+		poisonPillCancel context.CancelFunc
+
+		cleanUpTasks []func() error
 	}
 
 	Option func(*Producer)
@@ -71,8 +84,9 @@ func New(opts ...Option) *Producer {
 		cmdChan: make(chan int),
 		run: func() {
 			println("You did not specify any sources")
-			os.Exit(1)
+			os.Exit(1) // TODO(mikenye): something more graceful?
 		},
+		cleanUpTasks: make([]func() error, 0),
 	}
 	p.log = log.With().Logger()
 
@@ -100,6 +114,16 @@ func New(opts ...Option) *Producer {
 		go p.repeater.processor(p)
 	}
 
+	if p.poisonPill != nil {
+		p.poisonPillCancel = timing.RunOnTicker(p.log, time.Second*5, func() error {
+			if p.poisonPill() {
+				log.Debug().Msg("took poison pill")
+				p.Stop()
+			}
+			return nil
+		})
+	}
+
 	return p
 }
 
@@ -118,31 +142,65 @@ func producerType(in int) string {
 
 // Producer.New(WithFetcher(host, port), WithType(Producer.Avr), WithRefLatLon(lat, lon))
 
+func WithCleanUpTasks(tasks ...func() error) Option {
+	return func(p *Producer) {
+		p.cleanUpTasks = append(p.cleanUpTasks, tasks...)
+	}
+}
+
 func WithListener(host, port string) Option {
 	return func(p *Producer) {
+		p.addDebug("configuring listener")
 		p.run = func() {
+			p.addDebug("about to start listening")
+			defer p.Cleanup()
+
 			addr := net.JoinHostPort(host, port)
 			ln, err := net.Listen("tcp", addr)
 			if err != nil {
 				// handle error
 				p.log.Error().Err(err).Str("host:port", addr).Msg("Failed to listen")
+				return
 			}
+			p.addDebug("here we go, listening")
+			go func() {
+				for cmd := range p.cmdChan {
+					switch cmd {
+					case cmdExit:
+						p.log.Debug().Msg("Exiting...")
+						_ = ln.Close()
+						return
+					}
+				}
+			}()
 			for {
+				p.addDebug("Top of listener loop")
 				conn, errConn := ln.Accept()
 				if errConn != nil {
 					// handle error
+					if errors.Is(errConn, net.ErrClosed) {
+						p.log.Info().Msg("Closed Network Connection")
+						break
+					}
+
 					p.log.Error().Err(errConn).Msg("Failed to accept a connection")
+					continue
 				}
+				p.addDebug("After Accept")
 
 				go func(c net.Conn) {
+					p.addDebug("handling conn")
 					scan := bufio.NewScanner(c)
 					scan.Split(p.splitter)
 					errRead := p.readFromScanner(scan)
 					if nil != errRead {
 						p.log.Error().Err(errRead).Msg("No more reading")
 					}
+					_ = c.Close()
 				}(conn)
 			}
+
+			p.addInfo("Listener Closing")
 		}
 	}
 }
@@ -156,15 +214,44 @@ func WithSourceTag(tag string) Option {
 func WithFetcher(host, port string) Option {
 	hp := net.JoinHostPort(host, port)
 	return func(p *Producer) {
+		p.addDebug("configuring fetcher %s:%s", host, port)
 		p.hasFetcher = true
 		p.FrameSource.OriginIdentifier = hp
 		p.run = func() {
+			defer p.Cleanup()
+
 			p.addInfo("Fetching From Host: %s:%s", host, port)
 			p.fetcher(host, port, func(conn net.Conn) error {
 				scan := bufio.NewScanner(conn)
 				scan.Split(p.splitter)
 				return p.readFromScanner(scan)
 			})
+		}
+	}
+}
+
+func WithConnection(conn net.Conn) Option {
+	return func(p *Producer) {
+		p.FrameSource.OriginIdentifier = conn.RemoteAddr().String()
+		p.run = func() {
+			p.addInfo("Fetching From Host: %s", p.FrameSource.OriginIdentifier)
+			go func() {
+				defer p.Cleanup()
+
+				defer func() {
+					p.log.Debug().Msg("closing connection")
+					_ = conn.Close()
+				}()
+
+				scan := bufio.NewScanner(conn)
+				p.log.Debug().Msg("start reading from scanner")
+				errRead := p.readFromScanner(scan)
+				if errRead != nil {
+					p.log.Error().Err(errRead).Msg("error reading from scanner")
+				}
+				_ = conn.Close()
+				p.log.Debug().Msg("finish reading from scanner")
+			}()
 		}
 	}
 }
@@ -179,6 +266,8 @@ func WithFiles(filePaths []string) Option {
 	return func(p *Producer) {
 		p.FrameSource.VelocityCheck = p.beastDelay
 		p.run = func() {
+			// note: we do cleanup in readFiles so the producer doesn't close
+
 			p.readFiles(filePaths, func(reader io.Reader, fileName string) error {
 				scanner := bufio.NewScanner(reader)
 				p.FrameSource.OriginIdentifier = "file://" + fileName
@@ -188,9 +277,10 @@ func WithFiles(filePaths []string) Option {
 	}
 }
 
-func WithBeastDelay(beastDelay bool) Option {
+func WithBeastDelay(beastDelay bool, isRadarCape bool) Option {
 	return func(p *Producer) {
 		p.beastDelay = beastDelay
+		p.isRadarCape = isRadarCape
 	}
 }
 
@@ -226,10 +316,13 @@ func (p *Producer) readFromScanner(scan *bufio.Scanner) error {
 
 	switch p.producerType {
 	case Avr:
+		p.log = p.log.With().Str("type", "avr").Logger()
 		return p.avrScanner(scan)
 	case Sbs1:
+		p.log = p.log.With().Str("type", "sbs1").Logger()
 		return p.sbsScanner(scan)
 	case Beast:
+		p.log = p.log.With().Str("type", "beast").Logger()
 		return p.beastScanner(scan)
 	default:
 		return errors.New("unknown Producer type")
@@ -237,11 +330,13 @@ func (p *Producer) readFromScanner(scan *bufio.Scanner) error {
 }
 
 // WithReferenceLatLon sets up the reference lat/lon for decoding surface position messages
-func WithReferenceLatLon(lat, lon float64) Option {
+func WithReferenceLatLon(lat, lon *float64) Option {
 	return func(p *Producer) {
-		p.log.Debug().Float64("lat", lat).Float64("lon", lon).Msg("With Reference Lat/Lon")
-		p.FrameSource.RefLat = &lat
-		p.FrameSource.RefLon = &lon
+		if lat != nil && lon != nil {
+			p.log.Debug().Float64("lat", *lat).Float64("lon", *lon).Msg("With Reference Lat/Lon")
+			p.FrameSource.RefLat = lat
+			p.FrameSource.RefLon = lon
+		}
 	}
 }
 func WithKeepAliveRepeater() Option {
@@ -250,11 +345,18 @@ func WithKeepAliveRepeater() Option {
 	}
 }
 
+func WithPoisonPill(poisonPill func() bool, t time.Duration) Option {
+	return func(p *Producer) {
+		p.poisonPill = poisonPill
+	}
+}
+
 func (p *Producer) String() string {
 	return p.FrameSource.Name
 }
 
 func (p *Producer) Listen() chan tracker.FrameEvent {
+	p.log.Debug().Msg("Producer starting operations")
 	p.runningLock.Lock()
 	defer p.runningLock.Unlock()
 	if !p.running {
@@ -274,15 +376,25 @@ func (p *Producer) addFrame(f tracker.Frame, s *tracker.FrameSource) {
 }
 
 func (p *Producer) addDebug(sfmt string, v ...interface{}) {
-	p.log.Debug().Str("section", p.FrameSource.Name).Msgf(sfmt, v...)
+	p.log.Debug().
+		Str("Section", "Producer").
+		Str("frame-source", p.FrameSource.Name).
+		Msgf(sfmt, v...)
 }
 
 func (p *Producer) addInfo(sfmt string, v ...interface{}) {
-	p.log.Info().Str("section", p.FrameSource.Name).Msgf(sfmt, v...)
+	p.log.Info().
+		Str("Section", "Producer").
+		Str("frame-source", p.FrameSource.Name).
+		Msgf(sfmt, v...)
 }
 
 func (p *Producer) addError(err error) {
-	p.log.Error().Str("section", p.FrameSource.Name).Err(err).Send()
+	p.log.Error().
+		Str("Section", "Producer").
+		Str("frame-source", p.FrameSource.Name).
+		Err(err).
+		Send()
 }
 
 func (p *Producer) HealthCheck() bool {
@@ -310,11 +422,29 @@ func (p *Producer) AddEvent(e tracker.FrameEvent) {
 }
 
 func (p *Producer) Cleanup() {
+	p.log.Debug().Msg("Start Cleanup")
+
+	// if using poison pill, then make sure the RunOnTicker instance is cancelled
+	if p.poisonPillCancel != nil {
+		p.poisonPillCancel()
+	}
+
+	// run user-defined clean-up functions
+	for _, cleanUpFunc := range p.cleanUpTasks {
+		err := cleanUpFunc()
+		if err != nil {
+			p.log.Error().Err(err).Msg("error in user-defined clean-up function")
+		}
+	}
+
 	defer func() {
 		if r := recover(); nil != r {
 			p.log.Error().Interface("recover", r).Msg("Cleanup() had a panic")
+		} else {
+			p.log.Debug().Msg("Finished Cleanup")
 		}
 	}()
+
 	close(p.out)
 }
 
@@ -323,6 +453,8 @@ func (p *Producer) readFiles(dataFiles []string, read func(io.Reader, string) er
 	var inFile *os.File
 	var gzipFile *gzip.Reader
 	go func() {
+		defer p.Cleanup()
+
 		for _, inFileName := range dataFiles {
 			log.Debug().Str("FileName", inFileName).Msg("Loading contents...")
 			p.FrameSource.OriginIdentifier = "file://" + inFileName
@@ -362,7 +494,6 @@ func (p *Producer) readFiles(dataFiles []string, read func(io.Reader, string) er
 				Msg("Finished with file")
 		}
 		log.Debug().Msg("Done loading contents from files")
-		p.Cleanup()
 	}()
 
 	go func() {
@@ -413,25 +544,22 @@ func (p *Producer) fetcher(host, port string, read func(net.Conn) error) {
 			}
 		}
 		p.addDebug("Done with Producer %s", p)
-		p.Cleanup()
-		p.addDebug("cleanup is done %s", p)
 	}()
 
-	go func() {
-		for cmd := range p.cmdChan {
-			switch cmd {
-			case cmdExit:
-				p.addDebug("Got Cmd Exit")
-				wLock.Lock()
-				working = false
-				if nil != conn {
-					if err := conn.Close(); err != nil {
-						p.log.Error().Err(err).Msg("Err when closing socket")
-					}
+	for cmd := range p.cmdChan {
+		p.addDebug("Got a Command... %d", cmd)
+		switch cmd {
+		case cmdExit:
+			p.addDebug("Got Cmd Exit")
+			wLock.Lock()
+			working = false
+			if conn != nil {
+				if err := conn.Close(); err != nil {
+					p.log.Error().Err(err).Msg("Err when closing socket")
 				}
-				wLock.Unlock()
-				return
 			}
+			wLock.Unlock()
+			return
 		}
-	}()
+	}
 }

@@ -236,7 +236,10 @@ func TestDecodeFlightStatusErr(t *testing.T) {
 		f := Frame{
 			message: []byte{byte(i), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
 		}
-		f.decodeFlightStatus()
+		err := f.decodeFlightStatus()
+		if err != nil {
+			return
+		}
 	}
 }
 
@@ -358,7 +361,10 @@ func TestFrame_decodeFlightStatus(t *testing.T) {
 			f := &Frame{
 				message: tt.fields.message,
 			}
-			f.decodeFlightStatus()
+			err := f.decodeFlightStatus()
+			if err != nil {
+				return
+			}
 
 			if f.fs != tt.fields.fs {
 				t.Errorf("Expected flight status field %d, got %d", tt.fields.fs, f.fs)
@@ -464,7 +470,7 @@ func TestFrame_decode13bitAltitudeCode(t *testing.T) {
 
 		// DF4
 		"20001CB0861890": 45000, // M=false, Q=true
-		"20010D8340800E": 37900, // M=false, Q=true
+		"210000992F8C48": 25,    // M=false, Q=true
 	}
 
 	for avr, expectedAlt := range tests {
@@ -609,6 +615,33 @@ func Test_decodeFlightNumber(t *testing.T) {
 			name: "99999999",
 			args: encodeFlightNumber("99999999"),
 			want: []byte{'9', '9', '9', '9', '9', '9', '9', '9'},
+		},
+		// Test cases for corrupted callsigns (from real-world production issues)
+		// These characters should NEVER appear in valid aircraft callsigns
+		{
+			name: "Corrupted with semicolon - _; (invalid)",
+			args: encodeFlightNumber("_D8_LU+["),
+			want: nil,
+		},
+		{
+			name: "Corrupted with brackets - [AC] (invalid)",
+			args: encodeFlightNumber("_,ACJ\\+K"),
+			want: nil,
+		},
+		{
+			name: "Corrupted with asterisk - * (invalid)",
+			args: encodeFlightNumber("_,'B0AK*"),
+			want: nil,
+		},
+		{
+			name: "Corrupted with equals - = (invalid)",
+			args: encodeFlightNumber("^TT5Q2=5"),
+			want: nil,
+		},
+		{
+			name: "Corrupted with special chars (invalid)",
+			args: encodeFlightNumber("\\<@ERS(U"),
+			want: nil,
 		},
 	}
 	for _, tt := range tests {

@@ -1,11 +1,18 @@
 package main
 
 import (
+	"os"
+	"slices"
+	"strconv"
+	"strings"
+
+	"github.com/olekukonko/tablewriter"
+	"github.com/olekukonko/tablewriter/renderer"
+	"github.com/olekukonko/tablewriter/tw"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/rs/zerolog/log"
 	"github.com/urfave/cli/v2"
-	"os"
 	"plane.watch/lib/dedupe"
 	"plane.watch/lib/example_finder"
 	"plane.watch/lib/logging"
@@ -21,6 +28,7 @@ const (
 	DedupeFilter       = "dedupe-filter"
 	FilterLocationOnly = "locations-only"
 	FilterIcao         = "icao"
+	DecodeWorkerCount  = "decode-worker-count"
 )
 
 var (
@@ -29,6 +37,16 @@ var (
 		Namespace: "pw_ingest",
 		Name:      "num_decoded_frames",
 		Help:      "The number of AVR frames decoded",
+	})
+	prometheusCounterFramesErrored = promauto.NewGauge(prometheus.GaugeOpts{
+		Namespace: "pw_ingest",
+		Name:      "num_decode_errors",
+		Help:      "The number of AVR frames decoded with errors",
+	})
+	prometheusCounterPlanesPurgedBeforeViable = promauto.NewGauge(prometheus.GaugeOpts{
+		Namespace: "pw_ingest",
+		Name:      "num_planes_purged_before_viable",
+		Help:      "The number aircraft that were purged before having received enough frames to be viable",
 	})
 	prometheusGaugeCurrentPlanes = promauto.NewGauge(prometheus.GaugeOpts{
 		Namespace: "pw_ingest",
@@ -71,7 +89,7 @@ func main() {
 	app.Commands = []*cli.Command{
 		{
 			Name:      "simple",
-			Usage:     "Gather ADSB data and sends it to the configured output. just a log of info",
+			Usage:     "Gather ADS-B data and sends it to the configured output. just a log of info",
 			Action:    runSimple,
 			ArgsUsage: "[app.log - A file name to output to or stdout if not specified]",
 		},
@@ -96,11 +114,23 @@ func main() {
 			},
 		},
 	}
-	app.Flags = append(app.Flags, &cli.BoolFlag{
-		Name:    DedupeFilter,
-		Usage:   "Include the usage of the ADSB Message Deduplication Filter. Useful for combo feeds",
-		EnvVars: []string{"DEDUPE"},
-	})
+	app.Flags = append(
+		app.Flags,
+		&cli.BoolFlag{
+			Name:    DedupeFilter,
+			Usage:   "Include the usage of the ADSB Message Deduplication Filter. Useful for combo feeds",
+			EnvVars: []string{"DEDUPE"},
+		},
+		&cli.IntFlag{
+			Name:  DecodeWorkerCount,
+			Usage: "The number of tracker workers we spawn to handle the incoming traffic",
+			Value: 1,
+		},
+		&cli.BoolFlag{
+			Name:  "show-stats",
+			Usage: "When pw-ingest quits, show some stats about the processed plane data, handy when looking at files",
+		},
+	)
 
 	app.Before = func(c *cli.Context) error {
 		logging.SetLoggingLevel(c)
@@ -122,7 +152,16 @@ func commonSetup(c *cli.Context) (*tracker.Tracker, error) {
 	}
 
 	trackerOpts := make([]tracker.Option, 0)
-	trackerOpts = append(trackerOpts, tracker.WithPrometheusCounters(prometheusGaugeCurrentPlanes, prometheusCounterFramesDecoded))
+	trackerOpts = append(
+		trackerOpts,
+		tracker.WithPrometheusCounters(
+			prometheusGaugeCurrentPlanes,
+			prometheusCounterFramesDecoded,
+			prometheusCounterFramesErrored,
+			prometheusCounterPlanesPurgedBeforeViable,
+		),
+		tracker.WithDecodeWorkerCount(c.Int(DecodeWorkerCount)),
+	)
 	trk := tracker.NewTracker(trackerOpts...)
 
 	if c.Bool(DedupeFilter) {
@@ -149,9 +188,6 @@ func commonSetup(c *cli.Context) (*tracker.Tracker, error) {
 }
 
 func runSimple(c *cli.Context) error {
-	//defer func() {
-	//	recover()
-	//}()
 	logging.ConfigureForCli()
 
 	trk, err := commonSetup(c)
@@ -162,7 +198,72 @@ func runSimple(c *cli.Context) error {
 
 	go trk.StopOnCancel()
 	trk.Wait()
+
+	if c.Bool("show-stats") {
+		showPlaneStats(trk)
+	}
+
 	return nil
+}
+
+func showPlaneStats(trk *tracker.Tracker) {
+	tbl := tablewriter.NewTable(
+		os.Stdout,
+		tablewriter.WithRenderer(
+			renderer.NewBlueprint(
+				tw.Rendition{
+					Borders: tw.BorderNone,
+					Symbols: tw.NewSymbols(tw.StyleASCII),
+					Settings: tw.Settings{
+						Separators: tw.Separators{
+							ShowHeader:     tw.On,
+							ShowFooter:     tw.Off,
+							BetweenRows:    tw.Off,
+							BetweenColumns: tw.On,
+						},
+						Lines: tw.Lines{
+							ShowTop:        tw.On,
+							ShowBottom:     tw.Off,
+							ShowHeaderLine: tw.On,
+							ShowFooterLine: tw.Off,
+						},
+						CompactMode: tw.Off,
+					},
+					Streaming: false,
+				})),
+	)
+	rows := make([][]string, 0)
+	headers := []string{"ICAO", "Squawk", "Reg", "Flight Number", "Type", "MSG Count"}
+	trk.EachPlane(func(p *tracker.Plane) bool {
+		rows = append(rows, []string{
+			p.IcaoIdentifierStr(),
+			p.SquawkIdentityStr(),
+			unPtr(p.Registration()),
+			p.FlightNumber(),
+			p.AirFrame(),
+			strconv.FormatUint(p.MsgCount(), 10),
+		})
+
+		return true
+	})
+
+	slices.SortFunc(rows, func(a, b []string) int {
+		return strings.Compare(a[0], b[0])
+	})
+
+	tbl.Header(headers)
+	for _, row := range rows {
+		_ = tbl.Append(row)
+	}
+	_ = tbl.Render()
+}
+
+func unPtr[T any](pt *T) T {
+	var def T
+	if pt == nil {
+		return def
+	}
+	return *pt
 }
 
 // runDfFilter is a special mode for hunting down DF examples from live inputs

@@ -2,13 +2,14 @@ package example_finder
 
 import (
 	"bytes"
+	"strconv"
+
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"plane.watch/lib/tracker"
 	"plane.watch/lib/tracker/beast"
 	"plane.watch/lib/tracker/mode_s"
 	"plane.watch/lib/tracker/sbs1"
-	"strconv"
 )
 
 type (
@@ -74,6 +75,9 @@ func NewFilter(opts ...Option) *Filter {
 	f.log = log.With().Str("section", "example-finder").Logger()
 	println("len(f.listIcaos)==", len(f.listIcaos))
 	return f
+}
+
+func (f *Filter) Stop() {
 }
 
 func (f *Filter) String() string {

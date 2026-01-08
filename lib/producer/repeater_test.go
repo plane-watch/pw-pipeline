@@ -1,10 +1,11 @@
 package producer
 
 import (
-	"github.com/rs/zerolog"
-	"plane.watch/lib/tracker"
 	"testing"
 	"time"
+
+	"github.com/rs/zerolog"
+	"plane.watch/lib/tracker"
 )
 
 type testFrame struct {

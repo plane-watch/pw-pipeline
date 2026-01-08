@@ -1,14 +1,14 @@
 package main
 
 import (
+	"strconv"
+	"time"
+
 	"github.com/paulmach/orb"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"golang.org/x/exp/maps"
 	"plane.watch/lib/clickhouse"
 	"plane.watch/lib/export"
-	"strconv"
-	"time"
 )
 
 type (
@@ -97,13 +97,11 @@ func (ds *DataStream) handleQueue(q chan *export.PlaneLocation, table string) {
 		}
 		updateId = 0
 	}
-	tags := make(map[string]uint32, 5)
 	for {
 		select {
 		case <-ticker.C:
 			send()
 		case loc := <-q:
-			maps.Clear(tags)
 			squawk, _ := strconv.ParseUint(loc.Squawk, 10, 32)
 			updates[updateId] = &chRow{
 				Icao:            loc.Icao,
@@ -122,7 +120,7 @@ func (ds *DataStream) handleQueue(q chan *export.PlaneLocation, table string) {
 				HasHeading:      loc.HasHeading,
 				HasVerticalRate: loc.HasVerticalRate,
 				HasVelocity:     loc.HasVelocity,
-				SourceTags:      loc.PrepareSourceTags(tags),
+				SourceTags:      loc.PrepareSourceTags(),
 				Squawk:          uint32(squawk),
 				Special:         loc.Special,
 				TrackedSince:    loc.TrackedSince.UTC(),

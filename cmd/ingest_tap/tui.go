@@ -1,16 +1,17 @@
 package main
 
 import (
+	"math"
+	"strconv"
+	"time"
+
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/urfave/cli/v2"
-	"math"
 	"plane.watch/lib/export"
-	"strconv"
-	"time"
 )
 
 const (

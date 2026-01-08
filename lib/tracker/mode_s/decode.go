@@ -24,7 +24,16 @@ type (
 	}
 )
 
-var ErrNoOp = errors.New("frame is NoOp")
+var (
+	ErrNoOp                      = errors.New("frame is NoOp")
+	ErrInvalidIcao               = errors.New("invalid ICAO address")
+	ErrInvalidChecksum           = errors.New("invalid checksum")
+	ErrReplyInformation          = errors.New("reply information is set to value that is not assigned")
+	ErrInvalidFlightStatus       = errors.New("invalid flight status")
+	ErrUnassignedDownloadRequest = errors.New("unassigned downlink request")
+	ErrSquawkInvalid             = errors.New("invalid squawk identity")
+	ErrUnknownD18Capability      = errors.New("unknown DF18 Capability")
+)
 
 func DecodeString(rawFrame string, t time.Time) (*Frame, error) {
 	frame := NewFrame(rawFrame, t)
@@ -33,7 +42,7 @@ func DecodeString(rawFrame string, t time.Time) (*Frame, error) {
 	}
 	err := frame.Decode()
 	if nil != err {
-		return nil, err
+		return frame, err
 	}
 	return frame, nil
 }
@@ -60,6 +69,7 @@ func NewFrameFromBytes(beastTicks uint64, message []byte, t time.Time) Frame {
 	}
 }
 
+// Decode will decode the Mode-S frame, if not already decoded
 func (f *Frame) Decode() error {
 	if nil == f {
 		return nil
@@ -105,54 +115,76 @@ func (f *Frame) parse() error {
 	// decode the specific DF type
 	switch f.downLinkFormat {
 	case 0: // Airborne position, baro altitude only
-		f.decodeICAO()
-		f.decodeVerticalStatus()
-		f.decodeCrossLinkCapability()
-		f.decodeSensitivityLevel()
-		f.decodeReplyInformation()
-		err = f.decode13bitAltitudeCode()
+		err = errors.Join(
+			f.decodeICAO(),
+			f.decodeVerticalStatus(),
+			f.decodeCrossLinkCapability(),
+			f.decodeSensitivityLevel(),
+			f.decodeReplyInformation(),
+			f.decode13bitAltitudeCode(),
+		)
 	case 4:
-		f.decodeICAO()
-		f.decodeFlightStatus()
-		f.decodeDownLinkRequest()
-		f.decodeUtilityMessage()
-		err = f.decode13bitAltitudeCode()
+		err = errors.Join(
+			f.decodeICAO(),
+			f.decodeFlightStatus(),
+			f.decodeDownLinkRequest(),
+			f.decodeUtilityMessage(),
+			f.decode13bitAltitudeCode(),
+		)
 	case 5: // DF_5
-		f.decodeICAO()
-		f.decodeFlightStatus()
-		f.decodeDownLinkRequest()
-		f.decodeUtilityMessage()
-		f.decodeSquawkIdentity(2, 3) // gillham encoded squawk
+		err = errors.Join(
+			f.decodeICAO(),
+			f.decodeFlightStatus(),
+			f.decodeDownLinkRequest(),
+			f.decodeUtilityMessage(),
+			f.decodeSquawkIdentity(2, 3), // gillham encoded squawk
+		)
 	case 11: // DF_11
-		f.decodeICAO()
-		f.decodeCapability()
+		err = errors.Join(
+			f.decodeICAO(),
+			f.decodeCapability(),
+		)
 	case 16: // DF_16
-		f.decodeICAO()
-		f.decodeVerticalStatus()
-		err = f.decode13bitAltitudeCode()
-		f.decodeReplyInformation()
-		f.decodeSensitivityLevel()
+		err = errors.Join(
+			f.decodeICAO(),
+			f.decodeVerticalStatus(),
+			f.decode13bitAltitudeCode(),
+			f.decodeReplyInformation(),
+			f.decodeSensitivityLevel(),
+		)
 	case 17: // DF_17
-		f.decodeICAO()
-		f.decodeCapability()
-		f.decodeAdsb()
+		err = errors.Join(
+			f.decodeICAO(),
+			f.decodeCapability(),
+			f.decodeAdsb(),
+		)
 	case 18: // DF_18
-		f.decodeCapability() // control field
-		if f.ca == 0 {
-			f.decodeICAO()
-			f.decodeAdsb()
+		switch f.ca {
+		case 0:
+			err = errors.Join(
+				f.decodeCapability(), // control field
+				f.decodeICAO(),
+				f.decodeAdsb(),
+			)
+		default:
+			err = ErrUnknownD18Capability
 		}
 	case 20: // DF_20
-		f.decodeICAO()
-		f.decodeFlightStatus()
-		_ = f.decode13bitAltitudeCode()
-		err = f.decodeCommB()
+		err = errors.Join(
+			f.decodeICAO(),
+			f.decodeFlightStatus(),
+			f.decode13bitAltitudeCode(),
+			f.decodeCommB(),
+		)
 	case 21: // DF_21
-		f.decodeICAO()
-		f.decodeFlightStatus()
-		f.decodeSquawkIdentity(2, 3) // gillham encoded squawk
-		err = f.decodeCommB()
+		err = errors.Join(
+			f.decodeICAO(),
+			f.decodeFlightStatus(),
+			f.decodeSquawkIdentity(2, 3), // gillham encoded squawk
+			f.decodeCommB(),
+		)
 	}
+
 	return err
 }
 
@@ -289,7 +321,7 @@ func (f *Frame) parseRawToMessage() error {
 	return nil
 }
 
-func (f *Frame) decodeCapability() {
+func (f *Frame) decodeCapability() error {
 	f.ca = f.message[0] & 7
 
 	switch f.ca {
@@ -301,9 +333,13 @@ func (f *Frame) decodeCapability() {
 		f.onGround = false
 	default:
 	}
+
+	return nil
 }
-func (f *Frame) decodeCrossLinkCapability() {
+func (f *Frame) decodeCrossLinkCapability() error {
 	f.cc = f.message[0] & 0x2 >> 1
+
+	return nil
 }
 
 // Flight status (FS): 3 bits, shows status of alert, special position pulse (SPI, in Mode A only) and aircraft status (airborne or on-ground). The field is interpreted as:
@@ -316,20 +352,19 @@ func (f *Frame) decodeCrossLinkCapability() {
 //	101: no alert, SPI, aircraft is airborne or on-ground
 //	110: reserved
 //	111: not assigned
-func (f *Frame) decodeFlightStatus() {
+func (f *Frame) decodeFlightStatus() error {
 	// first 5 bits are the downlink format
 	// bits 5,6,7 are the flight status
 	// https://mode-s.org/decode/content/mode-s/3-surveillance.html
 	f.fs = f.message[0] & 0x7
-	if f.fs == 0 || f.fs == 2 {
+	switch f.fs {
+	case 0, 2:
 		f.validVerticalStatus = true
 		f.onGround = false
-	}
-	if f.fs == 1 || f.fs == 3 {
+	case 1, 3:
 		f.validVerticalStatus = true
 		f.onGround = true
-	}
-	if f.fs == 4 || f.fs == 5 {
+	case 4, 5:
 		// special pos
 		f.validVerticalStatus = false
 		f.onGround = false // assume in the air
@@ -338,38 +373,70 @@ func (f *Frame) decodeFlightStatus() {
 		} else {
 			f.special += fmt.Sprintf("Unknown Flight Status: %d", f.fs)
 		}
+	case 6, 7:
+		return ErrInvalidFlightStatus
+
 	}
 	if f.fs == 2 || f.fs == 3 || f.fs == 4 {
 		// ALERT!
 		f.alert = true
 	}
+
+	return nil
 }
 
 // VS == Vertical status
-func (f *Frame) decodeVerticalStatus() {
+func (f *Frame) decodeVerticalStatus() error {
 	f.vs = f.message[0] & 4 >> 2
 	f.onGround = f.vs != 0
 	f.validVerticalStatus = true
+	return nil
 }
 
 // bits 13,14,15 and 16 make up the RI field
-func (f *Frame) decodeReplyInformation() {
+func (f *Frame) decodeReplyInformation() error {
 	f.ri = (f.message[1]&7)<<1 | (f.message[2]&0x80)>>7
+	if f.ri == 1 || f.ri == 5 || f.ri == 6 || f.ri == 7 || f.ri == 15 {
+		return ErrReplyInformation
+	}
+	return nil
 }
-func (f *Frame) decodeSensitivityLevel() {
+func (f *Frame) decodeSensitivityLevel() error {
 	f.sl = (f.message[1] & 0xe0) >> 5
+	return nil
 }
 
-func (f *Frame) decodeDownLinkRequest() {
+// decodeDownLinkRequest is 5 bits
+func (f *Frame) decodeDownLinkRequest() error {
 	f.dr = (f.message[1] & 0xf8) >> 3
+
+	// value 8 -- 14 is not assigned
+	if f.dr >= 8 && f.dr <= 14 {
+		return ErrUnassignedDownloadRequest
+	}
+
+	return nil
 }
 
-func (f *Frame) decodeUtilityMessage() {
+// decodeUtilityMessage decodes our utility message info
+// Utility message (UM): 6 bits, contains transponder communication status information.
+//
+//	IIS: The first 4 bits of UM indicate the interrogator identifier code.
+//
+//	IDS: The last 2 bits indicate the type of reservation made by the interrogator.
+//	    00: no information
+//	    01: IIS contains Comm-B interrogator identifier code
+//	    10: IIS contains Comm-C interrogator identifier code
+//	    11: IIS contains Comm-D interrogator identifier code
+func (f *Frame) decodeUtilityMessage() error {
+	// 0000_0111 << 3 | 1110_0000 >> 5
 	f.um = (f.message[1]&0x7)<<3 | (f.message[2]&0xe0)>>5
+
+	return nil
 }
 
 // Determines the ICAO address from bytes 2,3 and 4
-func (f *Frame) decodeICAO() {
+func (f *Frame) decodeICAO() error {
 	switch f.downLinkFormat {
 	case 0, 4, 5, 16, 20, 21:
 		// attempt to get the ICAO from the AP Field
@@ -378,18 +445,21 @@ func (f *Frame) decodeICAO() {
 
 	case 1, 2, 3, 6, 7, 8, 9, 10, 12, 13, 14, 15, 19, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31:
 		f.icao = 0
+		return ErrInvalidIcao
 	case 11, 17, 18:
 		a := uint32(f.message[1])
 		b := uint32(f.message[2])
 		c := uint32(f.message[3])
 		f.icao = a<<16 | b<<8 | c
 	}
+
+	return nil
 }
 
-// decodeSquawkIdentity takes the index of the 2 bytes needed to decode our identity
+// decodeSquawkIdentity takes the 2 bytes needed to decode our identity
 // we require the identity to be in the last 5 bits of the first byte and all of the second byte
 // these bits should contain the identity 0b0001_1111, 0b1111_1111
-func (f *Frame) decodeSquawkIdentity(byte1, byte2 int) {
+func (f *Frame) decodeSquawkIdentity(byte1, byte2 int) error {
 	var a, b, c, d uint32
 	var msg2, msg3 uint32
 
@@ -409,11 +479,18 @@ func (f *Frame) decodeSquawkIdentity(byte1, byte2 int) {
 	* octal numbers.
 	*
 	* For more info: http://en.wikipedia.org/wiki/Gillham_code */
+
+	if byte2&0b0100_0000 == 1 {
+		return ErrSquawkInvalid
+	}
+
 	a = ((msg3 & 0x80) >> 5) | ((msg2 & 0x02) >> 0) | ((msg2 & 0x08) >> 3)
 	b = ((msg3 & 0x02) << 1) | ((msg3 & 0x08) >> 2) | ((msg3 & 0x20) >> 5)
 	c = ((msg2 & 0x01) << 2) | ((msg2 & 0x04) >> 1) | ((msg2 & 0x10) >> 4)
 	d = ((msg3 & 0x01) << 2) | ((msg3 & 0x04) >> 1) | ((msg3 & 0x10) >> 4)
 	f.identity = a*1000 + b*100 + c*10 + d
+
+	return nil
 }
 
 // bits 20-32 are the altitude
@@ -494,21 +571,34 @@ func decodeFlightNumber(b []byte) []byte {
 	callsign[6] = aisCharset[((b[4]&15)<<2)|(b[5]>>6)]
 	callsign[7] = aisCharset[b[5]&63]
 
-	score := 0
+	// Validate callsign characters - matches readsb validation logic
+	// Valid characters: A-Z, -./ (ASCII 45-47), 0-9, space, @
+	// Reference: readsb mode_s.c:824-840
+	callsignValid := true
 	for i := 0; i < 8; i++ {
-		if (callsign[i] >= 'A' && callsign[i] <= 'Z') || callsign[i] == '-' || callsign[i] == ' ' || (callsign[i] >= '0' && callsign[i] <= '9') {
-			score++
+		c := callsign[i]
+		if (c >= 'A' && c <= 'Z') ||
+			(c >= '-' && c <= '9') || // ASCII 45-57: -./ and 0-9
+			c == ' ' ||
+			c == '@' {
+			// valid character
+		} else {
+			// Invalid character - reject entire callsign
+			callsignValid = false
+			break
 		}
 	}
-	if score < 4 {
-		// do not trust a callsign with fewer than 4 A-Z0-9 chars
-		callsign = nil
+
+	if !callsignValid {
+		return nil
 	}
 
-	// because planes have sent us things like A90004A0200000000000007D8DB4
-	// we need
-	if string(callsign) == "@@@@@@@@" || string(callsign) == "--------" {
-		callsign = nil
+	// Reject common invalid patterns, because occasionally misconfigured aircraft send bogus call signs.
+	// For example-- we've seen things like: A90004A0200000000000007D8DB4 which is basically all nulls.
+	s := string(callsign)
+	if s == "@@@@@@@@" || s == "        " || s == "--------" {
+		return nil
 	}
+
 	return callsign
 }

@@ -1,12 +1,14 @@
 package logging
 
 import (
+	"os"
+	"path/filepath"
+	"runtime/pprof"
+	"time"
+
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/urfave/cli/v2"
-	"os"
-	"runtime/pprof"
-	"time"
 )
 
 const (
@@ -19,26 +21,30 @@ const (
 func IncludeVerbosityFlags(app *cli.App) {
 	app.Flags = append(app.Flags,
 		&cli.BoolFlag{
-			Name:  VeryVerbose,
-			Usage: "Enable trace level debugging",
+			Category: "Logging",
+			Name:     VeryVerbose,
+			Usage:    "Enable trace level debugging",
 		},
 		&cli.BoolFlag{
-			Name:    Debug,
-			Usage:   "Show Extra Debug Information",
-			EnvVars: []string{"DEBUG"},
+			Category: "Logging",
+			Name:     Debug,
+			Usage:    "Show Extra Debug Information",
+			EnvVars:  []string{"DEBUG"},
 		},
 		&cli.BoolFlag{
-			Name:    Quiet,
-			Usage:   "Only show important messages",
-			EnvVars: []string{"QUIET"},
+			Category: "Logging",
+			Name:     Quiet,
+			Usage:    "Only show important messages",
+			EnvVars:  []string{"QUIET"},
 		},
 		&cli.StringFlag{
-			Name:  CPUProfile,
-			Usage: "Specifying this parameter causes a CPU Profile to be generated",
+			Category: "Logging",
+			Name:     CPUProfile,
+			Usage:    "Specifying this parameter causes a CPU Profile to be generated",
 		},
 	)
 	// append our after func to stop profiling
-	if nil == app.After {
+	if app.After == nil {
 		app.After = StopProfiling
 	} else {
 		f := app.After
@@ -103,7 +109,8 @@ func StopProfiling(c *cli.Context) error {
 		println("To analyze the profile, use this cmd")
 		println("go tool pprof -http=:7777", fileName)
 
-		f, err := os.Create("mem-" + fileName)
+		fileNameHeapProfile := filepath.Join(filepath.Dir(fileName), "mem-"+filepath.Base(fileName))
+		f, err := os.Create(fileNameHeapProfile)
 		if nil != err {
 			panic(err)
 		}

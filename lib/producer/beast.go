@@ -3,8 +3,9 @@ package producer
 import (
 	"bufio"
 	"bytes"
-	"plane.watch/lib/tracker/beast"
 	"time"
+
+	"plane.watch/lib/tracker/beast"
 )
 
 const tokenBufSize = 1000
@@ -14,12 +15,15 @@ func (p *Producer) beastScanner(scan *bufio.Scanner) error {
 	lastTimeStamp := time.Duration(0)
 	// make our best lib allocate out of a sync.Pool
 	beast.UsePoolAllocator = true
-	for scan.Scan() {
+	p.log.Debug().Msg("entering scan.Scan() loop")
+	for scan.Scan() && scan.Err() == nil {
 		msg := bytes.Clone(scan.Bytes())
-		frame, err := beast.NewFrame(msg, false)
+
+		frame, err := beast.NewFrame(msg, p.isRadarCape)
 		if nil != err {
 			continue
 		}
+
 		if p.beastDelay {
 			currentTs := frame.BeastTicksNs()
 			if lastTimeStamp > 0 && lastTimeStamp < currentTs {
@@ -33,6 +37,7 @@ func (p *Producer) beastScanner(scan *bufio.Scanner) error {
 			p.stats.beast.Inc()
 		}
 	}
+	p.log.Debug().Msg("exited scan.Scan() loop")
 	return scan.Err()
 }
 

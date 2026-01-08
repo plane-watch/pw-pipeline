@@ -26,7 +26,7 @@ RUN set -x && go build -buildvcs=false -ldflags="-X main.version=${IMAGE_VERSION
 # test binary (make sure it will run on this arch)
 RUN ./pw_ingest --help
 
-FROM alpine:latest AS dev
+FROM alpine:3.22.2 AS dev
 LABEL org.opencontainers.image.description="Plane.Watch Ingest"
 
 WORKDIR /app
@@ -38,9 +38,10 @@ ENV PUBLISH_TYPES=location-updates
 HEALTHCHECK --interval=15s --timeout=3s CMD wget --spider http://localhost:9602/status
 
 # Command to run
-CMD [ "/app/pw_ingest", "daemon" ]
+ENTRYPOINT [ "/app/pw_ingest" ]
+CMD [ "daemon" ]
 
-FROM alpine:latest
+FROM alpine:3.22.2
 LABEL org.opencontainers.image.description="Plane.Watch Ingest"
 
 WORKDIR /app
@@ -52,4 +53,5 @@ ENV PUBLISH_TYPES=location-updates
 HEALTHCHECK --interval=15s --timeout=3s CMD wget --spider http://localhost:9602/status
 
 # Command to run
-CMD [ "/app/pw_ingest", "daemon" ]
+ENTRYPOINT [ "/app/pw_ingest" ]
+CMD [ "daemon" ]

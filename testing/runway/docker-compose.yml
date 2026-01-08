@@ -1,0 +1,100 @@
+name: runway_testing
+
+services:
+  runway:
+    build:
+      context: ../../
+      dockerfile: docker/runway/Dockerfile
+      target: dev
+    restart: always
+    depends_on:
+      nats:
+        condition: service_started
+      pw_atc_api:
+        condition: service_healthy
+    environment:
+      - CERT_FILE=/test/server.crt
+      - KEY_FILE=/test/server.key
+      - DEBUG=false
+      - SINK=nats://nats:4222
+    ports:
+      - "12345:12345"
+      - "12346:12346"
+      - "9602:9602"
+    volumes:
+      - type: bind
+        source: ${TESTDIR}
+        target: /test
+
+  nats:
+    image: nats:alpine
+    restart: always
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+      - "6222:6222"
+    volumes:
+      - type: bind
+        source: ${TESTDIR}
+        target: /test
+
+  nats-client:
+    build:
+      context: ./nats-client
+    depends_on:
+      nats:
+        condition: service_started
+
+  pw_atc_api:
+    build:
+      context: ../../
+      dockerfile: docker/pw_atc_api/Dockerfile
+      target: dev
+    environment:
+      - DATABASE_HOST=db
+      - DATABASE_USER=test
+      - DATABASE_PASSWORD=test
+      - DATABASE_NAME=atc_test
+      - NATS=nats://nats:4222
+    depends_on:
+      nats:
+        condition: service_started
+      db:
+        condition: service_healthy
+    restart: always
+
+  db:
+    build:
+      context: ./testdb/
+    restart: always
+    environment:
+      - POSTGRES_PASSWORD=test
+      - POSTGRES_USER=test
+
+  pw-feeder:
+    build: https://github.com/plane-watch/docker-plane-watch.git
+    restart: always
+    depends_on:
+      runway:
+        condition: service_healthy
+    environment:
+      - BEASTHOST=${BEASTHOST}
+      - BEASTPORT=${BEASTPORT}
+      - PW_BEAST_ENDPOINT=runway:12345
+      - PW_MLAT_ENDPOINT=runway:12346
+      - API_KEY=ad84bf99-f24b-4b4c-83e3-28bfc331f7ad
+      - INSECURE=true
+      - LAT=33.33333
+      - LONG=111.11111
+      - ALT=0
+
+  mux-wa:
+    build:
+      context: https://github.com/plane-watch/bordercontrol.git
+      dockerfile: Dockerfile.mlat-server
+    restart: always
+    depends_on:
+      nats:
+        condition: service_started
+    environment:
+      - PW_INGEST_SINK=nats://nats:4222

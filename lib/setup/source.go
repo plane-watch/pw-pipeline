@@ -2,15 +2,16 @@ package setup
 
 import (
 	"fmt"
+	"net/url"
+	"strconv"
+	"strings"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/rs/zerolog/log"
 	"github.com/urfave/cli/v2"
-	"net/url"
 	"plane.watch/lib/producer"
 	"plane.watch/lib/tracker"
-	"strconv"
-	"strings"
 )
 
 const (
@@ -25,16 +26,22 @@ const (
 
 var (
 	prometheusInputBeastFrames = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "pw_ingest_input_beast_total",
-		Help: "The total number of beast frames processed.",
+		Namespace: "pw_ingest",
+		Subsystem: "input",
+		Name:      "beast_total",
+		Help:      "The total number of beast frames processed.",
 	})
 	prometheusInputAvrFrames = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "pw_ingest_input_avr_total",
-		Help: "The total number of AVR frames processed.",
+		Namespace: "pw_ingest",
+		Subsystem: "input",
+		Name:      "avr_total",
+		Help:      "The total number of AVR frames processed.",
 	})
 	prometheusInputSbs1Frames = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "pw_ingest_input_sbs1_total",
-		Help: "The total number of SBS1 frames processed.",
+		Namespace: "pw_ingest",
+		Subsystem: "input",
+		Name:      "sbs1_total",
+		Help:      "The total number of SBS1 frames processed.",
 	})
 )
 
@@ -52,7 +59,7 @@ func IncludeSourceFlags(app *cli.App) {
 		},
 		&cli.StringSliceFlag{
 			Name:    File,
-			Usage:   "The Source in URL Form. [avr|beast|sbs1]:///path/to/file?tag=MYTAG&refLat=-31.0&refLon=115.0&delay=no",
+			Usage:   "The Source in URL Form. [avr|beast|sbs1]:///path/to/file?tag=MYTAG&refLat=-31.0&refLon=115.0&delay=no&isRadarCape=false",
 			EnvVars: []string{"FILE"},
 		},
 
@@ -140,7 +147,7 @@ func getRef(parsedUrl *url.URL, what string, defaultRef float64) float64 {
 
 func handleSource(urlSource, defaultTag string, defaultRefLat, defaultRefLon float64, listen, isAdsc bool) (tracker.Producer, error) {
 	parsedUrl, err := url.Parse(urlSource)
-	if nil != err {
+	if err != nil {
 		return nil, err
 	}
 
@@ -163,7 +170,7 @@ func handleSource(urlSource, defaultTag string, defaultRefLat, defaultRefLon flo
 	refLon := getRef(parsedUrl, "refLon", defaultRefLon)
 
 	if refLat != 0 && refLon != 0 {
-		producerOpts = append(producerOpts, producer.WithReferenceLatLon(refLat, refLon))
+		producerOpts = append(producerOpts, producer.WithReferenceLatLon(&refLat, &refLon))
 	} else {
 		log.Error().
 			Float64("ref-lat", refLat).
@@ -195,16 +202,9 @@ func handleFileSource(urlFile, defaultTag string, defaultRefLat, defaultRefLon f
 		producerOpts[0] = producer.WithType(producer.Avr)
 	case "beast":
 		producerOpts[0] = producer.WithType(producer.Beast)
-		delay := false
-		if parsedUrl.Query().Has("delay") {
-			switch strings.ToLower(parsedUrl.Query().Get("delay")) {
-			case "", "no", "false", "0":
-				delay = false
-			default:
-				delay = true
-			}
-		}
-		producerOpts = append(producerOpts, producer.WithBeastDelay(delay))
+		delay := strToBool(parsedUrl.Query().Get("delay"))
+		isRadarCape := strToBool(parsedUrl.Query().Get("isRadarCape"))
+		producerOpts = append(producerOpts, producer.WithBeastDelay(delay, isRadarCape))
 	case "sbs1":
 		producerOpts[0] = producer.WithType(producer.Sbs1)
 	default:
@@ -213,7 +213,7 @@ func handleFileSource(urlFile, defaultTag string, defaultRefLat, defaultRefLon f
 	refLat := getRef(parsedUrl, "refLat", defaultRefLat)
 	refLon := getRef(parsedUrl, "refLon", defaultRefLon)
 	if refLat != 0 && refLon != 0 {
-		producerOpts = append(producerOpts, producer.WithReferenceLatLon(refLat, refLon))
+		producerOpts = append(producerOpts, producer.WithReferenceLatLon(&refLat, &refLon))
 	}
 
 	producerOpts = append(
@@ -223,4 +223,13 @@ func handleFileSource(urlFile, defaultTag string, defaultRefLat, defaultRefLon f
 	)
 
 	return producer.New(producerOpts...), nil
+}
+
+func strToBool(s string) bool {
+	switch strings.ToLower(s) {
+	case "", "no", "false", "0":
+		return false
+	default:
+		return true
+	}
 }

@@ -26,6 +26,10 @@ type (
 	}
 )
 
+func (f *Filter) Stop() {
+	f.list.Stop()
+}
+
 func WithDedupeCounter(dedupeCounter prometheus.Counter) Option {
 	return func(f *Filter) {
 		f.dedupeCounter = dedupeCounter

@@ -2,11 +2,14 @@ package monitoring
 
 import (
 	"fmt"
+	"net/http"
+	"net/http/pprof"
+	"runtime"
+	"sync"
+
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog/log"
 	"github.com/urfave/cli/v2"
-	"net/http"
-	"sync"
 )
 
 type (
@@ -17,9 +20,13 @@ type (
 )
 
 var (
-	healthChecks     []HealthCheck
+	healthChecks     map[string]HealthCheck
 	healthChecksLock sync.RWMutex
 )
+
+func init() {
+	healthChecks = make(map[string]HealthCheck)
+}
 
 func IncludeMonitoringFlags(app *cli.App, defaultPort int) {
 	app.Flags = append(app.Flags,
@@ -28,6 +35,12 @@ func IncludeMonitoringFlags(app *cli.App, defaultPort int) {
 			Usage:   "Port to listen on for prometheus app metrics.",
 			Value:   defaultPort,
 			EnvVars: []string{"MONITORING_PORT"},
+		},
+		&cli.BoolFlag{
+			Name:    "enable-net-pprof",
+			Usage:   "Enable net pprof profiling at /debug/pprof",
+			Value:   false,
+			EnvVars: []string{"MONITORING_NET_PPROF"},
 		},
 	)
 }
@@ -42,6 +55,19 @@ func RunWebServer(c *cli.Context) {
 		mux.Handle("/metrics", promhttp.Handler())
 		mux.HandleFunc("/status", healthCheck)
 
+		// Conditionally enable pprof endpoints
+		if c.Bool("enable-net-pprof") {
+			log.Info().Int("Port", monitoringPort).Msg("Enabling /debug/pprof endpoints")
+			runtime.SetBlockProfileRate(10_000) // ~10µs resolution
+			runtime.SetMutexProfileFraction(5)  // sample ~1 in 5 contentions
+			mux.HandleFunc("/debug/pprof/", pprof.Index)
+			mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+			mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+			mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+			mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+		}
+
+		// TODO(MikeNye): Do we want to add error handling around this?
 		_ = http.ListenAndServe(fmt.Sprintf(":%d", monitoringPort), mux)
 	}()
 }
@@ -50,10 +76,17 @@ func AddHealthCheck(f HealthCheck) {
 	log.Debug().Str("name", f.HealthCheckName()).Msg("Adding Health Check")
 	healthChecksLock.Lock()
 	defer healthChecksLock.Unlock()
-	healthChecks = append(healthChecks, f)
+	healthChecks[f.HealthCheckName()] = f
 }
 
-func healthCheck(w http.ResponseWriter, r *http.Request) {
+func RemoveHealthCheck(f HealthCheck) {
+	log.Debug().Str("name", f.HealthCheckName()).Msg("Removing Health Check")
+	healthChecksLock.Lock()
+	defer healthChecksLock.Unlock()
+	delete(healthChecks, f.HealthCheckName())
+}
+
+func healthCheck(w http.ResponseWriter, _ *http.Request) {
 	healthChecksLock.RLock()
 	defer healthChecksLock.RUnlock()
 	healthy := len(healthChecks) > 0

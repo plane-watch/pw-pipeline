@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	jsoniter "github.com/json-iterator/go"
 	"github.com/nats-io/nats.go"
 	"plane.watch/lib/export"
@@ -12,6 +13,21 @@ import (
 type (
 	FeederApiHandler struct {
 		ApiHandler
+	}
+
+	feederQueryRow struct { //
+		Id            int64     `db:"id"`
+		User          string    `db:"name"`
+		Latitude      *float64  `db:"latitude"`
+		Longitude     *float64  `db:"longitude"`
+		Altitude      *float64  `db:"altitude"`
+		ApiKey        uuid.UUID `db:"api_key"`
+		FeedDirection *int      `db:"feed_direction"`
+		FeedProtocol  *int      `db:"feed_protocol"`
+		Label         *string   `db:"label"`
+		MlatEnabled   *bool     `db:"mlat_enabled"`
+		FeederCode    *string   `db:"feeder_code"`
+		Mux           *string   `db:"container_name"`
 	}
 )
 
@@ -48,9 +64,9 @@ func (sa *FeederApiHandler) feederHandler(msg *nats.Msg) {
 
 	switch msg.Subject {
 	case export.NatsApiFeederListV1:
-		feeders := make(export.Feeders, 0)
+		queryRows := make([]feederQueryRow, 0)
 
-		respondErr = db.Select(&feeders, `
+		respondErr = db.Select(&queryRows, `
 SELECT
 	f.id,
 	concat_ws(' ', u.first_name, u.last_name) AS name,
@@ -68,9 +84,34 @@ FROM feeders f
     LEFT JOIN users u on f.user_id = u.id
     LEFT JOIN feeder_muxes fm on f.feeder_mux_id = fm.id`)
 
-		buf, respondErr = json.Marshal(feeders)
-		if nil == respondErr {
-			respondErr = msg.Respond(buf)
+		if respondErr != nil {
+			sa.log.Error().Err(respondErr).Msg("failed to fetch feeders")
+		} else {
+			sa.log.Info().Int("count", len(queryRows)).Msg("fetched feeders via db query")
+
+			feeders := make(export.Feeders, 0, len(queryRows))
+
+			for _, row := range queryRows {
+				feeders = append(feeders, export.Feeder{
+					MlatEnabled:   unPtr(row.MlatEnabled),
+					Id:            row.Id,
+					Latitude:      row.Latitude,
+					Longitude:     row.Longitude,
+					Altitude:      row.Altitude,
+					User:          row.User,
+					FeedDirection: unPtr(row.FeedDirection),
+					FeedProtocol:  unPtr(row.FeedProtocol),
+					Label:         unPtr(row.Label),
+					Mux:           unPtr(row.Mux),
+					FeederCode:    unPtr(row.FeederCode),
+					ApiKey:        row.ApiKey,
+				})
+			}
+
+			buf, respondErr = json.Marshal(feeders)
+			if respondErr == nil {
+				respondErr = msg.Respond(buf)
+			}
 		}
 
 	case export.NatsApiFeederStatsUpdateV1:
@@ -96,8 +137,16 @@ FROM feeders f
 		respondErr = msg.Respond([]byte(fmt.Sprintf(ErrUnsupportedResponse, msg.Subject)))
 	}
 
-	if nil != respondErr {
+	if respondErr != nil {
 		sa.log.Error().Err(respondErr).Msg("Failed sending reply")
 		_ = msg.Respond([]byte(fmt.Sprintf(ErrRequestFailed, respondErr)))
 	}
+}
+
+func unPtr[T comparable](in *T) T {
+	var defaultVal T
+	if nil == in {
+		return defaultVal
+	}
+	return *in
 }
