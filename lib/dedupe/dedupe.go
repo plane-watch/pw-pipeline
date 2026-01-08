@@ -1,6 +1,8 @@
 package dedupe
 
 import (
+	"time"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog/log"
 	"plane.watch/lib/dedupe/forgetfulmap"
@@ -38,7 +40,7 @@ func WithDedupeCounter(dedupeCounter prometheus.Counter) Option {
 
 func NewFilter(opts ...Option) *Filter {
 	f := Filter{
-		list: forgetfulmap.NewForgetfulSyncMap(),
+		list: forgetfulmap.NewForgetfulSyncMap(forgetfulmap.WithOldAgeAfter(time.Second * 9)),
 	}
 
 	for _, opt := range opts {
