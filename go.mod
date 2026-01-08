@@ -6,7 +6,7 @@ require (
 	github.com/coder/websocket v1.8.14
 	github.com/cpuguy83/go-md2man/v2 v2.0.7 // indirect
 	github.com/kpawlik/geojson v0.0.0-20171201195549-1a4f120c6b41
-	github.com/nats-io/nats.go v1.47.0
+	github.com/nats-io/nats.go v1.48.0
 	github.com/olekukonko/tablewriter v1.0.9
 	github.com/prometheus/client_golang v1.23.2
 	github.com/rs/zerolog v1.34.0
@@ -30,6 +30,7 @@ require (
 	github.com/simukti/sqldb-logger v0.0.0-20230108155151-646c1a075551
 	github.com/simukti/sqldb-logger/logadapter/zerologadapter v0.0.0-20230108155151-646c1a075551
 	github.com/stretchr/testify v1.11.1
+	golang.org/x/exp v0.0.0-20250911091902-df9299821621
 	golang.org/x/net v0.47.0
 	golang.org/x/sync v0.18.0
 )
@@ -85,7 +86,6 @@ require (
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/crypto v0.45.0 // indirect
-	golang.org/x/exp v0.0.0-20250911091902-df9299821621 // indirect
 	golang.org/x/sys v0.38.0 // indirect
 	golang.org/x/text v0.31.0 // indirect
 	google.golang.org/protobuf v1.36.8 // indirect
