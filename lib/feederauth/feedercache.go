@@ -89,6 +89,7 @@ func New(opts ...Option) (*FeederCache, error) {
 	f.feedersConnected = make(map[string]map[Protocol]struct{})
 	f.feederConnectionTime = make(map[string]map[Protocol]time.Time)
 	f.feederRegion = make(map[string]icaoregion.Region)
+	f.feederFIDs = make(map[string]int)
 
 	f.locator, err = icaoregion.NewLocator()
 	if err != nil {
