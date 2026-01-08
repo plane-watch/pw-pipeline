@@ -1,4 +1,4 @@
-FROM alpine:3.22.2 AS mlat-server-builder
+FROM alpine:3.23.2 AS mlat-server-builder
 
 WORKDIR /opt/mlat-server
 
@@ -17,7 +17,7 @@ RUN apk update && \
       pip3 install numpy scipy pykalman python-graph-core uvloop ujson Cython "setuptools<71" && \
     python3 setup.py build_ext --inplace
 
-FROM alpine:3.22.2
+FROM alpine:3.23.2
 
 ENV MKL_NUM_THREADS=1 \
     NUMEXPR_NUM_THREADS=1 \
