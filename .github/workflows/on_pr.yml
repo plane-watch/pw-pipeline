@@ -1,5 +1,5 @@
 ---
-name: Test Container Builds
+name: Pull Request
 
 on:
   workflow_dispatch:
@@ -59,7 +59,11 @@ jobs:
       - name: go test
         run: go test -skip="TestRepeater" ./...
       - name: go test (with race detection)
-        run: go test -race -skip="TestRepeater" ./...
+        run: go test -v -race -skip="TestRepeater" ./...
+      - name: Report unreachable code
+        run: |
+          go install golang.org/x/tools/cmd/deadcode@latest
+          deadcode ./...
 
   test_build:
     name: Test Build
