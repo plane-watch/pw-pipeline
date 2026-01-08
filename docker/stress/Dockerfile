@@ -27,7 +27,7 @@ RUN set -x && go build -buildvcs=false -ldflags="-X main.version=${IMAGE_VERSION
 # test binary (make sure it will run on this arch)
 RUN ./stress --help
 
-FROM alpine:3.22.2 AS dev
+FROM alpine:3.23.2 AS dev
 LABEL org.opencontainers.image.description="Plane.Watch Stress Test"
 
 WORKDIR /app
