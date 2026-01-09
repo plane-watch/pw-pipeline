@@ -186,6 +186,7 @@ func newFrameInto(f *Frame, rawBytes []byte, isRadarCape bool) (*Frame, error) {
 	f.mlatTimestamp = rawBytes[2:8]
 	f.signalLevel = rawBytes[8]
 	f.body = rawBytes[9:]
+	f.bodyString = "" // Reset so RawString() recomputes from new body
 	//copy(f.body[:], rawBytes[9:])
 
 	f.isRadarCape = isRadarCape
