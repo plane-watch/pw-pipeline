@@ -109,7 +109,7 @@ func main() {
 			Name:     setup.Tag,
 			Usage:    "default tag name for feeders if they do not have one",
 			Hidden:   true, // because the HandleSinkFlag expects this to be present, but we do not need it
-			Value:    "unknown",
+			Value:    "runway",
 		},
 		&cli.BoolFlag{
 			Category: "Network",
