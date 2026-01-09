@@ -197,7 +197,7 @@ func runDaemon(c *cli.Context) error {
 	// BEAST Listener
 	wg.Go(func() {
 		defer cancel()
-		_, err := ListenForIncomingPlaneWatchBeast(
+		manifest, err := ListenForIncomingPlaneWatchBeast(
 			ctx,
 			WithListenHostPort(c.String("listen-beast")),
 			WithTLSCertificate(c.String("cert"), c.String("key")),
@@ -205,6 +205,9 @@ func runDaemon(c *cli.Context) error {
 			WithNatsURL(c.String("sink")),
 			WithFeederAuthenticator(feederAuthenticator),
 		)
+		if manifest != nil {
+			manifest.Close()
+		}
 		if err != nil {
 			log.Error().Err(err).Msg("failed to listen for beast")
 		}
@@ -213,13 +216,16 @@ func runDaemon(c *cli.Context) error {
 	// MLAT Listener
 	wg.Go(func() {
 		defer cancel()
-		_, err := mlatbridge.ListenForIncomingPlaneWatchMLAT(
+		mb, err := mlatbridge.ListenForIncomingPlaneWatchMLAT(
 			ctx,
 			mlatbridge.WithListenHostPort(c.String("listen-mlat")),
 			mlatbridge.WithTLSCertificate(c.String("cert"), c.String("key")),
 			mlatbridge.WithNatsURL(c.String("sink")),
 			mlatbridge.WithFeederAuthenticator(feederAuthenticator),
 		)
+		if mb != nil {
+			mb.Close()
+		}
 		if err != nil {
 			log.Error().Err(err).Msg("failed to listen for mlat")
 		}

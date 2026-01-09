@@ -218,7 +218,12 @@ func (f *FeederCache) Authenticate(apiKey string, p Protocol) (bool, error) {
 
 func (f *FeederCache) Close() error {
 	if f != nil {
-		f.refresherCancelFunc()
+		if f.refresherCancelFunc != nil {
+			f.refresherCancelFunc()
+		}
+		if f.natsServer != nil {
+			f.natsServer.Close()
+		}
 	}
 	return nil
 }

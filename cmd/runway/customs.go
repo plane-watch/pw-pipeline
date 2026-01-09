@@ -138,6 +138,16 @@ func ListenForIncomingPlaneWatchBeast(ctx context.Context, opts ...Option) (*Man
 	return manifest, nil
 }
 
+// Close releases resources owned by the listener manifest.
+func (m *Manifest) Close() {
+	if m == nil {
+		return
+	}
+	if m.natsServer != nil {
+		m.natsServer.Close()
+	}
+}
+
 func (m *Manifest) authenticator(apiKey string) (bool, error) {
 	return m.feeders.Authenticate(apiKey, feederauth.BEAST)
 }
