@@ -6,7 +6,6 @@ on:
   push:
     branches:
       - main
-      - border-force
     # Don't trigger if it's just a documentation update
     paths-ignore:
       - '**.md'
@@ -34,6 +33,7 @@ jobs:
           - pw_ingest
           - pw_router
           - pw_ws_broker
+          - runway
 
     steps:
 
