@@ -1,6 +1,7 @@
 package beast
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
@@ -186,6 +187,7 @@ func newFrameInto(f *Frame, rawBytes []byte, isRadarCape bool) (*Frame, error) {
 	f.mlatTimestamp = rawBytes[2:8]
 	f.signalLevel = rawBytes[8]
 	f.body = rawBytes[9:]
+	f.bodyString = "" // Reset for lazy computation in RawString()
 	//copy(f.body[:], rawBytes[9:])
 
 	f.isRadarCape = isRadarCape
@@ -290,11 +292,9 @@ func (f *Frame) RawString() string {
 	if nil == f {
 		return ""
 	}
-
 	if f.bodyString == "" {
-		f.bodyString = fmt.Sprintf("%X", f.body)
+		f.bodyString = hex.EncodeToString(f.body)
 	}
-
 	return f.bodyString
 }
 

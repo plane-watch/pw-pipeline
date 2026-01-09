@@ -71,11 +71,16 @@ func (f *Filter) Handle(fe *tracker.FrameEvent) tracker.Frame {
 		return nil
 	}
 	var key string
+
+	// We use raw bytes of the squitter body as the key (cast to string).
+	// This is more efficient than hex encoding (7-14 bytes vs 14-28 chars).
+	// We de-dupe across both beast and mode_s, using only the Mode-S payload
+	// which excludes variable data such as timestamps, rssi, etc.
 	switch ft := (frame).(type) {
 	case *beast.Frame:
-		key = string(ft.Raw())
+		key = string(ft.AvrRaw())
 	case *mode_s.Frame:
-		key = ft.RawString()
+		key = string(ft.Raw())
 	case *sbs1.Frame:
 		// todo: investigate better dedupe detection for sbs1
 		key = string(ft.Raw())
