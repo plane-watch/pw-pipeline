@@ -380,12 +380,20 @@ func (p *Plane) String() string {
 func (p *Plane) setAltitude(altitude int32, altitudeUnits string, ts time.Time) bool {
 	if ts.IsZero() {
 		p.tracker.log.Info().Msg("Attempting to set altitude with zero time, ignoring")
-
 		return false
 	}
 
 	p.rwLock.Lock()
 	defer p.rwLock.Unlock()
+
+	// Reject stale updates
+	if !p.location.altitudeTS.IsZero() && ts.Before(p.location.altitudeTS) {
+		if p.tracker != nil && p.tracker.stats.staleRejected != nil {
+			p.tracker.stats.staleRejected.Inc()
+		}
+		return false
+	}
+
 	// set the current altitude
 	var hasChanged bool
 	if p.location.altitude != altitude {
@@ -434,6 +442,15 @@ func (p *Plane) setGroundStatus(onGround bool, ts time.Time) bool {
 	}()
 	p.rwLock.Lock()
 	defer p.rwLock.Unlock()
+
+	// Reject stale updates
+	if !p.location.onGroundTS.IsZero() && ts.Before(p.location.onGroundTS) {
+		if p.tracker != nil && p.tracker.stats.staleRejected != nil {
+			p.tracker.stats.staleRejected.Inc()
+		}
+		return false
+	}
+
 	hasChanged := p.location.onGround != onGround
 	p.location.onGround = onGround
 	p.location.onGroundTS = ts
@@ -458,6 +475,14 @@ func (p *Plane) HasOnGround() bool {
 func (p *Plane) setFlightStatus(statusID byte, statusString string, ts time.Time) bool {
 	p.rwLock.Lock()
 	defer p.rwLock.Unlock()
+
+	// Reject stale updates
+	if !p.flight.flightStatusTS.IsZero() && ts.Before(p.flight.flightStatusTS) {
+		if p.tracker != nil && p.tracker.stats.staleRejected != nil {
+			p.tracker.stats.staleRejected.Inc()
+		}
+		return false
+	}
 
 	hasChanged := p.flight.statusID != statusID || p.flight.status != statusString
 
@@ -527,6 +552,15 @@ func (p *Plane) setSquawkIdentity(ident uint32, ts time.Time) bool {
 	}
 	p.rwLock.Lock()
 	defer p.rwLock.Unlock()
+
+	// Reject stale updates
+	if !p.squawkTS.IsZero() && ts.Before(p.squawkTS) {
+		if p.tracker != nil && p.tracker.stats.staleRejected != nil {
+			p.tracker.stats.staleRejected.Inc()
+		}
+		return false
+	}
+
 	hasChanged := p.squawk != ident
 	p.squawk = ident
 	p.squawkTS = ts
@@ -606,7 +640,15 @@ func (p *Plane) AirFrameLength() *float32 {
 func (p *Plane) setHeading(heading float64, ts time.Time) bool {
 	p.rwLock.Lock()
 	defer p.rwLock.Unlock()
-	// set the current altitude
+
+	// Reject stale updates
+	if !p.location.headingTS.IsZero() && ts.Before(p.location.headingTS) {
+		if p.tracker != nil && p.tracker.stats.staleRejected != nil {
+			p.tracker.stats.staleRejected.Inc()
+		}
+		return false
+	}
+
 	hasChanged := p.location.heading != heading || !p.location.hasHeading
 
 	p.location.heading = heading
@@ -645,7 +687,15 @@ func (p *Plane) HasHeading() bool {
 func (p *Plane) setVelocity(velocity float64, ts time.Time) bool {
 	p.rwLock.Lock()
 	defer p.rwLock.Unlock()
-	// set the current altitude
+
+	// Reject stale updates
+	if !p.location.velocityTS.IsZero() && ts.Before(p.location.velocityTS) {
+		if p.tracker != nil && p.tracker.stats.staleRejected != nil {
+			p.tracker.stats.staleRejected.Inc()
+		}
+		return false
+	}
+
 	hasChanged := !p.location.hasVelocity || p.location.velocity != velocity
 
 	p.location.hasVelocity = true
@@ -685,6 +735,15 @@ func (p *Plane) DistanceTravelled() DistanceTravelled {
 func (p *Plane) setVerticalRate(rate int, ts time.Time) bool {
 	p.rwLock.Lock()
 	defer p.rwLock.Unlock()
+
+	// Reject stale updates
+	if !p.location.verticalRateTS.IsZero() && ts.Before(p.location.verticalRateTS) {
+		if p.tracker != nil && p.tracker.stats.staleRejected != nil {
+			p.tracker.stats.staleRejected.Inc()
+		}
+		return false
+	}
+
 	hasChanged := !p.location.hasVerticalRate || p.location.verticalRate != rate
 	p.location.hasVerticalRate = true
 	p.location.verticalRate = rate

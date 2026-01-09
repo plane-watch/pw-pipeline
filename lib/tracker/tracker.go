@@ -24,6 +24,7 @@ type (
 			decodedFrames      prometheus.Counter
 			erroredFrames      prometheus.Counter
 			purgedBeforeViable prometheus.Counter
+			staleRejected      prometheus.Counter
 		}
 		startTime           time.Time
 		sink                Sink

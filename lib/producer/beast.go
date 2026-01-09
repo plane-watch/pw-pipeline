@@ -11,6 +11,79 @@ import (
 const tokenBufSize = 1000
 const tokenBufLen = 50
 
+const (
+	// tickResetThreshold is the threshold for detecting a readsb restart.
+	// If ticks go backwards by more than this, we assume the device restarted.
+	tickResetThreshold = 10 * time.Second
+
+	// maxDrift is the maximum allowed drift between calculated frame time and arrival time.
+	// If drift exceeds this, we re-sync the epoch.
+	maxDrift = 5 * time.Second
+)
+
+// calculateFrameTime calculates the wall-clock time for a Beast frame based on its MLAT ticks.
+// This enables proper temporal ordering of frames from different feeders with varying latencies.
+func (p *Producer) calculateFrameTime(frame *beast.Frame) time.Time {
+	// MLAT-derived positions have magic timestamp - use arrival time
+	if frame.IsMlat() {
+		return time.Now()
+	}
+
+	currentTicks := frame.BeastTicksNs()
+	now := time.Now()
+
+	// First frame - establish epoch
+	if !p.hasEpoch {
+		p.mlatEpoch = currentTicks
+		p.wallEpoch = now
+		p.lastMlatTicks = currentTicks
+		p.hasEpoch = true
+		return now
+	}
+
+	// Detect tick reset (readsb restart behind feeder client)
+	// Large backwards jump indicates device restart
+	if currentTicks+tickResetThreshold < p.lastMlatTicks {
+		p.log.Info().
+			Dur("oldTicks", p.lastMlatTicks).
+			Dur("newTicks", currentTicks).
+			Msg("MLAT tick reset detected, re-establishing epoch")
+		if p.epochResets != nil {
+			p.epochResets.Inc()
+		}
+		p.mlatEpoch = currentTicks
+		p.wallEpoch = now
+		p.lastMlatTicks = currentTicks
+		return now
+	}
+
+	// Calculate frame time from epoch
+	frameTime := p.wallEpoch.Add(currentTicks - p.mlatEpoch)
+
+	// Sanity check: if calculated time drifts too far from arrival time,
+	// re-sync (handles gradual clock drift, network path changes, etc.)
+	drift := now.Sub(frameTime)
+	if drift < -maxDrift || drift > maxDrift {
+		p.log.Debug().
+			Dur("drift", drift).
+			Msg("Epoch drift exceeded threshold, re-syncing")
+		if p.driftCorrections != nil {
+			p.driftCorrections.Inc()
+		}
+		p.mlatEpoch = currentTicks
+		p.wallEpoch = now
+		frameTime = now
+	}
+
+	// Track last ticks for reset detection
+	// Allow small backwards jitter without updating (network reordering)
+	if currentTicks > p.lastMlatTicks {
+		p.lastMlatTicks = currentTicks
+	}
+
+	return frameTime
+}
+
 func (p *Producer) beastScanner(scan *bufio.Scanner) error {
 	lastTimeStamp := time.Duration(0)
 	// make our best lib allocate out of a sync.Pool
@@ -23,6 +96,10 @@ func (p *Producer) beastScanner(scan *bufio.Scanner) error {
 		if nil != err {
 			continue
 		}
+
+		// Calculate accurate timestamp from MLAT ticks
+		frameTime := p.calculateFrameTime(frame)
+		frame.SetTimeStamp(frameTime)
 
 		if p.beastDelay {
 			currentTs := frame.BeastTicksNs()
