@@ -71,9 +71,13 @@ func (f *Filter) Handle(fe *tracker.FrameEvent) tracker.Frame {
 		return nil
 	}
 	var key string
+
+	// We use the raw string representation of the squitter body
+	// This means that we de-dupe across both beast and mode_s, additionally removing
+	// variable data such as timestamps, rssi, etc.
 	switch ft := (frame).(type) {
 	case *beast.Frame:
-		key = string(ft.Raw())
+		key = ft.RawString()
 	case *mode_s.Frame:
 		key = ft.RawString()
 	case *sbs1.Frame:
