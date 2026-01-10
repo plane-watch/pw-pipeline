@@ -29,16 +29,19 @@ func GetTCPInfo(conn net.Conn) (rtt time.Duration, err error) {
 		return 0, err
 	}
 
-	var info unix.TCPInfo
+	var info *unix.TCPInfo
 	var controlErr error
 	err = rawConn.Control(func(fd uintptr) {
-		controlErr = unix.GetsockoptTCPInfo(int(fd), unix.IPPROTO_TCP, unix.TCP_INFO, &info)
+		info, controlErr = unix.GetsockoptTCPInfo(int(fd), unix.IPPROTO_TCP, unix.TCP_INFO)
 	})
 	if err != nil {
 		return 0, err
 	}
 	if controlErr != nil {
 		return 0, controlErr
+	}
+	if info == nil {
+		return 0, nil
 	}
 
 	// RTT is in microseconds
