@@ -63,6 +63,12 @@ func (p *Producer) calculateFrameTime(frame *beast.Frame) time.Time {
 	// Sanity check: if calculated time drifts too far from arrival time,
 	// re-sync (handles gradual clock drift, network path changes, etc.)
 	drift := now.Sub(frameTime)
+
+	// Record drift for observability
+	if p.driftGauge != nil {
+		p.driftGauge.Set(float64(drift.Microseconds()))
+	}
+
 	if drift < -maxDrift || drift > maxDrift {
 		p.log.Debug().
 			Dur("drift", drift).

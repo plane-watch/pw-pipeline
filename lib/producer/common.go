@@ -69,6 +69,10 @@ type (
 		epochResets      prometheus.Counter
 		driftCorrections prometheus.Counter
 
+		// Observability gauges for RTT and drift analysis
+		rttGauge   prometheus.Gauge // TCP RTT for this connection
+		driftGauge prometheus.Gauge // Current drift (arrival - calculated time)
+
 		repeater *keepAliveRepeater
 
 		poisonPill       func() bool
@@ -321,6 +325,18 @@ func WithEpochMetrics(epochResets, driftCorrections prometheus.Counter) Option {
 	return func(p *Producer) {
 		p.epochResets = epochResets
 		p.driftCorrections = driftCorrections
+	}
+}
+
+func WithRTTGauge(g prometheus.Gauge) Option {
+	return func(p *Producer) {
+		p.rttGauge = g
+	}
+}
+
+func WithDriftGauge(g prometheus.Gauge) Option {
+	return func(p *Producer) {
+		p.driftGauge = g
 	}
 }
 
