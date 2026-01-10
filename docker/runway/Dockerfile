@@ -33,8 +33,11 @@ COPY . /app/
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
+ENV GOEXPERIMENT=greenteagc
+
 # Build the application
-RUN set -x && go build -buildvcs=false -ldflags="-X main.version=${IMAGE_VERSION//\"/}" plane.watch/cmd/runway
+RUN set -x &&  \
+    go build -buildvcs=false -ldflags="-X main.version=${IMAGE_VERSION//\"/}" plane.watch/cmd/runway
 
 # test binary (make sure it will run on this arch)
 RUN ./runway --help
