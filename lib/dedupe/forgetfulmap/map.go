@@ -1,10 +1,11 @@
 package forgetfulmap
 
 import (
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/rs/zerolog/log"
 	"sync"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/rs/zerolog/log"
 )
 
 type (
@@ -51,8 +52,8 @@ func init() {
 func NewForgetfulSyncMap(opts ...Option) *ForgetfulSyncMap {
 	f := &ForgetfulSyncMap{
 		lookup:        &sync.Map{},
-		sweepInterval: 10 * time.Second,
-		oldAfter:      60 * time.Second,
+		sweepInterval: 3 * time.Second,
+		oldAfter:      10 * time.Second,
 		useSyncPool:   true,
 	}
 	for _, opt := range opts {
