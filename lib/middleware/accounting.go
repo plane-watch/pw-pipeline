@@ -69,13 +69,12 @@ func NewAccounting(opts ...AccountingOption) *Accounting {
 }
 
 func (a *Accounting) Handle(event *tracker.FrameEvent) tracker.Frame {
-	defer func() {
-		if r := recover(); r != nil {
-			a.log.Error().Any("recover", r).Msg("recovering...")
-		}
-	}()
-	a.handleQueue <- event.Source()
-
+	select {
+	case a.handleQueue <- event.Source():
+	default:
+		// Queue full, drop the accounting update (not the frame)
+		a.log.Warn().Msg("accounting queue full, dropping update")
+	}
 	return event.Frame()
 }
 
@@ -93,8 +92,12 @@ func (a *Accounting) queueHandler() {
 		stat.lastSeen = time.Now()
 
 		if stat.lastSeen.After(stat.lastAtcUpdate.Add(time.Minute)) {
-			a.atcUpdateQueue <- stat
-			stat.lastAtcUpdate = stat.lastSeen
+			select {
+			case a.atcUpdateQueue <- stat:
+				stat.lastAtcUpdate = stat.lastSeen
+			default:
+				a.log.Warn().Msg("atc update queue full, skipping update")
+			}
 		}
 		a.stats[item.Tag] = stat
 	}
@@ -116,10 +119,9 @@ func (a *Accounting) atcUpdateQueueHandler() {
 			a.log.Error().Err(err).Msg("failed to encode feeder update")
 			continue
 		}
-		_, err = a.natsServer.Request(export.NatsApiFeederStatsUpdateV1, data, map[string]string{}, time.Second)
+		err = a.natsServer.Publish(export.NatsApiFeederStatsUpdateV1, data)
 		if err != nil {
-			a.log.Error().Err(err).Msg("failed to update feeder stats")
-			return
+			a.log.Error().Err(err).Msg("failed to publish feeder stats")
 		}
 	}
 	a.exitQueueWaiter.Done()
