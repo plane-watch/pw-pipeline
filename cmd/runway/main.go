@@ -109,7 +109,13 @@ func main() {
 			Name:     setup.Tag,
 			Usage:    "default tag name for feeders if they do not have one",
 			Hidden:   true, // because the HandleSinkFlag expects this to be present, but we do not need it
-			Value:    "unknown",
+			Value:    "runway",
+		},
+		&cli.BoolFlag{
+			Category: "Network",
+			Name:     "no-adsb-frame-dedupe",
+			Usage:    "do no dedupe ADSB frames before processing them",
+			Value:    false,
 		},
 	}
 
@@ -168,7 +174,10 @@ func runDaemon(c *cli.Context) error {
 	}
 
 	// no need to process the same ADSB from the same plane more than once
-	trk.AddMiddleware(dedupe.NewFilter(dedupe.WithDedupeCounter(prometheusOutputFrameDedupe)))
+	if !c.Bool("no-adsb-frame-dedupe") {
+		println("Include ADSB Dedupe")
+		trk.AddMiddleware(dedupe.NewFilter(dedupe.WithDedupeCounter(prometheusOutputFrameDedupe)))
+	}
 
 	// allow our ingest tap to see what is going on
 	if sinkType, ok := sinkDest.(*sink.Sink); ok {

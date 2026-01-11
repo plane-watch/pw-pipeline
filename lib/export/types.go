@@ -129,7 +129,7 @@ func (pl *PlaneLocation) PrepareSourceTags() map[string]uint32 {
 	var sk string
 	for k, v := range pl.SourceTags {
 		// allow up to 7 numbers
-		if len(k) <= 12 && k[4:5] == "-" {
+		if len(k) <= 12 && len(k) > 5 && k[4:5] == "-" {
 			sk = k[5:]
 		} else {
 			sk = k
