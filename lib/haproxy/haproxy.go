@@ -5,13 +5,15 @@ import (
 	"io"
 	"net"
 	"strings"
+	"sync"
 )
 
 type Conn struct {
-	network   string
-	address   string
-	conn      net.Conn
-	connected bool
+	network      string
+	address      string
+	conn         net.Conn
+	connected    bool
+	commandMutex sync.Mutex
 }
 
 func New(network string, address string) (*Conn, error) {
@@ -35,10 +37,16 @@ func (conn *Conn) disconnect() error {
 	if !conn.connected {
 		return nil
 	}
-	return conn.conn.Close()
+	err := conn.conn.Close()
+	if err == nil {
+		conn.connected = false
+	}
+	return err
 }
 
 func (conn *Conn) doCommand(cmd string) (output string, err error) {
+	conn.commandMutex.Lock()
+	defer conn.commandMutex.Unlock()
 
 	cmd = ensureTrailingNewline(cmd)
 

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -15,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 	"github.com/urfave/cli/v2"
+	"plane.watch/lib/feederauth"
 	"plane.watch/lib/haproxy"
 	"plane.watch/lib/timing"
 )
@@ -86,6 +88,9 @@ var (
 
 	// FeedersMu is our mutex for shared access to Feeders
 	FeedersMu sync.RWMutex
+
+	// dummyCounters is just a simple counter required for the sni_allowlist stick table to store api keys
+	dummyCounters = map[string]uint64{"data.gpc0": 1}
 )
 
 func main() {
@@ -94,12 +99,29 @@ func main() {
 	app.Version = version
 	app.Name = "Plane Watch HAProxy API Server"
 	app.Usage = "Listens for HTTP requests and responds to them"
+	app.Description = `
+This tool has two purposes:
+
+ - Allows querying feeder status via HTTP API: /api/v1/feeder/<api key>
+ - Populates stick table "sni_allowlist" with valid api keys
+
+The tool expects that stick tables sni_allowlist, fe_runway_adsb and fe_runway_mlat have been defined:
+
+ - fe_runway_adsb & fe_runway_mlat must have counters conn_cur,bytes_in_cnt,bytes_out_cnt
+ - sni_allowlist must have counter gpc0 and 24d (the max) expiry
+`
 	app.Flags = []cli.Flag{
 		&cli.StringFlag{
 			Name:    "listen",
 			Value:   "0.0.0.0:80",
 			Usage:   "The address and port to listen on for HTTP requests.",
 			EnvVars: []string{"API_LISTEN"},
+		},
+		&cli.StringFlag{
+			Name:     "nats",
+			Usage:    "Nats.io URL for fetching and publishing updates. nats://guest:guest@host:4222/",
+			EnvVars:  []string{"NATS"},
+			Required: true,
 		},
 		&cli.StringFlag{
 			Category: "HAProxy",
@@ -131,6 +153,18 @@ func main() {
 
 func runApp(ctx *cli.Context) error {
 
+	// configure feeder cache
+	fc, err := feederauth.New(
+		feederauth.WithLogger(log.Logger),
+		feederauth.WithNatsURL(ctx.String("nats")),
+	)
+	if nil != err {
+		return fmt.Errorf("feederauth.New: %w", err)
+	}
+	defer func() {
+		_ = fc.Close()
+	}()
+
 	// prep our main data structure
 	Feeders = make(map[string]Feeder)
 
@@ -140,7 +174,64 @@ func runApp(ctx *cli.Context) error {
 		return fmt.Errorf("failed to create haproxy connection: %w", err)
 	}
 
-	// define what to do every interval
+	// define function to update sni_allowlist stick table
+	updateHAProxyAllowedFeeders := func() error {
+		allowedFeeders := fc.ListAllAPIKeys()
+		table, err := conn.ShowTable("sni_allowlist")
+		if err != nil {
+			return fmt.Errorf("conn.ShowTable: %w", err)
+		}
+
+		// add feeders in allowedFeeders to stick table
+		for _, apiKey := range allowedFeeders {
+			counters, ok := table[apiKey]
+
+			// if feeder in stick table, only re-add if nearing expiry
+			if ok {
+				expiry, ok := counters["exp"]
+				if !ok {
+					log.Warn().Str("key", apiKey).Any("counters", counters).Msg("no expiry!")
+					continue
+				}
+				if expiry > 200000000 {
+					continue
+				} else {
+					log.Debug().Str("apiKey", apiKey).Msg("entry in stick-table approaching expiry, re-adding")
+				}
+			}
+
+			log.Info().Str("apiKey", apiKey).Msg("adding feeder to HAProxy stick-table sni_allowlist")
+			err = conn.SetTable("sni_allowlist", apiKey, dummyCounters)
+			if err != nil {
+				return fmt.Errorf("conn.SetTable: %w", err)
+			}
+		}
+
+		// remove feeders from stick table that are no longer allowed
+		for apiKey := range table {
+			if slices.Contains(allowedFeeders, apiKey) {
+				continue
+			}
+			log.Info().Str("apiKey", apiKey).Msg("removing feeder to HAProxy stick-table sni_allowlist")
+			err = conn.ClearTableEntry("sni_allowlist", apiKey)
+			if err != nil {
+				return fmt.Errorf("conn.ClearTableEntry: %w", err)
+			}
+		}
+
+		return nil
+	}
+
+	// first run updateHAProxyAllowedFeeders
+	err = updateHAProxyAllowedFeeders()
+	if err != nil {
+		log.Error().Err(err).Send()
+	}
+
+	// set up scheduled updates to haproxy stick table
+	_ = timing.RunOnTicker(log.Logger, time.Minute, updateHAProxyAllowedFeeders)
+
+	// define function to update cached data from haproxy
 	updateFromHAProxyOnTicker := func() error {
 
 		// pull data from haproxy & create new Feeder map
