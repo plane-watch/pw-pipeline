@@ -149,19 +149,22 @@ func runApp(ctx *cli.Context) error {
 			return fmt.Errorf("update from haproxy failed: %w", err)
 		}
 
-		// update "life" Feeder map
+		// update "live" Feeder map
 		FeedersMu.Lock()
 		defer FeedersMu.Unlock()
 		Feeders = *newF
-		log.Info().Msg("updated feeders from haproxy")
+		log.Info().Msg("updated live feeders from haproxy")
 
 		return nil
 	}
 
-	// first run
-	_ = updateFromHAProxyOnTicker()
+	// first run updateFromHAProxyOnTicker
+	err = updateFromHAProxyOnTicker()
+	if err != nil {
+		log.Error().Err(err).Send()
+	}
 
-	// set up scheduled updates from haproxy
+	// set up scheduled updates to cached data
 	_ = timing.RunOnTicker(log.Logger, ctx.Duration("interval"), updateFromHAProxyOnTicker)
 
 	// configure http mux
