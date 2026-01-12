@@ -118,10 +118,10 @@ The tool expects that stick tables sni_allowlist, fe_runway_adsb and fe_runway_m
 			EnvVars: []string{"API_LISTEN"},
 		},
 		&cli.StringFlag{
-			Name:     "nats",
-			Usage:    "Nats.io URL for fetching and publishing updates. nats://guest:guest@host:4222/",
-			EnvVars:  []string{"NATS"},
-			Required: true,
+			Name:    "nats",
+			Usage:   "Nats.io URL for fetching and publishing updates. nats://guest:guest@host:4222/",
+			EnvVars: []string{"NATS"},
+			Value:   "nats://nats:4222",
 		},
 		&cli.StringFlag{
 			Category: "HAProxy",
