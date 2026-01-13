@@ -148,7 +148,7 @@ func (hap *HAProxy) exec(cmd string) response {
 	res := response{}
 
 	// send command
-	n, err := hap.conn.Write([]byte(cmd))
+	n, err := hap.conn.Write([]byte(cmd + "\n"))
 	if err != nil {
 		res.err = err
 	}
