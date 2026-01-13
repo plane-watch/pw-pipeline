@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 	"unicode"
@@ -143,12 +144,21 @@ func (hap *HAProxy) sessionLoop() bool {
 	}
 }
 
+func ensureTrailingNewline(s string) string {
+	if !strings.HasSuffix(s, "\n") {
+		return s + "\n"
+	}
+	return s
+}
+
 func (hap *HAProxy) exec(cmd string) response {
+
+	cmd = ensureTrailingNewline(cmd)
 
 	res := response{}
 
 	// send command
-	n, err := hap.conn.Write([]byte(cmd + "\n"))
+	n, err := hap.conn.Write([]byte(cmd))
 	if err != nil {
 		res.err = err
 	}
