@@ -27,14 +27,14 @@ var (
 	reShowSessAge   = regexp.MustCompile(`^age=(.*?)$`)
 )
 
-func (conn *Conn) ShowSess() ([]SessionInfo, error) {
+func (hap *HAProxy) ShowSess() ([]SessionInfo, error) {
 
-	rawOut, err := conn.doCommand(cmdShowSess)
+	rawOut, err := hap.Command(cmdShowSess)
 	if err != nil {
 		return nil, err
 	}
 
-	info, err := conn.ShowInfo()
+	info, err := hap.ShowInfo()
 	if err != nil {
 		return nil, fmt.Errorf("error parsing HAProxy info: %v", err)
 	}
@@ -91,7 +91,7 @@ func (conn *Conn) ShowSess() ([]SessionInfo, error) {
 				if len(match) < 2 {
 					return nil, fmt.Errorf("error parsing session age: %v", rawLine)
 				}
-				si.Age, err = time.ParseDuration(match[1])
+				si.Age, err = parseHAProxyAge(match[1])
 				if err != nil {
 					return nil, fmt.Errorf("error parsing time duration from session age: %v", err)
 				}

@@ -169,15 +169,12 @@ func runApp(ctx *cli.Context) error {
 	Feeders = make(map[string]Feeder)
 
 	// establish connection to haproxy
-	conn, err := haproxy.New(ctx.String("network"), ctx.String("address"))
-	if err != nil {
-		return fmt.Errorf("failed to create haproxy connection: %w", err)
-	}
+	hap := haproxy.New(ctx.String("network"), ctx.String("address"), log.Logger)
 
 	// define function to update sni_allowlist stick table
 	updateHAProxyAllowedFeeders := func() error {
 		allowedFeeders := fc.ListAllAPIKeys()
-		table, err := conn.ShowTable("sni_allowlist")
+		table, err := hap.ShowTable("sni_allowlist")
 		if err != nil {
 			return fmt.Errorf("conn.ShowTable: %w", err)
 		}
@@ -201,7 +198,7 @@ func runApp(ctx *cli.Context) error {
 			}
 
 			log.Info().Str("apiKey", apiKey).Msg("adding feeder to HAProxy stick-table sni_allowlist")
-			err = conn.SetTable("sni_allowlist", apiKey, dummyCounters)
+			err = hap.SetTable("sni_allowlist", apiKey, dummyCounters)
 			if err != nil {
 				return fmt.Errorf("conn.SetTable: %w", err)
 			}
@@ -213,7 +210,7 @@ func runApp(ctx *cli.Context) error {
 				continue
 			}
 			log.Info().Str("apiKey", apiKey).Msg("removing feeder to HAProxy stick-table sni_allowlist")
-			err = conn.ClearTableEntry("sni_allowlist", apiKey)
+			err = hap.ClearTableEntry("sni_allowlist", apiKey)
 			if err != nil {
 				return fmt.Errorf("conn.ClearTableEntry: %w", err)
 			}
@@ -235,7 +232,7 @@ func runApp(ctx *cli.Context) error {
 	updateFromHAProxyOnTicker := func() error {
 
 		// pull data from haproxy & create new Feeder map
-		newF, err := updateFromHAProxy(conn)
+		newF, err := updateFromHAProxy(hap)
 		if err != nil {
 			return fmt.Errorf("update from haproxy failed: %w", err)
 		}
@@ -290,7 +287,7 @@ func runApp(ctx *cli.Context) error {
 //   - "show table fe_runway_adsb"
 //   - "show table fe_runway_mlat"
 //   - "show sess"
-func updateFromHAProxy(conn *haproxy.Conn) (*map[string]Feeder, error) {
+func updateFromHAProxy(conn *haproxy.HAProxy) (*map[string]Feeder, error) {
 
 	// get `show sess` data form haproxy
 	sessions, err := conn.ShowSess()

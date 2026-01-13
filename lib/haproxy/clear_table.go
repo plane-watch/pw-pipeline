@@ -5,9 +5,9 @@ import (
 	"strings"
 )
 
-func (conn *Conn) ClearTableEntry(table, key string) error {
+func (hap *HAProxy) ClearTableEntry(table, key string) error {
 	cmd := fmt.Sprintf(cmdClearTableByKey, table, key)
-	out, err := conn.doCommand(cmd)
+	out, err := hap.Command(cmd)
 	if err != nil {
 		return fmt.Errorf("ClearTableEntry failed: %w", err)
 	}

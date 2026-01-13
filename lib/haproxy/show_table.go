@@ -32,9 +32,9 @@ var (
 	reShowTableLine = regexp.MustCompile(`^0[xX][[:xdigit:]]+:\s+key=(.*?)\s+(.*)$`)
 )
 
-func (conn *Conn) ShowTables() (map[string]TableInfo, error) {
+func (hap *HAProxy) ShowTables() (map[string]TableInfo, error) {
 
-	rawOut, err := conn.doCommand(cmdShowTables)
+	rawOut, err := hap.Command(cmdShowTables)
 	if err != nil {
 		return nil, err
 	}
@@ -95,10 +95,10 @@ func getTableInfo(rawLine string) (TableInfo, error) {
 	return ti, nil
 }
 
-func (conn *Conn) ShowTable(table string) (map[string]map[string]uint64, error) {
+func (hap *HAProxy) ShowTable(table string) (map[string]map[string]uint64, error) {
 	var err error
 
-	rawOut, err := conn.doCommand(fmt.Sprintf(cmdShowTable, table))
+	rawOut, err := hap.Command(fmt.Sprintf(cmdShowTable, table))
 	if err != nil {
 		return nil, err
 	}
