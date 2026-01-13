@@ -428,7 +428,7 @@ func parseTableKey(key string, connType ConnType) (string, Connection, error) {
 	if m == nil || len(m) != 4 {
 		return "", Connection{}, fmt.Errorf("could not parse table key: %s", key)
 	}
-	port, err := strconv.ParseInt(m[3], 10, 64)
+	port, err := strconv.ParseInt(m[3], 10, 32)
 	if err != nil {
 		return "", Connection{}, fmt.Errorf("could not parse port from table key: %s", key)
 	}
