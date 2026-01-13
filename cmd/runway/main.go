@@ -9,7 +9,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/rs/zerolog/log"
 	"github.com/urfave/cli/v2"
-	"plane.watch/lib/dedupe"
 	"plane.watch/lib/feederauth"
 	"plane.watch/lib/logging"
 	"plane.watch/lib/middleware"
@@ -18,6 +17,7 @@ import (
 	"plane.watch/lib/nats_io"
 	"plane.watch/lib/setup"
 	"plane.watch/lib/sink"
+	"plane.watch/lib/stickyfeeder"
 	"plane.watch/lib/tracker"
 )
 
@@ -42,11 +42,6 @@ var (
 		Namespace: "pw_ingest",
 		Name:      "current_tracked_planes_count",
 		Help:      "The number of planes this instance is currently tracking",
-	})
-	prometheusOutputFrameDedupe = promauto.NewCounter(prometheus.CounterOpts{
-		Namespace: "pw_ingest",
-		Name:      "output_frame_dedupe_total",
-		Help:      "The total number of deduped frames not output.",
 	})
 	prometheusAppVer = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "pw_ingest",
@@ -112,10 +107,32 @@ func main() {
 			Value:    "runway",
 		},
 		&cli.BoolFlag{
-			Category: "Network",
-			Name:     "no-adsb-frame-dedupe",
-			Usage:    "do no dedupe ADSB frames before processing them",
+			Category: "Sticky Feeder",
+			Name:     "no-sticky-feeder",
+			Usage:    "disable sticky feeder middleware (no feeder prioritization)",
 			Value:    false,
+			EnvVars:  []string{"NO_STICKY_FEEDER"},
+		},
+		&cli.Float64Flag{
+			Category: "Sticky Feeder",
+			Name:     "sticky-hysteresis",
+			Usage:    "hysteresis threshold for feeder switching (0.10 = 10% better required to switch)",
+			Value:    0.10,
+			EnvVars:  []string{"STICKY_HYSTERESIS"},
+		},
+		&cli.Float64Flag{
+			Category: "Sticky Feeder",
+			Name:     "sticky-packet-weight",
+			Usage:    "weight for packet count in feeder scoring (0.0 - 1.0)",
+			Value:    0.6,
+			EnvVars:  []string{"STICKY_PACKET_WEIGHT"},
+		},
+		&cli.Float64Flag{
+			Category: "Sticky Feeder",
+			Name:     "sticky-signal-weight",
+			Usage:    "weight for signal strength in feeder scoring (0.0 - 1.0)",
+			Value:    0.4,
+			EnvVars:  []string{"STICKY_SIGNAL_WEIGHT"},
 		},
 	}
 
@@ -173,10 +190,14 @@ func runDaemon(c *cli.Context) error {
 		}
 	}
 
-	// no need to process the same ADSB from the same plane more than once
-	if !c.Bool("no-adsb-frame-dedupe") {
-		println("Include ADSB Dedupe")
-		trk.AddMiddleware(dedupe.NewFilter(dedupe.WithDedupeCounter(prometheusOutputFrameDedupe)))
+	// sticky feeder prioritizes frames from a particular feeder per aircraft
+	if !c.Bool("no-sticky-feeder") {
+		log.Info().Msg("Including Sticky Feeder middleware")
+		trk.AddMiddleware(stickyfeeder.NewFilter(
+			stickyfeeder.WithHysteresis(c.Float64("sticky-hysteresis")),
+			stickyfeeder.WithPacketWeight(c.Float64("sticky-packet-weight")),
+			stickyfeeder.WithSignalWeight(c.Float64("sticky-signal-weight")),
+		))
 	}
 
 	// allow our ingest tap to see what is going on
