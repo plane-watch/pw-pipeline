@@ -359,11 +359,16 @@ func updateFromHAProxy(conn *haproxy.HAProxy) (*map[string]Feeder, error) {
 		if err != nil {
 			return nil, fmt.Errorf("could not parse port from session source: %v", sessionInfo.Source)
 		}
+		// Ensure parsed port is within the valid TCP/UDP port range
+		if sessionSrcPort < 0 || sessionSrcPort > 65535 {
+			return nil, fmt.Errorf("parsed port out of range in session source: %v", sessionInfo.Source)
+		}
+		sessionSrcPortInt := int(sessionSrcPort)
 
 		// match session to feeder connections & populate connection duration, frontend, backend, server
 		for apiKey, connections := range feeders {
 			for n, connection := range connections {
-				if sessionSrcIP == connection.srcIP && int(sessionSrcPort) == connection.srcPort {
+				if sessionSrcIP == connection.srcIP && sessionSrcPortInt == connection.srcPort {
 					c := feeders[apiKey][n]
 					c.Duration = sessionInfo.Age
 					c.Since = time.Now().Add(-sessionInfo.Age)
@@ -420,7 +425,7 @@ func parseTableKey(key string, connType ConnType) (string, Connection, error) {
 	if m == nil || len(m) != 4 {
 		return "", Connection{}, fmt.Errorf("could not parse table key: %s", key)
 	}
-	port, err := strconv.ParseInt(m[3], 10, 64)
+	port, err := strconv.ParseInt(m[3], 10, 32)
 	if err != nil {
 		return "", Connection{}, fmt.Errorf("could not parse port from table key: %s", key)
 	}
