@@ -8,6 +8,7 @@ import (
 
 type (
 	SessionResult struct {
+		ID       string        // The HAProxy session ID
 		Proto    string        // The connection type / address family HAProxy is seeing for the client side.
 		Source   string        // The source address for the client side of the stream (IP:port, or unix:1 for a unix socket connection).
 		Frontend string        // The frontend name handling the stream
@@ -44,6 +45,13 @@ func (hap *HAProxy) ShowSess() ([]SessionResult, error) {
 		}
 
 		si := SessionResult{}
+
+		match := reShowSessID.FindStringSubmatch(rawLine)
+		if len(match) < 2 {
+			return nil, fmt.Errorf("error parsing session id: %v", rawLine)
+		}
+		si.ID = match[1]
+
 		for _, rawLinePart := range strings.Split(rawLine, " ") {
 			switch {
 			case reShowSessProto.MatchString(rawLinePart):

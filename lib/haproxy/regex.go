@@ -47,6 +47,7 @@ var (
 	reGetMapKey   = regexp.MustCompile(`^key="(.*?)"$`)
 	reGetMapValue = regexp.MustCompile(`^value="(.*?)"$`)
 
+	reShowSessID    = regexp.MustCompile(`^(0[xX][[:xdigit:]]{12}):\s+`)
 	reShowSessProto = regexp.MustCompile(`^proto=(.*?)$`)
 	reShowSessSrc   = regexp.MustCompile(`^src=(.*?)$`)
 	reShowSessFe    = regexp.MustCompile(`^fe=(.*?)$`)

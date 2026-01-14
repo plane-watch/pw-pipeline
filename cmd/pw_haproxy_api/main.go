@@ -18,6 +18,7 @@ import (
 	"github.com/urfave/cli/v2"
 	"plane.watch/lib/feederauth"
 	"plane.watch/lib/haproxy"
+	"plane.watch/lib/mlatbridge"
 	"plane.watch/lib/timing"
 )
 
@@ -39,6 +40,7 @@ type (
 		FrontendName  string        // Name of HAProxy Frontend for connection
 		BackendName   string        // Name of HAProxy Backend for connection
 		BackendServer string        // Name of HAProxy backend server for connection
+		sessionID     string        // HAProxy session ID
 	}
 
 	// Feeder stats
@@ -55,6 +57,24 @@ type (
 const (
 	ConnTypeBEAST ConnType = iota
 	ConnTypeMLAT
+
+	// HAProxy backends this app cares about
+
+	backendBEASTRunway            = "be_runway_adsb"
+	backendMLATServerUnknown      = "be_mlat-server-unknown"
+	backendMLATServerCAAlaska     = "be_mlat-server-ca-alaska"
+	backendMLATServerUSWest       = "be_mlat-server-us-west"
+	backendMLATServerUSEast       = "be_mlat-server-us-east"
+	backendMLATServerEUWest       = "be_mlat-server-eu-west"
+	backendMLATServerEUCentral    = "be_mlat-server-eu-central"
+	backendMLATServerOceania      = "be_mlat-server-oceania"
+	backendMLATServerAsia         = "be_mlat-server-asia"
+	backendMLATServerSouthAmerica = "be_mlat-server-south-america"
+
+	// HAProxy map names
+
+	mapBEAST = "virt@api_key_to_runway_backend"
+	mapMLAT  = "virt@api_key_to_mlat_backend"
 )
 
 var (
@@ -88,10 +108,44 @@ var (
 
 	// FeedersMu is our mutex for shared access to Feeders
 	FeedersMu sync.RWMutex
-
-	// dummyCounters is just a simple counter required for the sni_allowlist stick table to store api keys
-	dummyCounters = map[string]uint64{"data.gpc0": 1}
 )
+
+func buildDescription() string {
+	return fmt.Sprintf(`
+This tool has two purposes:
+
+ - Allows querying feeder status via HTTP API: /api/v1/feeder/<api key>
+ - Populates maps "%s" & "%s" with valid api keys
+ - Directs MLAT connections to the regional MLAT server based on feeder position
+
+The tool expects that:
+ - the aforementioned maps exist
+ - the following backends exist:
+    - %s
+    - %s
+    - %s
+    - %s
+    - %s
+    - %s
+    - %s
+    - %s
+    - %s
+    - %s`,
+		mapBEAST,
+		mapMLAT,
+		backendBEASTRunway,
+		backendMLATServerUnknown,
+		backendMLATServerCAAlaska,
+		backendMLATServerUSWest,
+		backendMLATServerUSEast,
+		backendMLATServerEUWest,
+		backendMLATServerEUCentral,
+		backendMLATServerOceania,
+		backendMLATServerAsia,
+		backendMLATServerSouthAmerica,
+	)
+
+}
 
 func main() {
 
@@ -99,17 +153,7 @@ func main() {
 	app.Version = version
 	app.Name = "Plane Watch HAProxy API Server"
 	app.Usage = "Listens for HTTP requests and responds to them"
-	app.Description = `
-This tool has two purposes:
-
- - Allows querying feeder status via HTTP API: /api/v1/feeder/<api key>
- - Populates stick table "sni_allowlist" with valid api keys
-
-The tool expects that stick tables sni_allowlist, fe_runway_adsb and fe_runway_mlat have been defined:
-
- - fe_runway_adsb & fe_runway_mlat must have counters conn_cur,bytes_in_cnt,bytes_out_cnt
- - sni_allowlist must have counter gpc0 and 24d (the max) expiry
-`
+	app.Description = buildDescription()
 	app.Flags = []cli.Flag{
 		&cli.StringFlag{
 			Name:    "listen",
@@ -165,54 +209,131 @@ func runApp(ctx *cli.Context) error {
 		_ = fc.Close()
 	}()
 
-	// prep our main data structure
+	// prep our main data structure for incoming api calls
 	Feeders = make(map[string]Feeder)
 
 	// establish connection to haproxy
 	hap := haproxy.New(ctx.String("network"), ctx.String("address"), log.Logger)
+	defer hap.Close()
 
-	// define function to update sni_allowlist stick table
+	// define function to update maps
 	updateHAProxyAllowedFeeders := func() error {
+
+		// look up feeders via NATS
 		allowedFeeders := fc.ListAllAPIKeys()
-		table, err := hap.ShowTable("sni_allowlist")
-		if err != nil {
-			return fmt.Errorf("conn.ShowTable: %w", err)
-		}
 
-		// add feeders in allowedFeeders to stick table
+		// add feeders in allowedFeeders to maps
 		for _, apiKey := range allowedFeeders {
-			counters, ok := table[apiKey]
 
-			// if feeder in stick table, only re-add if nearing expiry
-			if ok {
-				expiry, ok := counters["exp"]
-				if !ok {
-					log.Warn().Str("key", apiKey).Any("counters", counters).Msg("no expiry!")
-					continue
-				}
-				if expiry > 200000000 {
-					continue
-				} else {
-					log.Debug().Str("apiKey", apiKey).Msg("entry in stick-table approaching expiry, re-adding")
-				}
-			}
-
-			log.Info().Str("apiKey", apiKey).Msg("adding feeder to HAProxy stick-table sni_allowlist")
-			err = hap.SetTable("sni_allowlist", apiKey, dummyCounters)
+			// is feeder in beast map?
+			mapResBEAST, err := hap.GetMap(mapBEAST, apiKey)
 			if err != nil {
-				return fmt.Errorf("conn.SetTable: %w", err)
+				log.Error().Err(err).Str("apikey", apiKey).Str("map", mapBEAST).Msg("error looking up api key in map")
+				continue
 			}
+			if len(mapResBEAST) == 0 {
+				// not in map, add it
+				err = hap.AddMap(mapBEAST, apiKey, backendBEASTRunway)
+				if err != nil {
+					log.Error().Err(err).Str("map", mapBEAST).Str("apikey", apiKey).Str("backend", backendBEASTRunway).Msg("error adding map")
+				}
+				log.Info().Str("map", mapBEAST).Str("apikey", apiKey).Str("backend", backendBEASTRunway).Msg("added feeder to map")
+			}
+
+			// is feeder in mlat map?
+			mapResMLAT, err := hap.GetMap(mapMLAT, apiKey)
+			if err != nil {
+				log.Error().Err(err).Str("apikey", apiKey).Str("map", mapMLAT).Msg("error looking up api key in map")
+				continue
+			}
+			if len(mapResMLAT) == 0 {
+				// not in map, look up region & add it
+				fid, err := fc.FID(apiKey)
+				if err != nil {
+					log.Error().Err(err).Str("apikey", apiKey).Msg("error looking up region")
+					continue
+				}
+				reg := mlatbridge.GetMLATRegionByFID(fid)
+				backend := backendMLATServerUnknown
+				switch reg {
+				case mlatbridge.Asia:
+					backend = backendMLATServerAsia
+				case mlatbridge.Unknown:
+					backend = backendMLATServerUnknown
+				case mlatbridge.CA_Alaska:
+					backend = backendMLATServerCAAlaska
+				case mlatbridge.US_West:
+					backend = backendMLATServerUSWest
+				case mlatbridge.US_East:
+					backend = backendMLATServerUSEast
+				case mlatbridge.EU_West:
+					backend = backendMLATServerEUWest
+				case mlatbridge.EU_Central:
+					backend = backendMLATServerEUCentral
+				case mlatbridge.Oceania:
+					backend = backendMLATServerOceania
+				case mlatbridge.South_America:
+					backend = backendMLATServerSouthAmerica
+				default:
+					backend = backendMLATServerUnknown
+				}
+				err = hap.AddMap(mapMLAT, apiKey, backend)
+				if err != nil {
+					log.Error().Err(err).Str("map", mapMLAT).Str("apikey", apiKey).Str("backend", backend).Msg("error adding map")
+				}
+				log.Info().Str("map", mapMLAT).Str("apikey", apiKey).Str("backend", backend).Msg("added feeder to map")
+			}
+			// todo: should we check if the region is correct (feeder moves region)?
 		}
 
-		// remove feeders from stick table that are no longer allowed
-		for apiKey := range table {
+		// remove feeders from BEAST map that are no longer valid
+		beastMap, err := hap.ShowMap(mapBEAST)
+		if err != nil {
+			return fmt.Errorf("conn.ShowMap: %w", err)
+		}
+		for apiKey, backend := range beastMap {
 			if slices.Contains(allowedFeeders, apiKey) {
 				continue
 			}
-			log.Info().Str("apiKey", apiKey).Msg("removing feeder to HAProxy stick-table sni_allowlist")
-			err = hap.ClearTableEntry("sni_allowlist", apiKey)
-			if err != nil {
-				return fmt.Errorf("conn.ClearTableEntry: %w", err)
+			log.Info().Str("map", mapBEAST).Str("apikey", apiKey).Str("backend", backend).Msg("removing feeder from map")
+		}
+
+		// remove feeders from MLAT map that are no longer valid
+		mlatMap, err := hap.ShowMap(mapMLAT)
+		if err != nil {
+			return fmt.Errorf("conn.ShowMap: %w", err)
+		}
+		for apiKey, backend := range mlatMap {
+			if slices.Contains(allowedFeeders, apiKey) {
+				continue
+			}
+			log.Info().Str("map", mapMLAT).Str("apikey", apiKey).Str("backend", backend).Msg("removing feeder from map")
+		}
+
+		// kill session of feeders no longer valid
+		FeedersMu.RLock()
+		defer FeedersMu.RUnlock()
+		for apiKey, feeder := range Feeders {
+			if slices.Contains(allowedFeeders, apiKey) {
+				continue
+			}
+			for _, connections := range feeder.Connections {
+				for _, connection := range connections {
+					err := hap.ShutdownSession(connection.sessionID)
+					if err != nil {
+						log.Error().
+							Str("session_id", connection.sessionID).
+							Str("backend", connection.BackendName).
+							Str("apikey", apiKey).
+							Msg("error killing session of invalid feeder")
+						continue
+					}
+					log.Info().
+						Str("session_id", connection.sessionID).
+						Str("backend", connection.BackendName).
+						Str("apikey", apiKey).
+						Msg("killed session of invalid feeder")
+				}
 			}
 		}
 
@@ -226,13 +347,13 @@ func runApp(ctx *cli.Context) error {
 	}
 
 	// set up scheduled updates to haproxy stick table
-	_ = timing.RunOnTicker(log.Logger, time.Minute, updateHAProxyAllowedFeeders)
+	_ = timing.RunOnTicker(log.Logger, ctx.Duration("interval"), updateHAProxyAllowedFeeders)
 
 	// define function to update cached data from haproxy
-	updateFromHAProxyOnTicker := func() error {
+	updateLiveFeedersFromHAProxyOnTicker := func() error {
 
 		// pull data from haproxy & create new Feeder map
-		newF, err := updateFromHAProxy(hap)
+		newF, err := updateLiveFeedersFromHAProxy(hap)
 		if err != nil {
 			return fmt.Errorf("update from haproxy failed: %w", err)
 		}
@@ -246,14 +367,14 @@ func runApp(ctx *cli.Context) error {
 		return nil
 	}
 
-	// first run updateFromHAProxyOnTicker
-	err = updateFromHAProxyOnTicker()
+	// first run updateLiveFeedersFromHAProxyOnTicker
+	err = updateLiveFeedersFromHAProxyOnTicker()
 	if err != nil {
 		log.Error().Err(err).Send()
 	}
 
 	// set up scheduled updates to cached data
-	_ = timing.RunOnTicker(log.Logger, ctx.Duration("interval"), updateFromHAProxyOnTicker)
+	_ = timing.RunOnTicker(log.Logger, ctx.Duration("interval"), updateLiveFeedersFromHAProxyOnTicker)
 
 	// configure http mux
 	mux := http.NewServeMux()
@@ -283,11 +404,11 @@ func runApp(ctx *cli.Context) error {
 	return nil
 }
 
-// updateFromHAProxy retrieves the following from HAProxy:
+// updateLiveFeedersFromHAProxy retrieves the following from HAProxy:
 //   - "show table fe_runway_adsb"
 //   - "show table fe_runway_mlat"
 //   - "show sess"
-func updateFromHAProxy(conn *haproxy.HAProxy) (*map[string]Feeder, error) {
+func updateLiveFeedersFromHAProxy(conn *haproxy.HAProxy) (*map[string]Feeder, error) {
 
 	// get `show sess` data form haproxy
 	sessions, err := conn.ShowSess()
@@ -375,6 +496,7 @@ func updateFromHAProxy(conn *haproxy.HAProxy) (*map[string]Feeder, error) {
 					c.FrontendName = sessionInfo.Frontend
 					c.BackendName = sessionInfo.Backend
 					c.BackendServer = sessionInfo.Server
+					c.sessionID = sessionInfo.ID
 					feeders[apiKey][n] = c
 					break
 				}
@@ -402,6 +524,8 @@ func updateFromHAProxy(conn *haproxy.HAProxy) (*map[string]Feeder, error) {
 				if c.Since.After(f.MLATSince) {
 					f.MLATSince = c.Since
 				}
+			default:
+				log.Error().Str("apikey", apiKey).Any("conn", c).Msg("unknown connection type")
 			}
 		}
 		if len(f.Connections["BEAST"]) > 0 {
