@@ -219,6 +219,7 @@ func main() {
 func runApp(ctx *cli.Context) error {
 
 	// ensure the map files exist (otherwise haproxy will not start)
+	log.Info().Msg("touching map files")
 	err := ensureFileExists(ctx.String("beastmap"))
 	if err != nil {
 		return fmt.Errorf("could not touch beastmap: %w", err)
