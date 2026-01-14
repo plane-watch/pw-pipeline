@@ -2,13 +2,12 @@ package haproxy
 
 import (
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 )
 
 type (
-	TableInfo struct {
+	TableResult struct {
 		Name string
 		Type string
 		Size uint64
@@ -16,30 +15,14 @@ type (
 	}
 )
 
-var (
-
-	// reShowTables is a regular expression (duh) that splits each line of the "show table"
-	// output into the following capture groups:
-	//
-	//  - Group 1: the table name
-	//  - Group 2: the table type
-	//  - Group 3: the table size
-	//  - Group 4: the table used
-	//
-	// See: https://www.haproxy.com/documentation/haproxy-runtime-api/reference/show-table/
-	reShowTables = regexp.MustCompile(`^#\s+table:\s+(\w+),\s+type:\s+(\w+),\s+size:(\d+),\s+used:(\d+)$`)
-
-	reShowTableLine = regexp.MustCompile(`^0[xX][[:xdigit:]]+:\s+key=(.*?)\s+(.*)$`)
-)
-
-func (hap *HAProxy) ShowTables() (map[string]TableInfo, error) {
+func (hap *HAProxy) ShowTables() (map[string]TableResult, error) {
 
 	rawOut, err := hap.Command(cmdShowTables)
 	if err != nil {
 		return nil, err
 	}
 
-	out := make(map[string]TableInfo)
+	out := make(map[string]TableResult)
 
 	// process raw output
 	for _, rawLine := range strings.Split(rawOut, "\n") {
@@ -52,7 +35,7 @@ func (hap *HAProxy) ShowTables() (map[string]TableInfo, error) {
 			continue
 		}
 
-		var ti TableInfo
+		var ti TableResult
 		ti, err = getTableInfo(rawLine)
 		if err != nil {
 			return out, fmt.Errorf("error parsing table info: %v", err)
@@ -65,9 +48,9 @@ func (hap *HAProxy) ShowTables() (map[string]TableInfo, error) {
 	return out, nil
 }
 
-func getTableInfo(rawLine string) (TableInfo, error) {
+func getTableInfo(rawLine string) (TableResult, error) {
 	var err error
-	ti := TableInfo{}
+	ti := TableResult{}
 
 	// match regex
 	m := reShowTables.FindStringSubmatch(rawLine)
@@ -104,7 +87,7 @@ func (hap *HAProxy) ShowTable(table string) (map[string]map[string]uint64, error
 	}
 
 	out := make(map[string]map[string]uint64)
-	ti := TableInfo{}
+	ti := TableResult{}
 	numKeys := uint64(0)
 
 	// process raw output
@@ -156,4 +139,33 @@ func (hap *HAProxy) ShowTable(table string) (map[string]map[string]uint64, error
 
 	return out, nil
 
+}
+
+func (hap *HAProxy) SetTable(table, key string, counters map[string]uint64) error {
+	cmd := fmt.Sprintf(cmdSetTable, table, key)
+	for k, v := range counters {
+		cmd = strings.Join([]string{cmd, k, fmt.Sprintf("%d", v)}, " ")
+	}
+	out, err := hap.Command(cmd)
+	if err != nil {
+		return fmt.Errorf("SetTable failed: %w", err)
+	}
+	out = strings.TrimSpace(out)
+	if out != "" {
+		return fmt.Errorf("SetTable failed: %s", out)
+	}
+	return nil
+}
+
+func (hap *HAProxy) ClearTableEntry(table, key string) error {
+	cmd := fmt.Sprintf(cmdClearTableByKey, table, key)
+	out, err := hap.Command(cmd)
+	if err != nil {
+		return fmt.Errorf("ClearTableEntry failed: %w", err)
+	}
+	out = strings.TrimSpace(out)
+	if out != "" {
+		return fmt.Errorf("ClearTableEntry failed: %s", out)
+	}
+	return nil
 }

@@ -3,14 +3,13 @@ package haproxy
 import (
 	"fmt"
 	"reflect"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
 )
 
 type (
-	Info struct {
+	InfoResult struct {
 
 		// Name: Product name
 		Name string `haproxy:"Name"`
@@ -248,28 +247,12 @@ type (
 	}
 )
 
-var (
-
-	// reShowInfo is a regular expression (duh) that splits each line of the "show info typed"
-	// output into the following capture groups:
-	//
-	//  - Group 1: the numeric position of the field in the list starting at zero
-	//  - Group 2: the field name
-	//  - Group 3: the process number starting at 1 (legacy)
-	//  - Group 4: three letters that correspond to the field’s origin, nature, and scope of the variable
-	//  - Group 5: the field’s type (e.g. str for string and u32 for unsigned 32-bit integer)
-	//  - Group 6: the value itself
-	//
-	// See: https://www.haproxy.com/documentation/haproxy-runtime-api/reference/show-info/#typed-format
-	reShowInfo = regexp.MustCompile(`^(\d+)\.([A-Za-z0-9_\- ]+)\.(\d+):(\w+):(\w+):(.*)$`)
-)
-
-func (hap *HAProxy) ShowInfo() (Info, error) {
-	var out Info
+func (hap *HAProxy) ShowInfo() (InfoResult, error) {
+	var out InfoResult
 
 	rawOut, err := hap.Command(cmdShowInfoTyped)
 	if err != nil {
-		return Info{}, err
+		return InfoResult{}, err
 	}
 
 	// Type info (tags) + settable value (fields)
