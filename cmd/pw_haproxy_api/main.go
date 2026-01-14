@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -186,7 +187,7 @@ func main() {
 		&cli.DurationFlag{
 			Category: "HAProxy",
 			Name:     "interval",
-			Value:    time.Second * 10,
+			Value:    time.Second * 30,
 			Usage:    "How long to wait between refreshing data from HAProxy runtime API",
 			EnvVars:  []string{"HAPROXY_INTERVAL"},
 		},
@@ -206,7 +207,7 @@ func main() {
 			Category: "HAProxy",
 			Name:     "checkpoint",
 			Usage:    "How often to write the map files",
-			Value:    time.Minute * 1,
+			Value:    time.Minute * 30,
 		},
 	}
 	app.Action = runApp
@@ -216,6 +217,16 @@ func main() {
 }
 
 func runApp(ctx *cli.Context) error {
+
+	// ensure the map files exist (otherwise haproxy will not start)
+	err := ensureFileExists(ctx.String("beastmap"))
+	if err != nil {
+		return fmt.Errorf("could not touch beastmap: %w", err)
+	}
+	err = ensureFileExists(ctx.String("mlatmap"))
+	if err != nil {
+		return fmt.Errorf("could not touch mlatmap: %w", err)
+	}
 
 	// configure feeder cache
 	fc, err := feederauth.New(
@@ -236,225 +247,70 @@ func runApp(ctx *cli.Context) error {
 	hap := haproxy.New(ctx.String("network"), ctx.String("address"), log.Logger)
 	defer hap.Close()
 
-	// define function to update maps
-	updateHAProxyAllowedFeeders := func() error {
+	populateMapsInMemoryFirstRun := sync.WaitGroup{}
+	populateUpdateLiveFeedersFromHAProxyOnTicker := sync.WaitGroup{}
 
-		// look up feeders via NATS
-		allowedFeeders := fc.ListAllAPIKeys()
-
-		// add feeders in allowedFeeders to maps
-		for _, apiKey := range allowedFeeders {
-
-			// is feeder in beast map?
-			mapResBEAST, err := hap.GetMap(mapBEAST, apiKey)
-			if err != nil {
-				log.Error().Err(err).Str("apikey", apiKey).Str("map", mapBEAST).Msg("error looking up api key in map")
-				continue
-			}
-			if len(mapResBEAST) == 0 {
-				// not in map, add it
-				err = hap.AddMap(mapBEAST, apiKey, backendBEASTRunway)
-				if err != nil {
-					log.Error().Err(err).Str("map", mapBEAST).Str("apikey", apiKey).Str("backend", backendBEASTRunway).Msg("error adding map")
-				}
-				log.Info().Str("map", mapBEAST).Str("apikey", apiKey).Str("backend", backendBEASTRunway).Msg("added feeder to map")
-			}
-
-			// is feeder in mlat map?
-			mapResMLAT, err := hap.GetMap(mapMLAT, apiKey)
-			if err != nil {
-				log.Error().Err(err).Str("apikey", apiKey).Str("map", mapMLAT).Msg("error looking up api key in map")
-				continue
-			}
-			if len(mapResMLAT) == 0 {
-				// not in map, look up region & add it
-				fid, err := fc.FID(apiKey)
-				if err != nil {
-					log.Error().Err(err).Str("apikey", apiKey).Msg("error looking up region")
-					continue
-				}
-				reg := mlatbridge.GetMLATRegionByFID(fid)
-				backend := backendMLATServerUnknown
-				switch reg {
-				case mlatbridge.Asia:
-					backend = backendMLATServerAsia
-				case mlatbridge.Unknown:
-					backend = backendMLATServerUnknown
-				case mlatbridge.CA_Alaska:
-					backend = backendMLATServerCAAlaska
-				case mlatbridge.US_West:
-					backend = backendMLATServerUSWest
-				case mlatbridge.US_East:
-					backend = backendMLATServerUSEast
-				case mlatbridge.EU_West:
-					backend = backendMLATServerEUWest
-				case mlatbridge.EU_Central:
-					backend = backendMLATServerEUCentral
-				case mlatbridge.Oceania:
-					backend = backendMLATServerOceania
-				case mlatbridge.South_America:
-					backend = backendMLATServerSouthAmerica
-				default:
-					backend = backendMLATServerUnknown
-				}
-				err = hap.AddMap(mapMLAT, apiKey, backend)
-				if err != nil {
-					log.Error().Err(err).Str("map", mapMLAT).Str("apikey", apiKey).Str("backend", backend).Msg("error adding map")
-				}
-				log.Info().Str("map", mapMLAT).Str("apikey", apiKey).Str("backend", backend).Msg("added feeder to map")
-			}
-			// todo: should we check if the region is correct (feeder moves region)?
-		}
-
-		// remove feeders from BEAST map that are no longer valid
-		beastMap, err := hap.ShowMap(mapBEAST)
+	// run populateMapsInMemory
+	go func() {
+		log.Info().Str("source", "populateMapsInMemory").Msg("starting up")
+		// first run populateMapsInMemory
+		populateMapsInMemoryFirstRun.Add(1)
+		err = populateMapsInMemory(fc, hap)
 		if err != nil {
-			return fmt.Errorf("conn.ShowMap: %w", err)
+			log.Error().Err(err).Send()
 		}
-		for apiKey, backend := range beastMap {
-			if slices.Contains(allowedFeeders, apiKey) {
-				continue
-			}
-			log.Info().Str("map", mapBEAST).Str("apikey", apiKey).Str("backend", backend).Msg("removing feeder from map")
-		}
+		populateMapsInMemoryFirstRun.Done()
 
-		// remove feeders from MLAT map that are no longer valid
-		mlatMap, err := hap.ShowMap(mapMLAT)
+		// set up scheduled updates to haproxy stick table
+		_ = timing.RunOnTicker(
+			log.With().Str("source", "populateMapsInMemory").Logger(),
+			ctx.Duration("interval"),
+			func() error {
+				return populateMapsInMemory(fc, hap)
+			},
+		)
+
+		log.Info().Str("source", "populateMapsInMemory").Msg("running")
+	}()
+
+	// update cached data from haproxy
+	go func() {
+		log.Info().Str("source", "updateLiveFeedersFromHAProxyOnTicker").Msg("starting up")
+		// first run updateLiveFeedersFromHAProxyOnTicker
+		populateUpdateLiveFeedersFromHAProxyOnTicker.Add(1)
+		err = updateLiveFeedersFromHAProxyOnTicker(hap)
 		if err != nil {
-			return fmt.Errorf("conn.ShowMap: %w", err)
+			log.Error().Err(err).Send()
 		}
-		for apiKey, backend := range mlatMap {
-			if slices.Contains(allowedFeeders, apiKey) {
-				continue
-			}
-			log.Info().Str("map", mapMLAT).Str("apikey", apiKey).Str("backend", backend).Msg("removing feeder from map")
-		}
+		populateUpdateLiveFeedersFromHAProxyOnTicker.Done()
 
-		// kill session of feeders no longer valid
-		FeedersMu.RLock()
-		defer FeedersMu.RUnlock()
-		for apiKey, feeder := range Feeders {
-			if slices.Contains(allowedFeeders, apiKey) {
-				continue
-			}
-			for _, connections := range feeder.Connections {
-				for _, connection := range connections {
-					err := hap.ShutdownSession(connection.sessionID)
-					if err != nil {
-						log.Error().
-							Str("session_id", connection.sessionID).
-							Str("backend", connection.BackendName).
-							Str("apikey", apiKey).
-							Msg("error killing session of invalid feeder")
-						continue
-					}
-					log.Info().
-						Str("session_id", connection.sessionID).
-						Str("backend", connection.BackendName).
-						Str("apikey", apiKey).
-						Msg("killed session of invalid feeder")
-				}
-			}
-		}
+		// set up scheduled updates to cached data
+		_ = timing.RunOnTicker(
+			log.With().Str("source", "updateLiveFeedersFromHAProxyOnTicker").Logger(),
+			ctx.Duration("interval"),
+			func() error {
+				return updateLiveFeedersFromHAProxyOnTicker(hap)
+			},
+		)
 
-		return nil
-	}
-
-	// first run updateHAProxyAllowedFeeders
-	err = updateHAProxyAllowedFeeders()
-	if err != nil {
-		log.Error().Err(err).Send()
-	}
-
-	// set up scheduled updates to haproxy stick table
-	_ = timing.RunOnTicker(log.With().Str("source", "updateHAProxyAllowedFeeders").Logger(), ctx.Duration("interval"), updateHAProxyAllowedFeeders)
-
-	// define function to update cached data from haproxy
-	updateLiveFeedersFromHAProxyOnTicker := func() error {
-
-		// pull data from haproxy & create new Feeder map
-		newF, err := updateLiveFeedersFromHAProxy(hap)
-		if err != nil {
-			return fmt.Errorf("update from haproxy failed: %w", err)
-		}
-
-		// update "live" Feeder map
-		FeedersMu.Lock()
-		defer FeedersMu.Unlock()
-		Feeders = *newF
-		log.Info().Msg("updated live feeders from haproxy")
-
-		return nil
-	}
-
-	// first run updateLiveFeedersFromHAProxyOnTicker
-	err = updateLiveFeedersFromHAProxyOnTicker()
-	if err != nil {
-		log.Error().Err(err).Send()
-	}
-
-	// set up scheduled updates to cached data
-	_ = timing.RunOnTicker(log.With().Str("source", "updateLiveFeedersFromHAProxyOnTicker").Logger(), ctx.Duration("interval"), updateLiveFeedersFromHAProxyOnTicker)
-
-	// define function to write map checkpoints
-	writeMapCheckpoints := func() error {
-
-		beastFile, err := os.Create(ctx.String("beastmap"))
-		if err != nil {
-			return fmt.Errorf("os.Create: %w", err)
-		}
-		defer func() {
-			_ = beastFile.Close()
-		}()
-
-		beastMap, err := hap.ShowMap(mapBEAST)
-		if err != nil {
-			return fmt.Errorf("conn.ShowMap: %w", err)
-		}
-
-		_, err = beastFile.WriteString(doNotEdit)
-		if err != nil {
-			return fmt.Errorf("beastFile.WriteString: %w", err)
-		}
-
-		for apiKey, backend := range beastMap {
-			_, err := beastFile.WriteString(fmt.Sprintf("%s %s\n", apiKey, backend))
-			if err != nil {
-				return fmt.Errorf("beastFile.WriteString: %w", err)
-			}
-		}
-
-		mlatFile, err := os.Create(ctx.String("mlatmap"))
-		if err != nil {
-			return fmt.Errorf("os.Create: %w", err)
-		}
-		defer func() {
-			_ = mlatFile.Close()
-		}()
-
-		mlatMap, err := hap.ShowMap(mapMLAT)
-		if err != nil {
-			return fmt.Errorf("conn.ShowMap: %w", err)
-		}
-
-		_, err = mlatFile.WriteString(doNotEdit)
-		if err != nil {
-			return fmt.Errorf("mlatFile.WriteString: %w", err)
-		}
-
-		for apiKey, backend := range mlatMap {
-			_, err := mlatFile.WriteString(fmt.Sprintf("%s %s\n", apiKey, backend))
-			if err != nil {
-				return fmt.Errorf("mlatFile.WriteString: %w", err)
-			}
-		}
-
-		log.Info().Msg("wrote map checkpoints")
-		return nil
-	}
+		log.Info().Str("source", "updateLiveFeedersFromHAProxyOnTicker").Msg("running")
+	}()
 
 	// set up scheduled checkpoint writes
-	_ = timing.RunOnTicker(log.With().Str("source", "writeMapCheckpoints").Logger(), ctx.Duration("checkpoint"), writeMapCheckpoints)
+	go func() {
+		log.Info().Str("source", "writeMapCheckpoints").Msg("starting up")
+		populateMapsInMemoryFirstRun.Wait()
+		_ = timing.RunOnTicker(
+			log.With().Str("source", "writeMapCheckpoints").Logger(),
+			ctx.Duration("checkpoint"),
+			func() error {
+				return writeMapCheckpoints(ctx, hap)
+			},
+		)
+		log.Info().Str("source", "writeMapCheckpoints").Msg("running")
+	}()
+
+	populateUpdateLiveFeedersFromHAProxyOnTicker.Wait()
 
 	// configure http mux
 	mux := http.NewServeMux()
@@ -727,4 +583,218 @@ func apiReturnSingleFeeder(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
+}
+
+func ensureFileExists(path string) error {
+	_, err := os.Stat(path)
+	if err == nil {
+		return nil // exists
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return err // some other error (permission, etc.)
+	}
+
+	// doesn't exist: create it (like touch)
+	f, err := os.OpenFile(path, os.O_RDONLY|os.O_CREATE, 0o644)
+	if err != nil {
+		return err
+	}
+	return f.Close()
+}
+
+// define function to update maps
+func populateMapsInMemory(fc *feederauth.FeederCache, hap *haproxy.HAProxy) error {
+
+	// look up feeders via NATS
+	allowedFeeders := fc.ListAllAPIKeys()
+
+	// add feeders in allowedFeeders to maps
+	for _, apiKey := range allowedFeeders {
+
+		// is feeder in beast map?
+		mapResBEAST, err := hap.GetMap(mapBEAST, apiKey)
+		if err != nil {
+			log.Error().Err(err).Str("apikey", apiKey).Str("map", mapBEAST).Msg("error looking up api key in map")
+			continue
+		}
+		if len(mapResBEAST) == 0 {
+			// not in map, add it
+			err = hap.AddMap(mapBEAST, apiKey, backendBEASTRunway)
+			if err != nil {
+				log.Error().Err(err).Str("map", mapBEAST).Str("apikey", apiKey).Str("backend", backendBEASTRunway).Msg("error adding map")
+			}
+			log.Info().Str("map", mapBEAST).Str("apikey", apiKey).Str("backend", backendBEASTRunway).Msg("added feeder to map")
+		}
+
+		// is feeder in mlat map?
+		mapResMLAT, err := hap.GetMap(mapMLAT, apiKey)
+		if err != nil {
+			log.Error().Err(err).Str("apikey", apiKey).Str("map", mapMLAT).Msg("error looking up api key in map")
+			continue
+		}
+		if len(mapResMLAT) == 0 {
+			// not in map, look up region & add it
+			fid, err := fc.FID(apiKey)
+			if err != nil {
+				log.Error().Err(err).Str("apikey", apiKey).Msg("error looking up region")
+				continue
+			}
+			reg := mlatbridge.GetMLATRegionByFID(fid)
+			backend := backendMLATServerUnknown
+			switch reg {
+			case mlatbridge.Asia:
+				backend = backendMLATServerAsia
+			case mlatbridge.Unknown:
+				backend = backendMLATServerUnknown
+			case mlatbridge.CA_Alaska:
+				backend = backendMLATServerCAAlaska
+			case mlatbridge.US_West:
+				backend = backendMLATServerUSWest
+			case mlatbridge.US_East:
+				backend = backendMLATServerUSEast
+			case mlatbridge.EU_West:
+				backend = backendMLATServerEUWest
+			case mlatbridge.EU_Central:
+				backend = backendMLATServerEUCentral
+			case mlatbridge.Oceania:
+				backend = backendMLATServerOceania
+			case mlatbridge.South_America:
+				backend = backendMLATServerSouthAmerica
+			default:
+				backend = backendMLATServerUnknown
+			}
+			err = hap.AddMap(mapMLAT, apiKey, backend)
+			if err != nil {
+				log.Error().Err(err).Str("map", mapMLAT).Str("apikey", apiKey).Str("backend", backend).Msg("error adding map")
+			}
+			log.Info().Str("map", mapMLAT).Str("apikey", apiKey).Str("backend", backend).Msg("added feeder to map")
+		}
+		// todo: should we check if the region is correct (feeder moves region)?
+	}
+
+	// remove feeders from BEAST map that are no longer valid
+	beastMap, err := hap.ShowMap(mapBEAST)
+	if err != nil {
+		return fmt.Errorf("conn.ShowMap: %w", err)
+	}
+	for apiKey, backend := range beastMap {
+		if slices.Contains(allowedFeeders, apiKey) {
+			continue
+		}
+		log.Info().Str("map", mapBEAST).Str("apikey", apiKey).Str("backend", backend).Msg("removing feeder from map")
+	}
+
+	// remove feeders from MLAT map that are no longer valid
+	mlatMap, err := hap.ShowMap(mapMLAT)
+	if err != nil {
+		return fmt.Errorf("conn.ShowMap: %w", err)
+	}
+	for apiKey, backend := range mlatMap {
+		if slices.Contains(allowedFeeders, apiKey) {
+			continue
+		}
+		log.Info().Str("map", mapMLAT).Str("apikey", apiKey).Str("backend", backend).Msg("removing feeder from map")
+	}
+
+	// kill session of feeders no longer valid
+	FeedersMu.RLock()
+	defer FeedersMu.RUnlock()
+	for apiKey, feeder := range Feeders {
+		if slices.Contains(allowedFeeders, apiKey) {
+			continue
+		}
+		for _, connections := range feeder.Connections {
+			for _, connection := range connections {
+				err := hap.ShutdownSession(connection.sessionID)
+				if err != nil {
+					log.Error().
+						Str("session_id", connection.sessionID).
+						Str("backend", connection.BackendName).
+						Str("apikey", apiKey).
+						Msg("error killing session of invalid feeder")
+					continue
+				}
+				log.Info().
+					Str("session_id", connection.sessionID).
+					Str("backend", connection.BackendName).
+					Str("apikey", apiKey).
+					Msg("killed session of invalid feeder")
+			}
+		}
+	}
+
+	return nil
+}
+
+func updateLiveFeedersFromHAProxyOnTicker(hap *haproxy.HAProxy) error {
+
+	// pull data from haproxy & create new Feeder map
+	newF, err := updateLiveFeedersFromHAProxy(hap)
+	if err != nil {
+		return fmt.Errorf("update from haproxy failed: %w", err)
+	}
+
+	// update "live" Feeder map
+	FeedersMu.Lock()
+	defer FeedersMu.Unlock()
+	Feeders = *newF
+	log.Info().Msg("updated live feeders from haproxy")
+
+	return nil
+}
+
+func writeMapCheckpoints(ctx *cli.Context, hap *haproxy.HAProxy) error {
+
+	beastFile, err := os.Create(ctx.String("beastmap"))
+	if err != nil {
+		return fmt.Errorf("os.Create: %w", err)
+	}
+	defer func() {
+		_ = beastFile.Close()
+	}()
+
+	beastMap, err := hap.ShowMap(mapBEAST)
+	if err != nil {
+		return fmt.Errorf("conn.ShowMap: %w", err)
+	}
+
+	_, err = beastFile.WriteString(doNotEdit)
+	if err != nil {
+		return fmt.Errorf("beastFile.WriteString: %w", err)
+	}
+
+	for apiKey, backend := range beastMap {
+		_, err := beastFile.WriteString(fmt.Sprintf("%s %s\n", apiKey, backend))
+		if err != nil {
+			return fmt.Errorf("beastFile.WriteString: %w", err)
+		}
+	}
+
+	mlatFile, err := os.Create(ctx.String("mlatmap"))
+	if err != nil {
+		return fmt.Errorf("os.Create: %w", err)
+	}
+	defer func() {
+		_ = mlatFile.Close()
+	}()
+
+	mlatMap, err := hap.ShowMap(mapMLAT)
+	if err != nil {
+		return fmt.Errorf("conn.ShowMap: %w", err)
+	}
+
+	_, err = mlatFile.WriteString(doNotEdit)
+	if err != nil {
+		return fmt.Errorf("mlatFile.WriteString: %w", err)
+	}
+
+	for apiKey, backend := range mlatMap {
+		_, err := mlatFile.WriteString(fmt.Sprintf("%s %s\n", apiKey, backend))
+		if err != nil {
+			return fmt.Errorf("mlatFile.WriteString: %w", err)
+		}
+	}
+
+	log.Info().Msg("wrote map checkpoints")
+	return nil
 }
