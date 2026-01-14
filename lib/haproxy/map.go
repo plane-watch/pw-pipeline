@@ -48,7 +48,7 @@ func (hap *HAProxy) DelMap(mapName, key string) error {
 		}
 
 		output = strings.Join([]string{line}, " ")
-		return fmt.Errorf(output)
+		return fmt.Errorf("unexpected haproxy output: %s", output)
 	}
 	return nil
 }
@@ -83,7 +83,7 @@ func (hap *HAProxy) addSetMap(mapName, key, value, cmd string) error {
 		}
 
 		output = strings.Join([]string{line}, " ")
-		return fmt.Errorf(output)
+		return fmt.Errorf("unexpected haproxy output: %s", output)
 	}
 	return nil
 }

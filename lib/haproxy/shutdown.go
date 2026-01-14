@@ -26,7 +26,7 @@ func (hap *HAProxy) ShutdownSession(id string) error {
 		}
 
 		output = strings.Join([]string{line}, " ")
-		return fmt.Errorf(output)
+		return fmt.Errorf("unexpected haproxy output: %s", output)
 	}
 	return nil
 }
