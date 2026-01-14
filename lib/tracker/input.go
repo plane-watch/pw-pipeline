@@ -223,6 +223,13 @@ func (t *Tracker) SetSink(s Sink) {
 	monitoring.AddHealthCheck(s)
 }
 
+// SetPostDecodeCallback sets a callback that is invoked after a frame is decoded
+// and the plane's position has been updated. This is useful for capturing position
+// data along with the source feeder information.
+func (t *Tracker) SetPostDecodeCallback(cb PostDecodeCallback) {
+	t.postDecodeCallback = cb
+}
+
 // Stop attempts to stop all the things, mid-flight. Use this if you have something else waiting for things to finish
 // use this if you are listening to remote sources
 func (t *Tracker) Stop() {
@@ -351,6 +358,17 @@ func (t *Tracker) decodeQueue(decodingQueue chan FrameEvent, done chan bool) {
 			plane.HandleSbs1Frame(typeFrame)
 		default:
 			t.log.Error().Str("Tag", frameEvent.Source().Tag).Msg("unknown frame type, cannot track")
+		}
+
+		// Call post-decode callback if registered and plane has position
+		if t.postDecodeCallback != nil && plane.HasLocation() {
+			t.postDecodeCallback(
+				plane.IcaoIdentifier(),
+				frameEvent.Source(),
+				plane.Lat(),
+				plane.Lon(),
+				int32(plane.Altitude()),
+			)
 		}
 	}
 	t.decodingQueueWaiter.Done()

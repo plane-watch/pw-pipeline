@@ -9,6 +9,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"plane.watch/lib/dedupe/forgetfulmap"
+	"plane.watch/lib/nats_io"
 	"plane.watch/lib/tracker"
 	"plane.watch/lib/tracker/beast"
 	"plane.watch/lib/tracker/mode_s"
@@ -66,6 +67,12 @@ type (
 
 		// Same-tag deduplication, keyed by payload bytes (string)
 		sameTagDedupe *forgetfulmap.ForgetfulSyncMap
+
+		// Background worker for latency and honesty scoring
+		background *BackgroundWorker
+
+		// Coordinator for multi-instance coordination (nil if disabled)
+		coordinator *Coordinator
 	}
 
 	// aircraftState tracks the sticky feeder state for a single aircraft
@@ -140,6 +147,10 @@ func NewFilter(opts ...Option) *Filter {
 		forgetfulmap.WithSweepInterval(f.config.SameTagDedupeTTL),
 	)
 
+	// Create and start the background worker for latency/honesty scoring
+	f.background = NewBackgroundWorker(&f.config, f.log)
+	f.background.Start()
+
 	return f
 }
 
@@ -161,6 +172,55 @@ func WithPacketWeight(weight float64) Option {
 func WithSignalWeight(weight float64) Option {
 	return func(f *Filter) {
 		f.config.SignalWeight = weight
+	}
+}
+
+// WithLatenessWeight sets the weight for relative latency in scoring
+func WithLatenessWeight(weight float64) Option {
+	return func(f *Filter) {
+		f.config.LatenessWeight = weight
+	}
+}
+
+// WithHonestyWeight sets the weight for consensus agreement in scoring
+func WithHonestyWeight(weight float64) Option {
+	return func(f *Filter) {
+		f.config.HonestyWeight = weight
+	}
+}
+
+// WithStalenessThreshold sets how long without packets before a feeder is stale
+func WithStalenessThreshold(threshold time.Duration) Option {
+	return func(f *Filter) {
+		f.config.StalenessThreshold = threshold
+	}
+}
+
+// WithLatenessThreshold sets the relative delay threshold for lateness penalty
+func WithLatenessThreshold(threshold time.Duration) Option {
+	return func(f *Filter) {
+		f.config.LatenessThreshold = threshold
+	}
+}
+
+// WithPositionTolerance sets the position tolerance for honesty scoring
+func WithPositionTolerance(meters float64) Option {
+	return func(f *Filter) {
+		f.config.PositionToleranceMeters = meters
+	}
+}
+
+// WithCoordinationEnabled enables/disables multi-instance coordination
+func WithCoordinationEnabled(enabled bool) Option {
+	return func(f *Filter) {
+		f.config.CoordinationEnabled = enabled
+	}
+}
+
+// WithClaimTTL sets how long remote claims are valid
+func WithClaimTTL(ttl time.Duration) Option {
+	return func(f *Filter) {
+		f.config.ClaimTTL = ttl
 	}
 }
 
@@ -186,6 +246,14 @@ func (f *Filter) Handle(fe *tracker.FrameEvent) tracker.Frame {
 	}
 	feederTag := source.Tag
 
+	// Check if a remote instance has a better claim (fast path check)
+	if f.coordinator != nil {
+		localScore := f.GetLocalScore(icao, feederTag)
+		if f.coordinator.ShouldDropForRemote(icao, localScore, f.config.HysteresisThreshold) {
+			return nil // Remote instance has better feeder
+		}
+	}
+
 	// Get the payload key for same-tag deduplication
 	payloadKey := f.getPayloadKey(frame)
 
@@ -198,14 +266,24 @@ func (f *Filter) Handle(fe *tracker.FrameEvent) tracker.Frame {
 	// Get or create aircraft state
 	state := f.getOrCreateAircraftState(icao)
 
-	// Process the frame and decide whether to accept or reject
-	accepted, switched := state.processFrame(feederTag, rssi, payloadKey, &f.config, f.sameTagDedupe, &f.log)
+	// Record arrival for latency tracking (before processing)
+	if payloadKey != "" {
+		f.background.RecordArrival(payloadKey, feederTag)
+	}
 
-	// Update metrics
+	// Process the frame and decide whether to accept or reject
+	accepted, switched := state.processFrame(feederTag, rssi, payloadKey, &f.config, f.sameTagDedupe, &f.log, f.background)
+
+	// Update metrics and publish claims
 	if accepted {
 		prometheusFramesAccepted.Inc()
 		if switched {
 			prometheusFeederSwitches.Inc()
+			// Publish claim on feeder switch
+			if f.coordinator != nil {
+				score := f.GetLocalScore(icao, feederTag)
+				f.coordinator.QueueClaim(icao, feederTag, score, "switch")
+			}
 		}
 		return frame
 	}
@@ -258,6 +336,7 @@ func (s *aircraftState) processFrame(
 	cfg *Config,
 	sameTagDedupe *forgetfulmap.ForgetfulSyncMap,
 	logger *zerolog.Logger,
+	background *BackgroundWorker,
 ) (accepted bool, switched bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -329,9 +408,18 @@ func (s *aircraftState) processFrame(
 		return true, true
 	}
 
-	// Calculate scores
-	stickyScore := calculateScore(stickyStats, cfg)
-	challengerScore := calculateScore(stats, cfg)
+	// Calculate scores with background-computed lateness and honesty
+	stickyLatenessScore := background.GetLatenessScore(s.stickyFeeder)
+	stickyHonestyScore := background.GetHonestyScore(s.stickyFeeder)
+	stickyScore := calculateScore(stickyStats, cfg, stickyLatenessScore, stickyHonestyScore)
+
+	// Apply staleness penalty to sticky feeder - if they've gone quiet, reduce their score
+	stalenessFactor := calculateStaleness(stickyStats.lastPacket, cfg.StalenessThreshold)
+	stickyScore *= stalenessFactor
+
+	challengerLatenessScore := background.GetLatenessScore(feederTag)
+	challengerHonestyScore := background.GetHonestyScore(feederTag)
+	challengerScore := calculateScore(stats, cfg, challengerLatenessScore, challengerHonestyScore)
 
 	// Check hysteresis
 	if shouldSwitch(stickyScore, challengerScore, cfg.HysteresisThreshold) {
@@ -357,8 +445,97 @@ func (s *aircraftState) processFrame(
 
 // Stop stops the filter and releases resources
 func (f *Filter) Stop() {
+	if f.coordinator != nil {
+		f.coordinator.Stop()
+	}
+	f.background.Stop()
 	f.aircraft.Stop()
 	f.sameTagDedupe.Stop()
+}
+
+// SetupCoordinator initializes the multi-instance coordinator with a NATS server.
+// This must be called after NewFilter if coordination is desired.
+func (f *Filter) SetupCoordinator(ns *nats_io.Server) error {
+	if !f.config.CoordinationEnabled {
+		return nil
+	}
+	if ns == nil {
+		f.log.Warn().Msg("Coordination enabled but no NATS server provided, disabling")
+		return nil
+	}
+
+	f.coordinator = NewCoordinator(ns, f, &f.config, f.log)
+	if err := f.coordinator.Start(); err != nil {
+		return err
+	}
+
+	// Set up periodic claim publishing callback
+	f.background.SetPeriodicCallback(func() {
+		scores := f.GetAllAircraftScores()
+		f.coordinator.PublishPeriodicClaims(scores)
+	})
+
+	f.log.Info().
+		Str("instance_id", f.coordinator.InstanceID()).
+		Msg("Multi-instance coordination enabled")
+
+	return nil
+}
+
+// GetLocalScore returns the current score for an aircraft from our local state
+func (f *Filter) GetLocalScore(icao uint32, feederTag string) float64 {
+	stateVal, ok := f.aircraft.Load(icao)
+	if !ok {
+		return 0
+	}
+
+	state := stateVal.(*aircraftState)
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+
+	stats, exists := state.feeders[feederTag]
+	if !exists {
+		return 0
+	}
+
+	latenessScore := f.background.GetLatenessScore(feederTag)
+	honestyScore := f.background.GetHonestyScore(feederTag)
+	return calculateScore(stats, &f.config, latenessScore, honestyScore)
+}
+
+// GetAllAircraftScores returns the current scores for all tracked aircraft
+func (f *Filter) GetAllAircraftScores() map[uint32]AircraftScore {
+	scores := make(map[uint32]AircraftScore)
+
+	f.aircraft.Range(func(key, value any) bool {
+		icao := key.(uint32)
+		state := value.(*aircraftState)
+
+		state.mu.RLock()
+		if state.stickyFeeder != "" {
+			if stats, exists := state.feeders[state.stickyFeeder]; exists {
+				latenessScore := f.background.GetLatenessScore(state.stickyFeeder)
+				honestyScore := f.background.GetHonestyScore(state.stickyFeeder)
+				score := calculateScore(stats, &f.config, latenessScore, honestyScore)
+				scores[icao] = AircraftScore{
+					FeederTag: state.stickyFeeder,
+					Score:     score,
+				}
+			}
+		}
+		state.mu.RUnlock()
+		return true
+	})
+
+	return scores
+}
+
+// SetPostDecodeCallback registers this filter to receive position updates from the tracker.
+// This enables honesty scoring by feeding decoded position data to the background worker.
+func (f *Filter) SetPostDecodeCallback(trk *tracker.Tracker) {
+	trk.SetPostDecodeCallback(func(icao uint32, source *tracker.FrameSource, lat, lon float64, alt int32) {
+		f.background.RecordPosition(icao, source.Tag, lat, lon, alt)
+	})
 }
 
 // String returns the name of this middleware

@@ -1,6 +1,9 @@
 package stickyfeeder
 
-import "math"
+import (
+	"math"
+	"time"
+)
 
 // normalizePacketCount converts a packet count to a 0-1 scale based on the rate.
 // Uses logarithmic scaling to compress the range:
@@ -49,15 +52,37 @@ func normalizeRSSI(rssiDBFS float64) float64 {
 }
 
 // calculateScore computes a weighted composite score for a feeder.
-// The score is a weighted combination of normalized packet count and RSSI.
+// The score is a weighted combination of normalized packet count, RSSI,
+// lateness (relative latency), and honesty (consensus agreement).
 // Higher scores indicate better feeder quality.
-func calculateScore(stats *feederStats, cfg *Config) float64 {
+func calculateScore(stats *feederStats, cfg *Config, latenessScore, honestyScore float64) float64 {
 	windowSeconds := cfg.MetricDecayWindow.Seconds()
 
 	packetScore := normalizePacketCount(stats.packetCount, windowSeconds)
 	rssiScore := normalizeRSSI(stats.rssiEMA)
 
-	return cfg.PacketCountWeight*packetScore + cfg.SignalWeight*rssiScore
+	return cfg.PacketCountWeight*packetScore +
+		cfg.SignalWeight*rssiScore +
+		cfg.LatenessWeight*latenessScore +
+		cfg.HonestyWeight*honestyScore
+}
+
+// calculateStaleness returns a penalty factor based on how long since the last packet.
+// Returns 1.0 if the feeder is fresh, decreasing toward 0.0 as it becomes stale.
+func calculateStaleness(lastPacket time.Time, threshold time.Duration) float64 {
+	elapsed := time.Since(lastPacket)
+	if elapsed <= threshold {
+		return 1.0 // Fresh, no penalty
+	}
+
+	// Linear decay from 1.0 to 0.0 over 3x the threshold
+	maxStaleness := 3 * threshold
+	excess := elapsed - threshold
+	if excess >= maxStaleness {
+		return 0.0 // Completely stale
+	}
+
+	return 1.0 - float64(excess)/float64(maxStaleness)
 }
 
 // shouldSwitch determines if we should switch from the current sticky feeder to a challenger.

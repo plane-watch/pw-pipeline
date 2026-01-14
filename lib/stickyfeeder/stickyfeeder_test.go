@@ -382,6 +382,219 @@ func BenchmarkCalculateScore(b *testing.B) {
 
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
-		calculateScore(stats, &cfg)
+		calculateScore(stats, &cfg, 1.0, 1.0)
+	}
+}
+
+// Staleness tests
+
+func TestCalculateStaleness(t *testing.T) {
+	threshold := 1 * time.Second
+
+	tests := []struct {
+		name      string
+		elapsed   time.Duration
+		expectMin float64
+		expectMax float64
+	}{
+		{"fresh packet", 0, 0.99, 1.01},
+		{"just under threshold", 900 * time.Millisecond, 0.99, 1.01},
+		{"at threshold", 1 * time.Second, 0.99, 1.01},
+		{"slightly stale", 2 * time.Second, 0.6, 0.7},
+		{"moderately stale", 3 * time.Second, 0.3, 0.4},
+		{"very stale", 4 * time.Second, -0.01, 0.01},
+		{"completely stale", 10 * time.Second, -0.01, 0.01},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lastPacket := time.Now().Add(-tt.elapsed)
+			result := calculateStaleness(lastPacket, threshold)
+			if result < tt.expectMin || result > tt.expectMax {
+				t.Errorf("calculateStaleness(-%v, %v) = %f, want between %f and %f",
+					tt.elapsed, threshold, result, tt.expectMin, tt.expectMax)
+			}
+		})
+	}
+}
+
+func TestFilter_StaleFeedersLoseAdvantage(t *testing.T) {
+	// Configure with low hysteresis and short staleness threshold
+	filter := NewFilter(
+		WithHysteresis(0.01),
+		WithStalenessThreshold(100*time.Millisecond),
+	)
+	defer filter.Stop()
+
+	icao := uint32(0x7C1234)
+
+	// First frame from feeder A
+	fe1 := makeMockFrameEvent(icao, []byte{0x01}, "feeder-A")
+	filter.Handle(fe1)
+
+	// Wait for feeder A to become stale
+	time.Sleep(500 * time.Millisecond)
+
+	// Now send frames from feeder B - should switch since A is stale
+	switched := false
+	for i := 0; i < 5; i++ {
+		payload := []byte{byte(i + 100)}
+		fe := makeMockFrameEvent(icao, payload, "feeder-B")
+		result := filter.Handle(fe)
+		if result != nil {
+			switched = true
+			break
+		}
+	}
+
+	if !switched {
+		t.Error("Expected switch to feeder B after feeder A became stale")
+	}
+}
+
+// Background worker tests
+
+func TestBackgroundWorker_LatencyTracking(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.BackgroundInterval = 50 * time.Millisecond
+	cfg.LatenessThreshold = 50 * time.Millisecond
+
+	worker := NewBackgroundWorker(&cfg, zerolog.Nop())
+	worker.Start()
+	defer worker.Stop()
+
+	// Record arrivals for the same payload from different feeders
+	payloadKey := "test-payload-1"
+
+	// Feeder A arrives first
+	worker.RecordArrival(payloadKey, "feeder-A")
+
+	// Feeder B arrives 10ms later (within threshold)
+	time.Sleep(10 * time.Millisecond)
+	worker.RecordArrival(payloadKey, "feeder-B")
+
+	// Feeder C arrives 200ms later (beyond threshold)
+	time.Sleep(200 * time.Millisecond)
+	worker.RecordArrival(payloadKey, "feeder-C")
+
+	// Wait for background computation
+	time.Sleep(100 * time.Millisecond)
+
+	// Feeder A should have excellent lateness score (always first)
+	scoreA := worker.GetLatenessScore("feeder-A")
+	if scoreA < 0.9 {
+		t.Errorf("Feeder A lateness score should be ~1.0, got %f", scoreA)
+	}
+
+	// Feeder B should have good lateness score (within threshold)
+	scoreB := worker.GetLatenessScore("feeder-B")
+	if scoreB < 0.8 {
+		t.Errorf("Feeder B lateness score should be high (within threshold), got %f", scoreB)
+	}
+
+	// Feeder C should have lower lateness score (beyond threshold)
+	scoreC := worker.GetLatenessScore("feeder-C")
+	if scoreC > 0.8 {
+		t.Errorf("Feeder C lateness score should be lower (beyond threshold), got %f", scoreC)
+	}
+}
+
+func TestBackgroundWorker_HonestyTracking(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.BackgroundInterval = 50 * time.Millisecond
+	cfg.PositionToleranceMeters = 200 // 200 meters tolerance
+
+	worker := NewBackgroundWorker(&cfg, zerolog.Nop())
+	worker.Start()
+	defer worker.Stop()
+
+	icao := uint32(0x7C1234)
+
+	// Run multiple rounds of position reports to build up honesty stats
+	for i := 0; i < 5; i++ {
+		// Feeders A and B report similar positions (within ~10m of each other)
+		worker.RecordPosition(icao, "feeder-A", -31.9505, 115.8605, 35000)   // Perth
+		worker.RecordPosition(icao, "feeder-B", -31.95055, 115.86055, 35000) // Very close (~10m)
+
+		// Feeder C reports a different position (outlier, ~2km away)
+		worker.RecordPosition(icao, "feeder-C", -31.9680, 115.8780, 35000)
+
+		// Wait for background computation
+		time.Sleep(60 * time.Millisecond)
+	}
+
+	// Feeders A and B should have good honesty scores (close to median consensus)
+	scoreA := worker.GetHonestyScore("feeder-A")
+	scoreB := worker.GetHonestyScore("feeder-B")
+
+	// Feeder C should have lower honesty score (outlier, far from consensus)
+	scoreC := worker.GetHonestyScore("feeder-C")
+
+	t.Logf("Honesty scores: A=%f, B=%f, C=%f", scoreA, scoreB, scoreC)
+
+	// A and B should have non-zero scores
+	if scoreA == 0 || scoreB == 0 {
+		t.Errorf("Feeders A and B should have non-zero scores: A=%f, B=%f", scoreA, scoreB)
+	}
+
+	// The outlier should have a lower score
+	if scoreC >= scoreA && scoreC >= scoreB {
+		t.Error("Outlier feeder C should have lower honesty score than at least one of A or B")
+	}
+}
+
+func TestHaversineDistance(t *testing.T) {
+	tests := []struct {
+		name      string
+		lat1      float64
+		lon1      float64
+		lat2      float64
+		lon2      float64
+		expectKm  float64
+		tolerance float64
+	}{
+		{
+			name: "Perth to Sydney",
+			lat1: -31.9505, lon1: 115.8605,
+			lat2: -33.8688, lon2: 151.2093,
+			expectKm:  3290,
+			tolerance: 50,
+		},
+		{
+			name: "Same point",
+			lat1: -31.9505, lon1: 115.8605,
+			lat2: -31.9505, lon2: 115.8605,
+			expectKm:  0,
+			tolerance: 0.001,
+		},
+		{
+			name: "Short distance",
+			lat1: -31.9505, lon1: 115.8605,
+			lat2: -31.9515, lon2: 115.8615,
+			expectKm:  0.14, // ~140 meters
+			tolerance: 0.02,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			distMeters := haversineDistance(tt.lat1, tt.lon1, tt.lat2, tt.lon2)
+			distKm := distMeters / 1000
+			if distKm < tt.expectKm-tt.tolerance || distKm > tt.expectKm+tt.tolerance {
+				t.Errorf("haversineDistance = %f km, want ~%f km (±%f)",
+					distKm, tt.expectKm, tt.tolerance)
+			}
+		})
+	}
+}
+
+// Benchmark for staleness calculation
+func BenchmarkCalculateStaleness(b *testing.B) {
+	threshold := 1 * time.Second
+	lastPacket := time.Now().Add(-500 * time.Millisecond)
+
+	b.ResetTimer()
+	for n := 0; n < b.N; n++ {
+		calculateStaleness(lastPacket, threshold)
 	}
 }
