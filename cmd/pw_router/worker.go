@@ -77,11 +77,11 @@ func (w *worker) isSignificant(last, candidate export.PlaneLocation) bool {
 					Int("diff_value", last.VerticalRate-candidate.VerticalRate).
 					Msg("Significant vertical rate change.")
 			}
+			return true
 		}
-		return true
 	}
 
-	if math.Abs(float64(candidate.Altitude-last.Altitude)) > SigAltitudeChange {
+	if candidate.HasAltitude && last.HasAltitude && math.Abs(float64(candidate.Altitude-last.Altitude)) > SigAltitudeChange {
 		if candidate.Updates.Altitude.After(last.Updates.Altitude) {
 			if log.Debug().Enabled() {
 				sigLog.Debug().
