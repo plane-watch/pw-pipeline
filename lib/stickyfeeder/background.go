@@ -324,7 +324,7 @@ func (w *BackgroundWorker) RecordArrival(payloadKey string, feederTag string) {
 	now := time.Now()
 
 	// Try to load existing arrival record
-	if existing, ok := w.arrivals.Load(payloadKey); ok {
+	if existing, ok := w.arrivals.Load(payloadKey); ok && existing != nil {
 		arrival := existing.(*frameArrival)
 		arrival.mu.Lock()
 		arrival.arrivals = append(arrival.arrivals, feederArrival{
