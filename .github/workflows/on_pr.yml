@@ -6,6 +6,12 @@ on:
   pull_request:
     branches:
       - main
+    types: [opened, synchronize, reopened]
+
+# Set workflow-wide environment variables
+env:
+  GHCR_ORG: ${{ github.repository_owner }}
+  GHCR_REGISTRY: ghcr.io
 
 jobs:
 
@@ -65,8 +71,8 @@ jobs:
           go install golang.org/x/tools/cmd/deadcode@latest
           deadcode ./...
 
-  test_build:
-    name: Test Build
+  build_and_push:
+    name: Build & Push (PR)
     runs-on: ubuntu-latest
     needs: [hadolint, gochecks]
     strategy:
@@ -78,9 +84,6 @@ jobs:
           - pw_router
           - pw_ws_broker
           - mlat-server
-        arch:
-          - linux/amd64
-          - linux/arm64
 
     steps:
 
@@ -90,12 +93,29 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Get metadata from repo
-      - name: Extract metadata (tags, labels) for Docker
-        id: meta
-        uses: docker/metadata-action@v5
+      - name: Get short commit hash
+        id: vars
+        shell: bash
+        run: |
+          echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      # Sanitize branch name for use as Docker tag
+      - name: Sanitize branch name
+        id: branch
+        shell: bash
+        run: |
+          BRANCH_NAME="${{ github.head_ref }}"
+          # Replace / with - and remove any invalid characters
+          SANITIZED=$(echo "$BRANCH_NAME" | sed 's/[^a-zA-Z0-9._-]/-/g' | sed 's/--*/-/g' | sed 's/^-//' | sed 's/-$//')
+          echo "name=${SANITIZED}" >> $GITHUB_OUTPUT
+
+      # Log into ghcr (so we can push images)
+      - name: Login to ghcr.io
+        uses: docker/login-action@v3
         with:
-          images: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}
+          registry: ${{ env.GHCR_REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       # Set up QEMU for multi-arch builds
       - name: Set up QEMU
@@ -106,14 +126,17 @@ jobs:
         id: buildx
         uses: docker/setup-buildx-action@v3
 
-      # Test Build
-      - name: Test Build - ${{ matrix.image }}
+      # Build & Push
+      - name: Build & Push - ${{ matrix.image }}
         uses: docker/build-push-action@v6
         with:
           context: .
           file: docker/${{ matrix.image }}/Dockerfile
-          no-cache: true
-          platforms: ${{ matrix.arch }}
-          push: false
-          tags: test_${{ matrix.image }}_${{ matrix.arch }}
-          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          tags: |
+            ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_ORG }}/${{ matrix.image }}:${{ steps.branch.outputs.name }}
+            ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_ORG }}/${{ matrix.image }}:${{ steps.branch.outputs.name }}-${{ steps.vars.outputs.sha_short }}
