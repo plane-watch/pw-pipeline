@@ -68,6 +68,9 @@ type (
 		// Same-tag deduplication, keyed by payload bytes (string)
 		sameTagDedupe *forgetfulmap.ForgetfulSyncMap
 
+		// Track feeder tags we've already warned about for same-tag duplicates
+		loggedDuplicateTags sync.Map
+
 		// Background worker for latency and honesty scoring
 		background *BackgroundWorker
 
@@ -105,9 +108,6 @@ type (
 
 		// totalPackets is the total packets ever seen (for observability)
 		totalPackets uint64
-
-		// hasLoggedDuplicate tracks if we've already logged a same-tag duplicate warning
-		hasLoggedDuplicate bool
 	}
 )
 
@@ -272,18 +272,13 @@ func (f *Filter) Handle(fe *tracker.FrameEvent) tracker.Frame {
 	}
 
 	// Process the frame and decide whether to accept or reject
-	accepted, switched := state.processFrame(feederTag, rssi, payloadKey, &f.config, f.sameTagDedupe, &f.log, f.background)
+	accepted, switched := state.processFrame(feederTag, rssi, payloadKey, &f.config, f.sameTagDedupe, &f.loggedDuplicateTags, &f.log, f.background)
 
-	// Update metrics and publish claims
+	// Update metrics
 	if accepted {
 		prometheusFramesAccepted.Inc()
 		if switched {
 			prometheusFeederSwitches.Inc()
-			// Publish claim on feeder switch
-			if f.coordinator != nil {
-				score := f.GetLocalScore(icao, feederTag)
-				f.coordinator.QueueClaim(icao, feederTag, score, "switch")
-			}
 		}
 		return frame
 	}
@@ -335,6 +330,7 @@ func (s *aircraftState) processFrame(
 	payloadKey string,
 	cfg *Config,
 	sameTagDedupe *forgetfulmap.ForgetfulSyncMap,
+	sameTagLoggedTags *sync.Map,
 	logger *zerolog.Logger,
 	background *BackgroundWorker,
 ) (accepted bool, switched bool) {
@@ -356,9 +352,8 @@ func (s *aircraftState) processFrame(
 	if payloadKey != "" && (s.stickyFeeder == "" || s.stickyFeeder == feederTag) {
 		dedupeKey := feederTag + ":" + payloadKey
 		if sameTagDedupe.HasKeyStr(dedupeKey) {
-			// Duplicate from same tag - log first occurrence per feeder
-			if !stats.hasLoggedDuplicate {
-				stats.hasLoggedDuplicate = true
+			// Duplicate from same tag - log first occurrence per feeder (globally, not per aircraft)
+			if _, alreadyLogged := sameTagLoggedTags.LoadOrStore(feederTag, true); !alreadyLogged {
 				logger.Info().
 					Str("feeder", feederTag).
 					Msg("Detected same-tag duplicate frames (multiple receivers with same API key)")

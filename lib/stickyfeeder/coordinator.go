@@ -1,7 +1,6 @@
 package stickyfeeder
 
 import (
-	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -85,9 +84,6 @@ type (
 		// Remote claims tracking
 		remoteClaims *forgetfulmap.ForgetfulSyncMap
 
-		// Outbound claim queue (non-blocking)
-		claimQueue chan *AircraftClaim
-
 		// NATS subscription channel
 		claimSub chan *nats.Msg
 
@@ -118,7 +114,6 @@ func NewCoordinator(ns *nats_io.Server, filter *Filter, config *Config, log zero
 		natsServer: ns,
 		filter:     filter,
 		log:        log.With().Str("component", "Coordinator").Str("instance", instanceID).Logger(),
-		claimQueue: make(chan *AircraftClaim, config.ClaimQueueSize),
 		stopCh:     make(chan struct{}),
 	}
 
@@ -146,9 +141,8 @@ func (c *Coordinator) Start() error {
 
 	c.log.Info().Str("instance_id", c.instanceID).Msg("Starting coordinator")
 
-	// Start workers
-	c.wg.Add(2)
-	go c.claimPublisher()
+	// Start claim consumer worker
+	c.wg.Add(1)
 	go c.claimConsumer()
 
 	return nil
@@ -157,7 +151,6 @@ func (c *Coordinator) Start() error {
 // Stop halts the coordinator
 func (c *Coordinator) Stop() {
 	close(c.stopCh)
-	close(c.claimQueue)
 	c.wg.Wait()
 	c.remoteClaims.Stop()
 }
@@ -165,65 +158,6 @@ func (c *Coordinator) Stop() {
 // InstanceID returns this coordinator's unique instance ID
 func (c *Coordinator) InstanceID() string {
 	return c.instanceID
-}
-
-// claimPublisher handles outbound claim publishing with batching
-func (c *Coordinator) claimPublisher() {
-	defer c.wg.Done()
-
-	subject := NatsApiStickyClaimV1 + "." + c.instanceID
-
-	const (
-		batchInterval = 50 * time.Millisecond
-		maxBatchSize  = 500
-	)
-
-	ticker := time.NewTicker(batchInterval)
-	defer ticker.Stop()
-
-	pending := make([]*AircraftClaim, 0, maxBatchSize)
-
-	publishBatch := func() {
-		if len(pending) == 0 {
-			return
-		}
-
-		batch := &ClaimBatch{
-			InstanceId: c.instanceID,
-			Timestamp:  time.Now().UnixNano(),
-			Claims:     pending,
-		}
-
-		prometheusClaimBatchSize.Observe(float64(len(pending)))
-
-		data, err := proto.Marshal(batch)
-		if err != nil {
-			c.log.Error().Err(err).Msg("Failed to marshal claim batch")
-		} else if err := c.natsServer.Publish(subject, data); err != nil {
-			c.log.Error().Err(err).Msg("Failed to publish claim batch")
-		}
-
-		pending = make([]*AircraftClaim, 0, maxBatchSize)
-	}
-
-	for {
-		select {
-		case <-c.stopCh:
-			publishBatch() // flush remaining
-			return
-		case <-ticker.C:
-			publishBatch()
-		case claim, ok := <-c.claimQueue:
-			if !ok {
-				publishBatch() // flush remaining
-				return
-			}
-			pending = append(pending, claim)
-			if len(pending) >= maxBatchSize {
-				publishBatch()
-			}
-		}
-	}
 }
 
 // claimConsumer handles incoming claims from other instances
@@ -293,26 +227,6 @@ func (c *Coordinator) handleIncomingClaim(claim *AircraftClaim) {
 		})
 	} else {
 		prometheusClaimsIgnored.WithLabelValues("stale").Inc()
-	}
-}
-
-// QueueClaim queues a claim for publishing (non-blocking)
-func (c *Coordinator) QueueClaim(icao uint32, feederTag string, score float64, trigger string) {
-	claim := &AircraftClaim{
-		InstanceId: c.instanceID,
-		Icao:       icao,
-		FeederTag:  feederTag,
-		Score:      score,
-		Timestamp:  time.Now().UnixNano(),
-		Sequence:   c.sequence.Add(1),
-	}
-
-	select {
-	case c.claimQueue <- claim:
-		prometheusClaimsPublished.WithLabelValues(trigger).Inc()
-	default:
-		// Queue full, drop the claim (not critical)
-		c.log.Warn().Str("icao", fmt.Sprintf("%06X", icao)).Msg("Claim queue full, dropping claim")
 	}
 }
 

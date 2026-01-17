@@ -149,6 +149,13 @@ func main() {
 			Value:    0.10,
 			EnvVars:  []string{"STICKY_HONESTY_WEIGHT"},
 		},
+		&cli.Float64Flag{
+			Category: "Sticky Feeder",
+			Name:     "sticky-position-tolerance",
+			Usage:    "position difference in meters allowed before feeders are considered in disagreement",
+			Value:    500,
+			EnvVars:  []string{"STICKY_POSITION_TOLERANCE"},
+		},
 		&cli.DurationFlag{
 			Category: "Sticky Feeder",
 			Name:     "sticky-staleness-threshold",
@@ -242,6 +249,7 @@ func runDaemon(c *cli.Context) error {
 			stickyfeeder.WithSignalWeight(c.Float64("sticky-signal-weight")),
 			stickyfeeder.WithLatenessWeight(c.Float64("sticky-lateness-weight")),
 			stickyfeeder.WithHonestyWeight(c.Float64("sticky-honesty-weight")),
+			stickyfeeder.WithPositionTolerance(c.Float64("sticky-position-tolerance")),
 			stickyfeeder.WithStalenessThreshold(c.Duration("sticky-staleness-threshold")),
 			stickyfeeder.WithLatenessThreshold(c.Duration("sticky-lateness-threshold")),
 			stickyfeeder.WithCoordinationEnabled(c.Bool("enable-coordination")),
