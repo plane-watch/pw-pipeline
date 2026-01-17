@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package stickyfeeder;
+
+option go_package = "plane.watch/lib/stickyfeeder";
+
+// AircraftClaim represents a claim broadcast from one instance
+message AircraftClaim {
+  string instance_id = 1;
+  uint32 icao = 2;
+  string feeder_tag = 3;
+  double score = 4;
+  int64 timestamp = 5;
+  uint64 sequence = 6;
+}
+
+// ClaimBatch allows efficient batching of multiple claims in one message
+message ClaimBatch {
+  string instance_id = 1;
+  repeated AircraftClaim claims = 2;
+  int64 timestamp = 3;
+}

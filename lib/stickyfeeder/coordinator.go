@@ -1,15 +1,16 @@
 package stickyfeeder
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	jsoniter "github.com/json-iterator/go"
 	"github.com/nats-io/nats.go"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/rs/zerolog"
+	"google.golang.org/protobuf/proto"
 	"plane.watch/lib/dedupe/forgetfulmap"
 	"plane.watch/lib/nats_io"
 	"plane.watch/lib/randstr"
@@ -85,7 +86,7 @@ type (
 		remoteClaims *forgetfulmap.ForgetfulSyncMap
 
 		// Outbound claim queue (non-blocking)
-		claimQueue chan AircraftClaim
+		claimQueue chan *AircraftClaim
 
 		// NATS subscription channel
 		claimSub chan *nats.Msg
@@ -96,23 +97,6 @@ type (
 		// Control
 		stopCh chan struct{}
 		wg     sync.WaitGroup
-	}
-
-	// AircraftClaim represents a claim broadcast from one instance
-	AircraftClaim struct {
-		InstanceID string  `json:"instance_id"`
-		ICAO       uint32  `json:"icao"`
-		FeederTag  string  `json:"feeder_tag"`
-		Score      float64 `json:"score"`
-		Timestamp  int64   `json:"timestamp"`
-		Sequence   uint64  `json:"sequence"`
-	}
-
-	// ClaimBatch allows efficient batching of multiple claims in one message
-	ClaimBatch struct {
-		InstanceID string          `json:"instance_id"`
-		Claims     []AircraftClaim `json:"claims"`
-		Timestamp  int64           `json:"timestamp"`
 	}
 
 	// RemoteClaim represents another instance's claim on an aircraft
@@ -134,7 +118,7 @@ func NewCoordinator(ns *nats_io.Server, filter *Filter, config *Config, log zero
 		natsServer: ns,
 		filter:     filter,
 		log:        log.With().Str("component", "Coordinator").Str("instance", instanceID).Logger(),
-		claimQueue: make(chan AircraftClaim, config.ClaimQueueSize),
+		claimQueue: make(chan *AircraftClaim, config.ClaimQueueSize),
 		stopCh:     make(chan struct{}),
 	}
 
@@ -183,22 +167,61 @@ func (c *Coordinator) InstanceID() string {
 	return c.instanceID
 }
 
-// claimPublisher handles outbound claim publishing
+// claimPublisher handles outbound claim publishing with batching
 func (c *Coordinator) claimPublisher() {
 	defer c.wg.Done()
 
-	json := jsoniter.ConfigFastest
 	subject := NatsApiStickyClaimV1 + "." + c.instanceID
 
-	for claim := range c.claimQueue {
-		data, err := json.Marshal(claim)
-		if err != nil {
-			c.log.Error().Err(err).Msg("Failed to marshal claim")
-			continue
+	const (
+		batchInterval = 50 * time.Millisecond
+		maxBatchSize  = 500
+	)
+
+	ticker := time.NewTicker(batchInterval)
+	defer ticker.Stop()
+
+	pending := make([]*AircraftClaim, 0, maxBatchSize)
+
+	publishBatch := func() {
+		if len(pending) == 0 {
+			return
 		}
 
-		if err := c.natsServer.Publish(subject, data); err != nil {
-			c.log.Error().Err(err).Msg("Failed to publish claim")
+		batch := &ClaimBatch{
+			InstanceId: c.instanceID,
+			Timestamp:  time.Now().UnixNano(),
+			Claims:     pending,
+		}
+
+		prometheusClaimBatchSize.Observe(float64(len(pending)))
+
+		data, err := proto.Marshal(batch)
+		if err != nil {
+			c.log.Error().Err(err).Msg("Failed to marshal claim batch")
+		} else if err := c.natsServer.Publish(subject, data); err != nil {
+			c.log.Error().Err(err).Msg("Failed to publish claim batch")
+		}
+
+		pending = make([]*AircraftClaim, 0, maxBatchSize)
+	}
+
+	for {
+		select {
+		case <-c.stopCh:
+			publishBatch() // flush remaining
+			return
+		case <-ticker.C:
+			publishBatch()
+		case claim, ok := <-c.claimQueue:
+			if !ok {
+				publishBatch() // flush remaining
+				return
+			}
+			pending = append(pending, claim)
+			if len(pending) >= maxBatchSize {
+				publishBatch()
+			}
 		}
 	}
 }
@@ -206,8 +229,6 @@ func (c *Coordinator) claimPublisher() {
 // claimConsumer handles incoming claims from other instances
 func (c *Coordinator) claimConsumer() {
 	defer c.wg.Done()
-
-	json := jsoniter.ConfigFastest
 
 	for {
 		select {
@@ -220,40 +241,35 @@ func (c *Coordinator) claimConsumer() {
 
 			prometheusClaimsReceived.Inc()
 
-			// Try to parse as single claim first
-			var claim AircraftClaim
-			if err := json.Unmarshal(msg.Data, &claim); err != nil {
-				// Try as batch
-				var batch ClaimBatch
-				if err := json.Unmarshal(msg.Data, &batch); err != nil {
-					c.log.Error().Err(err).Msg("Failed to unmarshal claim")
-					continue
-				}
-				for _, bc := range batch.Claims {
-					bc.InstanceID = batch.InstanceID
-					c.handleIncomingClaim(bc)
-				}
+			// Parse as batch (we only send batches now)
+			var batch ClaimBatch
+			if err := proto.Unmarshal(msg.Data, &batch); err != nil {
+				c.log.Error().Err(err).Msg("Failed to unmarshal claim batch")
 				continue
 			}
-
-			c.handleIncomingClaim(claim)
+			for _, claim := range batch.Claims {
+				if claim.InstanceId == "" {
+					claim.InstanceId = batch.InstanceId
+				}
+				c.handleIncomingClaim(claim)
+			}
 		}
 	}
 }
 
 // handleIncomingClaim processes a single incoming claim
-func (c *Coordinator) handleIncomingClaim(claim AircraftClaim) {
+func (c *Coordinator) handleIncomingClaim(claim *AircraftClaim) {
 	// Ignore our own claims
-	if claim.InstanceID == c.instanceID {
+	if claim.InstanceId == c.instanceID {
 		prometheusClaimsIgnored.WithLabelValues("self").Inc()
 		return
 	}
 
-	existing, exists := c.remoteClaims.Load(claim.ICAO)
+	existing, exists := c.remoteClaims.Load(claim.Icao)
 	if !exists {
 		// New claim
-		c.remoteClaims.Store(claim.ICAO, &RemoteClaim{
-			InstanceID: claim.InstanceID,
+		c.remoteClaims.Store(claim.Icao, &RemoteClaim{
+			InstanceID: claim.InstanceId,
 			FeederTag:  claim.FeederTag,
 			Score:      claim.Score,
 			Sequence:   claim.Sequence,
@@ -266,10 +282,10 @@ func (c *Coordinator) handleIncomingClaim(claim AircraftClaim) {
 	remote := existing.(*RemoteClaim)
 
 	// Update if: newer sequence from same instance, OR different instance with better score
-	if (claim.InstanceID == remote.InstanceID && claim.Sequence > remote.Sequence) ||
-		(claim.InstanceID != remote.InstanceID && claim.Score > remote.Score) {
-		c.remoteClaims.Store(claim.ICAO, &RemoteClaim{
-			InstanceID: claim.InstanceID,
+	if (claim.InstanceId == remote.InstanceID && claim.Sequence > remote.Sequence) ||
+		(claim.InstanceId != remote.InstanceID && claim.Score > remote.Score) {
+		c.remoteClaims.Store(claim.Icao, &RemoteClaim{
+			InstanceID: claim.InstanceId,
 			FeederTag:  claim.FeederTag,
 			Score:      claim.Score,
 			Sequence:   claim.Sequence,
@@ -282,9 +298,9 @@ func (c *Coordinator) handleIncomingClaim(claim AircraftClaim) {
 
 // QueueClaim queues a claim for publishing (non-blocking)
 func (c *Coordinator) QueueClaim(icao uint32, feederTag string, score float64, trigger string) {
-	claim := AircraftClaim{
-		InstanceID: c.instanceID,
-		ICAO:       icao,
+	claim := &AircraftClaim{
+		InstanceId: c.instanceID,
+		Icao:       icao,
 		FeederTag:  feederTag,
 		Score:      score,
 		Timestamp:  time.Now().UnixNano(),
@@ -296,7 +312,7 @@ func (c *Coordinator) QueueClaim(icao uint32, feederTag string, score float64, t
 		prometheusClaimsPublished.WithLabelValues(trigger).Inc()
 	default:
 		// Queue full, drop the claim (not critical)
-		c.log.Warn().Uint32("icao", icao).Msg("Claim queue full, dropping claim")
+		c.log.Warn().Str("icao", fmt.Sprintf("%06X", icao)).Msg("Claim queue full, dropping claim")
 	}
 }
 
@@ -306,19 +322,18 @@ func (c *Coordinator) PublishPeriodicClaims(aircraftScores map[uint32]AircraftSc
 		return
 	}
 
-	json := jsoniter.ConfigFastest
 	subject := NatsApiStickyClaimV1 + "." + c.instanceID
 
-	batch := ClaimBatch{
-		InstanceID: c.instanceID,
+	batch := &ClaimBatch{
+		InstanceId: c.instanceID,
 		Timestamp:  time.Now().UnixNano(),
-		Claims:     make([]AircraftClaim, 0, len(aircraftScores)),
+		Claims:     make([]*AircraftClaim, 0, len(aircraftScores)),
 	}
 
 	for icao, as := range aircraftScores {
-		batch.Claims = append(batch.Claims, AircraftClaim{
-			InstanceID: c.instanceID,
-			ICAO:       icao,
+		batch.Claims = append(batch.Claims, &AircraftClaim{
+			InstanceId: c.instanceID,
+			Icao:       icao,
 			FeederTag:  as.FeederTag,
 			Score:      as.Score,
 			Timestamp:  batch.Timestamp,
@@ -328,7 +343,7 @@ func (c *Coordinator) PublishPeriodicClaims(aircraftScores map[uint32]AircraftSc
 
 	prometheusClaimBatchSize.Observe(float64(len(batch.Claims)))
 
-	data, err := json.Marshal(batch)
+	data, err := proto.Marshal(batch)
 	if err != nil {
 		c.log.Error().Err(err).Msg("Failed to marshal claim batch")
 		return
