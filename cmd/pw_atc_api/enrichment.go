@@ -105,13 +105,17 @@ func (sa *EnrichmentApiHandler) enrichHandler(msg *nats.Msg) {
 
 			var segments []DbRouteSegments
 			var routeStr string
-			_ = db.Select(&segments, `SELECT a.name,a.icao_code FROM route_segments rs left join airports a on a.id = rs.airport_id  WHERE route_id=$1 order by rs."order"`, route.Id)
-			for _, segment := range segments {
-				routeStr += segment.IcaoCode + "-"
-				response.Route.Segments = append(response.Route.Segments, export.Segment{
-					Name:     segment.Name,
-					ICAOCode: segment.IcaoCode,
-				})
+			err := db.Select(&segments, `SELECT a.name,a.icao_code FROM route_segments rs left join airports a on a.id = rs.airport_id  WHERE route_id=$1 order by rs."order"`, route.Id)
+			if err == nil {
+				for _, segment := range segments {
+					routeStr += segment.IcaoCode + "-"
+					response.Route.Segments = append(response.Route.Segments, export.Segment{
+						Name:     segment.Name,
+						ICAOCode: segment.IcaoCode,
+					})
+				}
+			} else {
+				sa.log.Error().Err(err).Send()
 			}
 			routeStr = strings.Trim(routeStr, "-")
 			response.Route.RouteCode = &routeStr
