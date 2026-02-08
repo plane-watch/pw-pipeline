@@ -36,6 +36,7 @@ func (nr *natsIoRouter) connect() error {
 			Err(err).
 			Str("MQ", "nats.io").
 			Msg("Unable to determine configuration from URL")
+		return err
 	}
 	nr.n.DroppedCounter(promauto.NewCounter(prometheus.CounterOpts{
 		Name: "pw_router_nats_dropped_message_err_count",
