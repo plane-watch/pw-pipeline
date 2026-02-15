@@ -783,21 +783,21 @@ func (p *Plane) addLatLong(lat, lon float64, ts time.Time, velocityCheck bool) (
 				warn = fmt.Errorf(" the distance (%0.2fm) between {%0.4f,%0.4f} and {%0.4f,%0.4f} is too great for %s to travel in %0.2f seconds. Discarding", travelledDistance, lat, lon, p.location.latitude, p.location.longitude, p.icao, durationTravelled)
 				p.location.TrackFinished = true
 
-				// debug log the recently received list of frames
-				ourCalculatedVelocityMpS := travelledDistance / (durationTravelled / 1.0)
-				reportedVelocityMpS := p.location.velocity / 1.944
-				p.tracker.log.Error().
-					Str("ICAO", p.icao).
-					Float64("Distance", travelledDistance).
-					Float64("Duration", durationTravelled).
-					Float64("Max Acceptable Distance", acceptableMaxDistance).
-					Float64("Reported Velocity m/s", reportedVelocityMpS).
-					Float64("Calculated Velocity m/s", ourCalculatedVelocityMpS).
-					Floats64("Prev Lat/Lon", []float64{p.location.latitude, p.location.longitude}).
-					Floats64("This Lat/Lon", []float64{lat, lon}).
-					Msg("A Frame Too Far")
-
 				if p.tracker.log.Debug().Enabled() {
+					// debug log the recently received list of frames
+					ourCalculatedVelocityMpS := travelledDistance / (durationTravelled / 1.0)
+					reportedVelocityMpS := p.location.velocity / 1.944
+					p.tracker.log.Error().
+						Str("ICAO", p.icao).
+						Float64("Distance", travelledDistance).
+						Float64("Duration", durationTravelled).
+						Float64("Max Acceptable Distance", acceptableMaxDistance).
+						Float64("Reported Velocity m/s", reportedVelocityMpS).
+						Float64("Calculated Velocity m/s", ourCalculatedVelocityMpS).
+						Floats64("Prev Lat/Lon", []float64{p.location.latitude, p.location.longitude}).
+						Floats64("This Lat/Lon", []float64{lat, lon}).
+						Msg("A Frame Too Far")
+
 					var lastTS int64
 					p.recentFrames.Range(func(f *mode_s.Frame) bool {
 						if lastTS == 0 {

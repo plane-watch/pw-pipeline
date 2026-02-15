@@ -130,7 +130,11 @@ func (tap *IngestTap) HealthCheck() bool {
 
 func (tap *IngestTap) Handle(frame *tracker.FrameEvent) tracker.Frame {
 	if tap.head != nil {
-		tap.queue <- frame
+		select {
+		case tap.queue <- frame:
+		default:
+			// Drop tap data rather than block pipeline
+		}
 	}
 	return frame.Frame()
 }
