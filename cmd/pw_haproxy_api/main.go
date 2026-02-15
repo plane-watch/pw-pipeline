@@ -1,5 +1,11 @@
 package main
 
+// This service watches the authoritative list of valid feeder UUIDs via NATS,
+// ensures HAProxy maps contain exactly those keys (and routes MLAT keys to the right regional backend),
+// periodically snapshots those maps to disk,
+// continuously reads HAProxy stick-tables + sessions to build a live “who’s connected and how much traffic” cache,
+// serves that via /api/v1/feeder/<uuid>, and kills existing HAProxy sessions for feeders that are no longer authorised.
+
 import (
 	"encoding/json"
 	"errors"
@@ -682,7 +688,12 @@ func populateMapsInMemory(fc *feederauth.FeederCache, hap *haproxy.HAProxy) erro
 		if slices.Contains(allowedFeeders, apiKey) {
 			continue
 		}
-		log.Info().Str("map", mapBEAST).Str("apikey", apiKey).Str("backend", backend).Msg("removing feeder from map")
+		err = hap.DelMap(apiKey, backend)
+		if err != nil {
+			log.Error().Err(err).Str("map", mapBEAST).Str("apikey", apiKey).Str("backend", backend).Msg("error removing feeder from map")
+			continue
+		}
+		log.Info().Str("map", mapBEAST).Str("apikey", apiKey).Str("backend", backend).Msg("removed feeder from map")
 	}
 
 	// remove feeders from MLAT map that are no longer valid
@@ -694,7 +705,12 @@ func populateMapsInMemory(fc *feederauth.FeederCache, hap *haproxy.HAProxy) erro
 		if slices.Contains(allowedFeeders, apiKey) {
 			continue
 		}
-		log.Info().Str("map", mapMLAT).Str("apikey", apiKey).Str("backend", backend).Msg("removing feeder from map")
+		err = hap.DelMap(apiKey, backend)
+		if err != nil {
+			log.Error().Err(err).Str("map", mapMLAT).Str("apikey", apiKey).Str("backend", backend).Msg("error removing feeder from map")
+			continue
+		}
+		log.Info().Str("map", mapMLAT).Str("apikey", apiKey).Str("backend", backend).Msg("removed feeder from map")
 	}
 
 	// kill session of feeders no longer valid
