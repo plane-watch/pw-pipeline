@@ -496,6 +496,9 @@ func parseTableKey(key string, connType ConnType) (string, Connection, error) {
 	if err != nil {
 		return "", Connection{}, fmt.Errorf("could not parse port from table key: %s", key)
 	}
+	if port < 0 || port > 65535 {
+		return "", Connection{}, fmt.Errorf("parsed port '%d' out of range in table key: %s", port, key)
+	}
 
 	c := Connection{
 		connType: connType,
