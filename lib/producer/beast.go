@@ -13,26 +13,30 @@ const maxBeastMessageLen = 23
 
 func (p *Producer) beastScanner(scan *bufio.Scanner) error {
 	lastTimeStamp := time.Duration(0)
+	useDelay := p.beastDelay
+	frameSource := &p.FrameSource
+	beastCounter := p.stats.beast
+
 	// make our best lib allocate out of a sync.Pool
 	beast.UsePoolAllocator = true
 	p.log.Debug().Msg("entering scan.Scan() loop")
-	for scan.Scan() && scan.Err() == nil {
+	for scan.Scan() {
 		frame, err := beast.NewFrame(scan.Bytes(), p.isRadarCape)
 		if nil != err {
 			continue
 		}
 
-		if p.beastDelay {
+		if useDelay {
 			currentTs := frame.BeastTicksNs()
 			if lastTimeStamp > 0 && lastTimeStamp < currentTs {
 				time.Sleep(currentTs - lastTimeStamp)
 			}
 			lastTimeStamp = currentTs
 		}
-		p.addFrame(frame, &p.FrameSource)
+		p.addFrame(frame, frameSource)
 
-		if nil != p.stats.beast {
-			p.stats.beast.Inc()
+		if nil != beastCounter {
+			beastCounter.Inc()
 		}
 	}
 	p.log.Debug().Msg("exited scan.Scan() loop")

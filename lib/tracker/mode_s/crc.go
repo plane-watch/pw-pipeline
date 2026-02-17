@@ -307,15 +307,9 @@ func (f *Frame) checkCrc() error {
 func (f *Frame) validateAPField() (uint32, error) {
 	var n = f.getMessageLengthBytes()
 
-	// Create message copy with AP field zeroed
-	msg := make([]byte, len(f.message))
-	copy(msg, f.message)
-	msg[n-3] = 0
-	msg[n-2] = 0
-	msg[n-1] = 0
-
-	// Calculate CRC of message with zeroed AP field
-	crc := calculateCRC(msg, n-3)
+	// AP occupies the final 3 bytes and is excluded from CRC input.
+	// We can compute directly over the original message without copying.
+	crc := calculateCRC(f.message, n-3)
 
 	// Extract AP field from original message
 	apField := uint32(f.message[n-3])<<16 |
