@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/rs/zerolog/log"
-	"strings"
 )
 
 const (
@@ -137,8 +136,7 @@ func inferCommBMessageType(mb []byte) (byte, byte, error) {
 	// Detection: BDS Code && Callsign
 	if mb[0] == 0b0010_0000 {
 		// bits 9-56 are call sign, should not contain any ? chars from aisCharset
-		callsign := string(decodeFlightNumber(mb[1:7]))
-		if callsign != "" && !strings.Contains(callsign, "?") {
+		if callsign := decodeFlightNumber(mb[1:7]); len(callsign) > 0 {
 			return 2, 0, nil
 		}
 	}

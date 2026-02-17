@@ -561,7 +561,9 @@ func decodeFlightNumber(b []byte) []byte {
 	if len(b) != 6 {
 		panic(fmt.Sprintf("attempting to decode a flight number/callsign with too many bytes (%d)", len(b)))
 	}
-	callsign := make([]byte, 8)
+
+	// Decode into a stack buffer first; only allocate when returning a valid value.
+	var callsign [8]byte
 	callsign[0] = aisCharset[b[0]>>2] // 6 bits
 	callsign[1] = aisCharset[((b[0]&3)<<4)|(b[1]>>4)]
 	callsign[2] = aisCharset[((b[1]&15)<<2)|(b[2]>>6)]
@@ -575,7 +577,7 @@ func decodeFlightNumber(b []byte) []byte {
 	// Valid characters: A-Z, -./ (ASCII 45-47), 0-9, space, @
 	// Reference: readsb mode_s.c:824-840
 	callsignValid := true
-	for i := 0; i < 8; i++ {
+	for i := 0; i < len(callsign); i++ {
 		c := callsign[i]
 		if (c >= 'A' && c <= 'Z') ||
 			(c >= '-' && c <= '9') || // ASCII 45-57: -./ and 0-9
@@ -595,10 +597,13 @@ func decodeFlightNumber(b []byte) []byte {
 
 	// Reject common invalid patterns, because occasionally misconfigured aircraft send bogus call signs.
 	// For example-- we've seen things like: A90004A0200000000000007D8DB4 which is basically all nulls.
-	s := string(callsign)
-	if s == "@@@@@@@@" || s == "        " || s == "--------" {
+	if callsign == [8]byte{'@', '@', '@', '@', '@', '@', '@', '@'} ||
+		callsign == [8]byte{' ', ' ', ' ', ' ', ' ', ' ', ' ', ' '} ||
+		callsign == [8]byte{'-', '-', '-', '-', '-', '-', '-', '-'} {
 		return nil
 	}
 
-	return callsign
+	decoded := make([]byte, len(callsign))
+	copy(decoded, callsign[:])
+	return decoded
 }

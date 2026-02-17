@@ -37,7 +37,9 @@ type (
 
 		log zerolog.Logger
 
-		out chan tracker.FrameEvent
+		out       chan tracker.FrameEvent
+		outMu     sync.RWMutex
+		outClosed bool
 
 		cmdChan chan int
 
@@ -413,11 +415,14 @@ func (p *Producer) Stop() {
 }
 
 func (p *Producer) AddEvent(e tracker.FrameEvent) {
-	defer func() {
-		if r := recover(); nil != r {
-			p.log.Error().Interface("recover", r).Msg("Failed to add event")
-		}
-	}()
+	// Keep the read lock for the full send so Cleanup cannot close p.out mid-send.
+	p.outMu.RLock()
+	defer p.outMu.RUnlock()
+
+	if p.outClosed {
+		return
+	}
+
 	p.out <- e
 }
 
@@ -445,7 +450,12 @@ func (p *Producer) Cleanup() {
 		}
 	}()
 
-	close(p.out)
+	p.outMu.Lock()
+	if !p.outClosed {
+		p.outClosed = true
+		close(p.out)
+	}
+	p.outMu.Unlock()
 }
 
 func (p *Producer) readFiles(dataFiles []string, read func(io.Reader, string) error) {
