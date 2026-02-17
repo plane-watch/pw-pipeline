@@ -181,14 +181,20 @@ func newFrameInto(f *Frame, rawBytes []byte, isRadarCape bool) (*Frame, error) {
 		return f, ErrBadBeastFrame
 	}
 
-	// note: our parts here refer to the underlying slice that was passed in
-	f.raw = rawBytes
-	f.msgType = rawBytes[1]
-	f.mlatTimestamp = rawBytes[2:8]
-	f.signalLevel = rawBytes[8]
-	f.body = rawBytes[9:]
+	// Copy into frame-owned storage so callers can reuse/mutate their input buffer.
+	if cap(f.raw) < len(rawBytes) {
+		f.raw = make([]byte, len(rawBytes))
+	} else {
+		f.raw = f.raw[:len(rawBytes)]
+	}
+	copy(f.raw, rawBytes)
+
+	// note: our parts here refer to the frame-owned raw buffer
+	f.msgType = f.raw[1]
+	f.mlatTimestamp = f.raw[2:8]
+	f.signalLevel = f.raw[8]
+	f.body = f.raw[9:]
 	f.bodyString = "" // Reset for lazy computation in RawString()
-	//copy(f.body[:], rawBytes[9:])
 
 	f.isRadarCape = isRadarCape
 

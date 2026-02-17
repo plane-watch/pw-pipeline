@@ -17,9 +17,7 @@ func (p *Producer) beastScanner(scan *bufio.Scanner) error {
 	beast.UsePoolAllocator = true
 	p.log.Debug().Msg("entering scan.Scan() loop")
 	for scan.Scan() && scan.Err() == nil {
-		msg := bytes.Clone(scan.Bytes())
-
-		frame, err := beast.NewFrame(msg, p.isRadarCape)
+		frame, err := beast.NewFrame(scan.Bytes(), p.isRadarCape)
 		if nil != err {
 			continue
 		}

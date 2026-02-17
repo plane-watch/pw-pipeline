@@ -299,7 +299,7 @@ func (p *Plane) HandleModeSFrame(frame *mode_s.Frame, source *FrameSource) {
 					hasChanged = p.setHeading(frame.MustHeading(), frame.TimeStamp()) || hasChanged
 				}
 				if frame.VelocityValid() {
-					hasChanged = p.setVelocity(frame.MustVelocity(), time.Now()) || hasChanged
+					hasChanged = p.setVelocity(frame.MustVelocity(), frame.TimeStamp()) || hasChanged
 				}
 				if !p.OnGround() {
 					p.zeroCpr()

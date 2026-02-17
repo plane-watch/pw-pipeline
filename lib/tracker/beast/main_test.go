@@ -196,6 +196,23 @@ func TestNewFrame(t *testing.T) {
 	}
 }
 
+func TestNewFrameCopiesInputBuffer(t *testing.T) {
+	src := append([]byte(nil), beastModeSLong...)
+
+	frame, err := NewFrame(src, false)
+	if err != nil {
+		t.Fatalf("NewFrame() error = %v", err)
+	}
+
+	// Mutate caller-owned buffer after NewFrame. The frame must remain unchanged.
+	src[0] = 0x00
+	src[1] = 0x00
+
+	if frame.raw[0] != 0x1A || frame.raw[1] != 0x33 {
+		t.Fatalf("frame raw header mutated via caller buffer: got %02X %02X", frame.raw[0], frame.raw[1])
+	}
+}
+
 var (
 	messages = map[string][]byte{
 		"DF00_MT00_ST00": {0x1A, 0x32, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xE1, 0x98, 0x38, 0x5F, 0x1A, 0x9D},
