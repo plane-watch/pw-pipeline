@@ -813,7 +813,7 @@ func (f *Frame) Category() string {
 	return aircraftCategory[f.catType][f.catSubType]
 }
 func (f *Frame) CategoryType() string {
-	return fmt.Sprintf("%d/%d", f.catType, f.catSubType)
+	return fmt.Sprintf("%d/%d", f.messageType, f.catSubType)
 }
 
 // MessageType returns the Mode-S type code.

@@ -6,6 +6,7 @@ import (
 
 	"github.com/rs/zerolog"
 	"plane.watch/lib/tracker"
+	"plane.watch/lib/tracker/mode_s"
 )
 
 func init() {
@@ -30,6 +31,19 @@ func makeMockFrameEvent(icao uint32, payload []byte, tag string) *tracker.FrameE
 		icao:    icao,
 		icaoStr: "MOCK",
 		raw:     payload,
+	}
+	source := &tracker.FrameSource{Tag: tag}
+	fe := tracker.NewFrameEvent(frame, source)
+	return &fe
+}
+
+// makeDecodedModeSEvent creates a FrameEvent with a real decoded mode_s.Frame.
+// This mirrors the real pipeline where Decode() is called before middleware.
+func makeDecodedModeSEvent(t *testing.T, hex string, tag string) *tracker.FrameEvent {
+	t.Helper()
+	frame, err := mode_s.DecodeString(hex, time.Now())
+	if err != nil {
+		t.Fatalf("failed to decode frame %s: %v", hex, err)
 	}
 	source := &tracker.FrameSource{Tag: tag}
 	fe := tracker.NewFrameEvent(frame, source)
@@ -585,6 +599,90 @@ func TestHaversineDistance(t *testing.T) {
 					distKm, tt.expectKm, tt.tolerance)
 			}
 		})
+	}
+}
+
+func TestIsModeSPositionBytes(t *testing.T) {
+	tests := []struct {
+		name   string
+		raw    []byte
+		expect bool
+	}{
+		{"DF17 TC11 airborne position", []byte{0x8D, 0x00, 0x00, 0x00, 0x58, 0x00, 0x00}, true},
+		{"DF17 TC5 surface position", []byte{0x8D, 0x00, 0x00, 0x00, 0x28, 0x00, 0x00}, true},
+		{"DF17 TC19 velocity (no position)", []byte{0x8D, 0x00, 0x00, 0x00, 0x98, 0x00, 0x00}, false},
+		{"DF17 TC22 GNSS position", []byte{0x8D, 0x00, 0x00, 0x00, 0xB0, 0x00, 0x00}, true},
+		{"DF17 TC1 aircraft ID", []byte{0x8D, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00}, false},
+		{"DF17 TC28 status", []byte{0x8D, 0x00, 0x00, 0x00, 0xE0, 0x00, 0x00}, false},
+		{"DF17 TC31 operational", []byte{0x8D, 0x00, 0x00, 0x00, 0xF8, 0x00, 0x00}, false},
+		{"DF18 TC11 TIS-B position", []byte{0x90, 0x00, 0x00, 0x00, 0x58, 0x00, 0x00}, true},
+		{"DF11 all-call (short)", []byte{0x5D, 0x00, 0x00, 0x00}, false},
+		{"DF4 altitude reply", []byte{0x20, 0x00, 0x00, 0x00, 0x58}, false},
+		{"too short", []byte{0x8D, 0x00}, false},
+		{"empty", []byte{}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isModeSPositionBytes(tt.raw)
+			if result != tt.expect {
+				t.Errorf("isModeSPositionBytes(%X) = %v, want %v", tt.raw, result, tt.expect)
+			}
+		})
+	}
+}
+
+func TestFilter_NonPositionEarlyExit(t *testing.T) {
+	// Known-valid DF17 frames from mode_s test suite:
+	// Position: 8D75804B580FF2CF7E9BA6F701D0 — ICAO 75804B, TC=11 (airborne position baro)
+	// Non-position: 8D4840D6202CC371C32CE0576098 — ICAO 4840D6, TC=4 (aircraft ID)
+	const (
+		positionHex    = "8D75804B580FF2CF7E9BA6F701D0" // TC=11, ICAO=75804B
+		nonPositionHex = "8D4840D6202CC371C32CE0576098" // TC=4, ICAO=4840D6
+	)
+
+	// Use the same ICAO for both by using position frame's ICAO to establish sticky,
+	// then test non-position from a different feeder on a different aircraft.
+	// Actually, these are different ICAOs, so we test with two aircraft.
+
+	filter := NewFilter()
+	defer filter.Stop()
+
+	// === Test 1: Non-position frame from non-sticky feeder is dropped ===
+	// Establish feeder-A as sticky for ICAO 4840D6 using a mock frame (unknown type = conservative pass-through)
+	fe1 := makeMockFrameEvent(0x4840D6, []byte{0x01}, "feeder-A")
+	result := filter.Handle(fe1)
+	if result == nil {
+		t.Fatal("First frame from feeder A should be accepted")
+	}
+
+	// Non-position DF17 frame (TC=4, aircraft ID) from feeder-B for same ICAO — should be dropped early
+	fe2 := makeDecodedModeSEvent(t, nonPositionHex, "feeder-B")
+	result = filter.Handle(fe2)
+	if result != nil {
+		t.Error("Non-position frame from non-sticky feeder B should be dropped early")
+	}
+
+	// === Test 2: Position frame from non-sticky feeder still reaches scoring ===
+	// Establish feeder-A as sticky for ICAO 75804B
+	fe3 := makeMockFrameEvent(0x75804B, []byte{0x02}, "feeder-A")
+	result = filter.Handle(fe3)
+	if result == nil {
+		t.Fatal("First frame from feeder A for second aircraft should be accepted")
+	}
+
+	// Position DF17 frame (TC=11) from feeder-B for same ICAO — should reach scoring (rejected by scoring, not early exit)
+	fe4 := makeDecodedModeSEvent(t, positionHex, "feeder-B")
+	result = filter.Handle(fe4)
+	// Result may be nil (rejected by scoring) but the important thing is it wasn't early-exited.
+	// We can't distinguish here, but the unit test for isModeSPositionBytes covers the detection logic.
+
+	// === Test 3: Non-position frame from sticky feeder is NOT dropped ===
+	// feeder-A is sticky for ICAO 4840D6 — non-position frame from feeder-A should pass through
+	fe5 := makeDecodedModeSEvent(t, nonPositionHex, "feeder-A")
+	result = filter.Handle(fe5)
+	if result == nil {
+		t.Error("Non-position frame from sticky feeder A should be accepted")
 	}
 }
 

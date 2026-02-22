@@ -45,11 +45,18 @@ var (
 		Help:      "Number of aircraft currently being tracked by sticky feeder",
 	})
 
-	prometheusSameTagDuplicates = promauto.NewCounter(prometheus.CounterOpts{
+	prometheusSameTagDuplicates = promauto.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "pw_ingest",
 		Subsystem: "sticky_feeder",
 		Name:      "same_tag_duplicates_total",
 		Help:      "Total duplicate frames from the same feeder tag (multiple receivers)",
+	}, []string{"feeder"})
+
+	prometheusNonPositionDropped = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "pw_ingest",
+		Subsystem: "sticky_feeder",
+		Name:      "non_position_dropped_total",
+		Help:      "Total non-position frames dropped from non-sticky feeders",
 	})
 )
 
@@ -254,6 +261,21 @@ func (f *Filter) Handle(fe *tracker.FrameEvent) tracker.Frame {
 		}
 	}
 
+	// Early exit: if we already have a sticky feeder for this aircraft and this frame
+	// is from a different feeder, only process position frames (for scoring/switching).
+	// Non-position frames from non-sticky feeders are dropped immediately.
+	if existing, ok := f.aircraft.Load(icao); ok {
+		state := existing.(*aircraftState)
+		state.mu.RLock()
+		sticky := state.stickyFeeder
+		state.mu.RUnlock()
+		if sticky != "" && sticky != feederTag && !isPositionFrame(frame) {
+			prometheusNonPositionDropped.Inc()
+			prometheusFramesRejected.Inc() // keep frames_rejected_total as single source of truth for all drops
+			return nil
+		}
+	}
+
 	// Get the payload key for same-tag deduplication
 	payloadKey := f.getPayloadKey(frame)
 
@@ -300,6 +322,36 @@ func (f *Filter) getPayloadKey(frame tracker.Frame) string {
 		// Fallback to Raw() for unknown frame types
 		return string(frame.Raw())
 	}
+}
+
+// isPositionFrame checks whether a frame contains ADS-B position data using raw bytes.
+// Non-position frames from non-sticky feeders are dropped early to avoid unnecessary scoring work.
+func isPositionFrame(frame tracker.Frame) bool {
+	switch ft := frame.(type) {
+	case *beast.Frame:
+		return isModeSPositionBytes(ft.AvrRaw())
+	case *mode_s.Frame:
+		return isModeSPositionBytes(ft.Raw())
+	case *sbs1.Frame:
+		return ft.HasPosition
+	default:
+		return true // unknown frame type, conservatively let through
+	}
+}
+
+// isModeSPositionBytes checks raw Mode-S bytes for DF17/18 with position type codes.
+// TC 5-8: surface position, TC 9-18: airborne position (baro), TC 20-22: airborne position (GNSS).
+// TC 19 (velocity) is excluded — it has no lat/lon.
+func isModeSPositionBytes(raw []byte) bool {
+	if len(raw) < 5 {
+		return false // short frames (DF0/4/5/11) don't contain position
+	}
+	df := raw[0] >> 3
+	if df != 17 && df != 18 {
+		return false
+	}
+	tc := raw[4] >> 3
+	return (tc >= 5 && tc <= 18) || (tc >= 20 && tc <= 22)
 }
 
 // getOrCreateAircraftState retrieves or creates the state for an aircraft
@@ -358,7 +410,7 @@ func (s *aircraftState) processFrame(
 					Str("feeder", feederTag).
 					Msg("Detected same-tag duplicate frames (multiple receivers with same API key)")
 			}
-			prometheusSameTagDuplicates.Inc()
+			prometheusSameTagDuplicates.WithLabelValues(feederTag).Inc()
 			return false, false
 		}
 	}

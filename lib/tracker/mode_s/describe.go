@@ -779,7 +779,7 @@ func (f *Frame) showSensitivityLevel(output io.Writer) {
 
 func (f *Frame) showCategory(output io.Writer) {
 	if f.ValidCategory() {
-		fprintf(output, "CAT: Aircraft Cat   : (%d:%d) %s\n", f.catType, f.catSubType, f.Category())
+		fprintf(output, "CAT: Aircraft Cat   : (%d:%d) %s\n", f.messageType, f.catSubType, f.Category())
 	}
 }
 
