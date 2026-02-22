@@ -61,6 +61,9 @@ type (
 		// Callback for periodic claim publishing (set by Filter if coordination enabled)
 		onPeriodicTick func()
 
+		// Callback for decaying packet counts (set by Filter in NewFilter)
+		onDecayTick func()
+
 		// Control
 		stopCh chan struct{}
 		wg     sync.WaitGroup
@@ -145,6 +148,12 @@ func (w *BackgroundWorker) SetPeriodicCallback(cb func()) {
 	w.onPeriodicTick = cb
 }
 
+// SetDecayCallback sets a callback to be invoked on each background tick
+// before score computation, used for decaying packet counts.
+func (w *BackgroundWorker) SetDecayCallback(cb func()) {
+	w.onDecayTick = cb
+}
+
 // run is the main background loop
 func (w *BackgroundWorker) run() {
 	defer w.wg.Done()
@@ -157,6 +166,10 @@ func (w *BackgroundWorker) run() {
 		case <-w.stopCh:
 			return
 		case <-ticker.C:
+			// Decay packet counts before scoring so scores reflect decayed values
+			if w.onDecayTick != nil {
+				w.onDecayTick()
+			}
 			w.computeScores()
 			// Trigger periodic claim publishing if coordination is enabled
 			if w.onPeriodicTick != nil {
@@ -354,18 +367,27 @@ func (w *BackgroundWorker) RecordArrival(payloadKey string, feederTag string) {
 	w.recordDelay(feederTag, 0)
 }
 
-// recordDelay adds a delay sample to a feeder's latency stats
+// recordDelay adds a delay sample to a feeder's latency stats.
+// Uses RLock for the common case where the feeder already exists,
+// upgrading to Lock only when creating a new entry.
 func (w *BackgroundWorker) recordDelay(feeder string, delay time.Duration) {
-	w.feederLatencyMu.Lock()
+	w.feederLatencyMu.RLock()
 	stats, exists := w.feederLatency[feeder]
+	w.feederLatencyMu.RUnlock()
+
 	if !exists {
-		stats = &latencyStats{
-			delays: ring.New(w.config.LatencyWindowSize),
-			score:  1.0,
+		w.feederLatencyMu.Lock()
+		// Double-check after acquiring write lock
+		stats, exists = w.feederLatency[feeder]
+		if !exists {
+			stats = &latencyStats{
+				delays: ring.New(w.config.LatencyWindowSize),
+				score:  1.0,
+			}
+			w.feederLatency[feeder] = stats
 		}
-		w.feederLatency[feeder] = stats
+		w.feederLatencyMu.Unlock()
 	}
-	w.feederLatencyMu.Unlock()
 
 	stats.mu.Lock()
 	stats.delays.Value = delay

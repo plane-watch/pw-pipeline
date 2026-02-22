@@ -1,6 +1,7 @@
 package stickyfeeder
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -683,6 +684,121 @@ func TestFilter_NonPositionEarlyExit(t *testing.T) {
 	result = filter.Handle(fe5)
 	if result == nil {
 		t.Error("Non-position frame from sticky feeder A should be accepted")
+	}
+}
+
+func TestFilter_PacketCountDecay(t *testing.T) {
+	filter := NewFilter()
+	defer filter.Stop()
+
+	icao := uint32(0x7C1234)
+
+	// Send frames to build up packet counts
+	for i := 0; i < 50; i++ {
+		payload := []byte{byte(i), 0x01, 0x02}
+		fe := makeMockFrameEvent(icao, payload, "feeder-A")
+		filter.Handle(fe)
+	}
+
+	// Read the packet count before decay
+	stateVal, ok := filter.aircraft.Load(icao)
+	if !ok {
+		t.Fatal("Expected aircraft state to exist")
+	}
+	state := stateVal.(*aircraftState)
+
+	state.mu.RLock()
+	stats := state.feeders["feeder-A"]
+	countBefore := stats.packetCount
+	state.mu.RUnlock()
+
+	if countBefore == 0 {
+		t.Fatal("Expected non-zero packet count before decay")
+	}
+
+	// Apply decay manually
+	filter.decayPacketCounts()
+
+	state.mu.RLock()
+	countAfter := stats.packetCount
+	state.mu.RUnlock()
+
+	if countAfter >= countBefore {
+		t.Errorf("Expected packet count to decrease after decay: before=%d, after=%d", countBefore, countAfter)
+	}
+
+	// Verify the decay factor is correct (truncation, not rounding)
+	// With default config: BackgroundInterval=5s, MetricDecayWindow=30s
+	// factor = pow(0.5, 5/30) ≈ 0.891
+	expectedAfter := uint64(float64(countBefore) * filter.decayFactor)
+	if countAfter != expectedAfter {
+		t.Errorf("Decay not as expected: got=%d, want=%d (factor=%f)", countAfter, expectedAfter, filter.decayFactor)
+	}
+}
+
+func TestFilter_PacketCountDecay_ReachesZero(t *testing.T) {
+	filter := NewFilter()
+	defer filter.Stop()
+
+	icao := uint32(0xABCDEF)
+
+	// Send a few frames
+	for i := 0; i < 5; i++ {
+		payload := []byte{byte(i), 0xAA}
+		fe := makeMockFrameEvent(icao, payload, "feeder-A")
+		filter.Handle(fe)
+	}
+
+	// Decay many times — counts should eventually reach zero
+	for i := 0; i < 100; i++ {
+		filter.decayPacketCounts()
+	}
+
+	stateVal, _ := filter.aircraft.Load(icao)
+	state := stateVal.(*aircraftState)
+	state.mu.RLock()
+	count := state.feeders["feeder-A"].packetCount
+	state.mu.RUnlock()
+
+	if count != 0 {
+		t.Errorf("Expected packet count to reach 0 after many decays, got %d", count)
+	}
+}
+
+func TestFilter_GetOrCreateAircraftState_Concurrent(t *testing.T) {
+	filter := NewFilter()
+	defer filter.Stop()
+
+	const goroutines = 100
+	icao := uint32(0x7C9999)
+
+	var wg sync.WaitGroup
+	states := make(chan *aircraftState, goroutines)
+
+	wg.Add(goroutines)
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			defer wg.Done()
+			s := filter.getOrCreateAircraftState(icao)
+			states <- s
+		}()
+	}
+	wg.Wait()
+	close(states)
+
+	// All goroutines must get the same state pointer
+	var first *aircraftState
+	for s := range states {
+		if first == nil {
+			first = s
+		} else if s != first {
+			t.Fatal("Different goroutines got different aircraftState pointers — race in getOrCreateAircraftState")
+		}
+	}
+
+	// Verify only one entry exists
+	if filter.aircraft.Len() != 1 {
+		t.Errorf("Expected 1 aircraft entry, got %d", filter.aircraft.Len())
 	}
 }
 

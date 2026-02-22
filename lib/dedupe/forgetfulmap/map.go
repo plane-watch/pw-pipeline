@@ -203,6 +203,34 @@ func (f *ForgetfulSyncMap) AddKeyStr(key string) {
 	f.Store(key, nil)
 }
 
+// LoadOrStore returns the existing value for the key if present.
+// Otherwise, it stores and returns the given value.
+// The loaded result is true if the value was loaded, false if stored.
+func (f *ForgetfulSyncMap) LoadOrStore(key, value any) (actual any, loaded bool) {
+	var m *marble
+	if f.useSyncPool {
+		m = marbleBag.Get().(*marble)
+	} else {
+		m = &marble{}
+	}
+	m.added = time.Now()
+	m.value = value
+
+	existing, loaded := f.lookup.LoadOrStore(key, m)
+	if loaded {
+		// Key already existed — return the pool marble and unwrap the existing one
+		if f.useSyncPool {
+			marbleBag.Put(m)
+		}
+		if em, ok := existing.(*marble); ok {
+			return em.value, true
+		}
+		return nil, true
+	}
+	// We stored the new marble
+	return value, false
+}
+
 // Load attempts to recall an item from the list
 func (f *ForgetfulSyncMap) Load(key any) (any, bool) {
 	retVal, retBool := f.lookup.Load(key)

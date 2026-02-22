@@ -1,6 +1,7 @@
 package stickyfeeder
 
 import (
+	"math"
 	"sync"
 	"time"
 
@@ -68,6 +69,11 @@ type (
 	Filter struct {
 		config Config
 		log    zerolog.Logger
+
+		// decayFactor is the per-tick multiplier for packet count decay.
+		// Computed as pow(0.5, BackgroundInterval / MetricDecayWindow) so that
+		// after one full MetricDecayWindow of silence, counts decay to 50% of peak.
+		decayFactor float64
 
 		// Per-aircraft tracking, keyed by ICAO (uint32)
 		aircraft *forgetfulmap.ForgetfulSyncMap
@@ -154,8 +160,14 @@ func NewFilter(opts ...Option) *Filter {
 		forgetfulmap.WithSweepInterval(f.config.SameTagDedupeTTL),
 	)
 
+	// Pre-compute the per-tick decay factor for packet counts.
+	// pow(0.5, interval/window) means after one full MetricDecayWindow of silence,
+	// counts decay to 50% of their peak value.
+	f.decayFactor = math.Pow(0.5, f.config.BackgroundInterval.Seconds()/f.config.MetricDecayWindow.Seconds())
+
 	// Create and start the background worker for latency/honesty scoring
 	f.background = NewBackgroundWorker(&f.config, f.log)
+	f.background.SetDecayCallback(f.decayPacketCounts)
 	f.background.Start()
 
 	return f
@@ -253,7 +265,31 @@ func (f *Filter) Handle(fe *tracker.FrameEvent) tracker.Frame {
 	}
 	feederTag := source.Tag
 
-	// Check if a remote instance has a better claim (fast path check)
+	// Fast path: check existing aircraft state to skip work for common cases.
+	// If the frame is from the sticky feeder, skip the coordinator check entirely
+	// (it does 3+ map lookups and multiple lock acquisitions — wasted for sticky frames).
+	// If the frame is from a non-sticky feeder and is non-position, drop it early.
+	if existing, ok := f.aircraft.Load(icao); ok {
+		state := existing.(*aircraftState)
+		state.mu.RLock()
+		sticky := state.stickyFeeder
+		state.mu.RUnlock()
+
+		if sticky != "" {
+			if sticky == feederTag {
+				// Frame from the sticky feeder — skip coordinator, go straight to processing
+				goto process
+			}
+			// Non-sticky feeder: drop non-position frames early
+			if !isPositionFrame(frame) {
+				prometheusNonPositionDropped.Inc()
+				prometheusFramesRejected.Inc()
+				return nil
+			}
+		}
+	}
+
+	// Coordinator check: only reached for frames from non-sticky feeders (or new aircraft)
 	if f.coordinator != nil {
 		localScore := f.GetLocalScore(icao, feederTag)
 		if f.coordinator.ShouldDropForRemote(icao, localScore, f.config.HysteresisThreshold) {
@@ -261,21 +297,7 @@ func (f *Filter) Handle(fe *tracker.FrameEvent) tracker.Frame {
 		}
 	}
 
-	// Early exit: if we already have a sticky feeder for this aircraft and this frame
-	// is from a different feeder, only process position frames (for scoring/switching).
-	// Non-position frames from non-sticky feeders are dropped immediately.
-	if existing, ok := f.aircraft.Load(icao); ok {
-		state := existing.(*aircraftState)
-		state.mu.RLock()
-		sticky := state.stickyFeeder
-		state.mu.RUnlock()
-		if sticky != "" && sticky != feederTag && !isPositionFrame(frame) {
-			prometheusNonPositionDropped.Inc()
-			prometheusFramesRejected.Inc() // keep frames_rejected_total as single source of truth for all drops
-			return nil
-		}
-	}
-
+process:
 	// Get the payload key for same-tag deduplication
 	payloadKey := f.getPayloadKey(frame)
 
@@ -354,24 +376,21 @@ func isModeSPositionBytes(raw []byte) bool {
 	return (tc >= 5 && tc <= 18) || (tc >= 20 && tc <= 22)
 }
 
-// getOrCreateAircraftState retrieves or creates the state for an aircraft
+// getOrCreateAircraftState retrieves or creates the state for an aircraft.
+// Uses LoadOrStore to atomically avoid the check-then-act race where two
+// goroutines could both create state, both Store, and both increment the gauge.
 func (f *Filter) getOrCreateAircraftState(icao uint32) *aircraftState {
-	if existing, ok := f.aircraft.Load(icao); ok {
-		return existing.(*aircraftState)
-	}
-
-	// Create new state
 	state := &aircraftState{
 		feeders:  make(map[string]*feederStats),
 		lastSeen: time.Now(),
 	}
 
-	// Store - note: race is acceptable, we might briefly have duplicate state
-	// but ForgetfulSyncMap.Store() will overwrite atomically
-	f.aircraft.Store(icao, state)
-	prometheusActiveAircraft.Inc()
-
-	return state
+	actual, loaded := f.aircraft.LoadOrStore(icao, state)
+	if !loaded {
+		// We stored a new entry — increment the gauge exactly once
+		prometheusActiveAircraft.Inc()
+	}
+	return actual.(*aircraftState)
 }
 
 // processFrame handles the frame processing logic for a single aircraft.
@@ -488,6 +507,24 @@ func (s *aircraftState) processFrame(
 
 	// Reject - not sticky and not compelling enough
 	return false, false
+}
+
+// decayPacketCounts applies exponential decay to all feeder packet counts.
+// Called once per background tick (BackgroundInterval). This prevents packetCount
+// from growing monotonically and saturating the scoring normalization.
+func (f *Filter) decayPacketCounts() {
+	factor := f.decayFactor
+	f.aircraft.Range(func(key, value any) bool {
+		state := value.(*aircraftState)
+		state.mu.Lock()
+		for _, stats := range state.feeders {
+			// Truncation (not Round) ensures counts converge to zero when a feeder goes silent.
+			// Round can get stuck at small values (e.g., Round(4 * 0.891) = 4).
+			stats.packetCount = uint64(float64(stats.packetCount) * factor)
+		}
+		state.mu.Unlock()
+		return true
+	})
 }
 
 // Stop stops the filter and releases resources
