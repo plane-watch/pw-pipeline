@@ -70,6 +70,7 @@ type (
 		listening bool
 
 		sendTickDuration time.Duration
+		snapshotMaxAge   time.Duration
 	}
 
 	loadedResponse struct {
@@ -88,6 +89,7 @@ type (
 		log        zerolog.Logger
 
 		sendTickDuration time.Duration
+		snapshotMaxAge   time.Duration
 	}
 	WsCmd struct {
 		action     ws_protocol.ProtocolRequest
@@ -322,7 +324,7 @@ func (bw *PwWsBrokerWeb) servePlanes(w http.ResponseWriter, r *http.Request) {
 	log.Debug().Str("protocol", conn.Subprotocol()).Msg("Speaking...")
 	switch conn.Subprotocol() {
 	case ws_protocol.WsProtocolPlanes:
-		client := NewWsClient(conn, r.RemoteAddr, bw.sendTickDuration)
+		client := NewWsClient(conn, r.RemoteAddr, bw.sendTickDuration, bw.snapshotMaxAge)
 		bw.clients.addClient(client)
 		client.Handle(r.Context())
 		bw.clients.removeClient(client)
@@ -345,7 +347,7 @@ func (bw *PwWsBrokerWeb) HealthCheckName() string {
 }
 
 // NewWsClient creates a new Websocket Client. This represents an individual connection and its handling
-func NewWsClient(conn *websocket.Conn, identifier string, defaultSendTick time.Duration) *WsClient {
+func NewWsClient(conn *websocket.Conn, identifier string, defaultSendTick, snapshotMaxAge time.Duration) *WsClient {
 	client := WsClient{
 		conn:             conn,
 		cmdChan:          make(chan WsCmd),
@@ -353,6 +355,7 @@ func NewWsClient(conn *websocket.Conn, identifier string, defaultSendTick time.D
 		identifier:       identifier,
 		log:              log.With().Str("client", identifier).Logger(),
 		sendTickDuration: defaultSendTick,
+		snapshotMaxAge:   snapshotMaxAge,
 	}
 	return &client
 }
@@ -575,10 +578,10 @@ func (c *WsClient) planeProtocolHandler(ctx context.Context, conn *websocket.Con
 						subs[tile] = struct{}{}
 					}
 				}
-				err = c.sendAck(ctx, ws_protocol.ResponseTypeAckUnsub, cmdMsg.what)
+				err = c.sendAck(ctx, ws_protocol.ResponseTypeAckSub, cmdMsg.what)
 				prometheusSubscriptions.WithLabelValues(cmdMsg.what).Set(float64(len(subs)))
 				clear(icaoIdLookup)
-				clear(locationMessages)
+				locationMessages = locationMessages[:0]
 			case ws_protocol.RequestTypeSubscribeList:
 				tiles := maps.Keys(subs)
 				err = c.sendPlaneMessage(ctx, &ws_protocol.WsResponse{
@@ -588,10 +591,14 @@ func (c *WsClient) planeProtocolHandler(ctx context.Context, conn *websocket.Con
 
 			case ws_protocol.RequestTypeSendAllSubscribed:
 				matching := 0
-				// find all things currently in requested grid
+				cutoff := time.Now().UTC().Add(-c.snapshotMaxAge)
+				// find all things currently in requested grid, filtered by recency
 				c.parent.globalList.Range(func(key, value interface{}) bool {
 					loc := value.(*export.PlaneLocation)
 					if _, subbed := subs[loc.TileLocation]; subbed {
+						if loc.LastMsg.Before(cutoff) {
+							return true
+						}
 						if id, ok := icaoIdLookup[loc.Icao]; ok {
 							locationMessages[id] = loc
 						} else {
