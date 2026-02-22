@@ -9,10 +9,6 @@ import (
 
 // RunOnTicker runs function f ever t duration, until the returned function is called.
 func RunOnTicker(logger zerolog.Logger, t time.Duration, f func() error) context.CancelFunc {
-	logger = logger.With().
-		Str("component", "timing.RunOnTicker").
-		Str("interval", t.String()).
-		Logger()
 	ctx, cancel := context.WithCancel(context.Background())
 	RunOnTickerWithContext(ctx, logger, t, f)
 	return cancel

@@ -35,6 +35,7 @@ jobs:
           - pw_router
           - pw_ws_broker
           - mlat-server
+          - pw_haproxy_api
 
     steps:
 

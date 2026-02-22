@@ -93,7 +93,7 @@ func New(opts ...Option) (*FeederCache, error) {
 
 	f.locator, err = icaoregion.NewLocator()
 	if err != nil {
-		return nil, fmt.Errorf("error creating NewLocator: %v", err)
+		return nil, fmt.Errorf("error creating FeederCache: %v", err)
 	}
 
 	for _, opt := range opts {
@@ -109,7 +109,7 @@ func New(opts ...Option) (*FeederCache, error) {
 	}
 	f.natsServer, err = nats_io.NewServer(
 		nats_io.WithConnections(false, true),
-		nats_io.WithServer(f.natsURL, "runway-atc-client-feeders"),
+		nats_io.WithServer(f.natsURL, "pw-lib-feederauth"),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup nats connection: %w", err)
@@ -163,6 +163,16 @@ func (f *FeederCache) Reset(p Protocol) {
 			}
 		}
 	}
+}
+
+func (f *FeederCache) ListAllAPIKeys() []string {
+	f.muFeedersConnected.RLock()
+	defer f.muFeedersConnected.RUnlock()
+	keys := make([]string, 0, len(f.feeders))
+	for key := range f.feeders {
+		keys = append(keys, key)
+	}
+	return keys
 }
 
 func (f *FeederCache) IsValid(apiKey string) bool {

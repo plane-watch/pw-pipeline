@@ -247,11 +247,26 @@ func MergePlaneLocations(prev, next PlaneLocation) (PlaneLocation, error) {
 		merged.AirframeType = next.AirframeType
 	}
 
-	if unPtr(next.Registration) != "" {
-		merged.Registration = ptr(unPtr(next.Registration))
+	// Merge enrichment string pointer fields: take next's value if non-empty
+	for _, pair := range []struct{ dst, src **string }{
+		{&merged.Registration, &next.Registration},
+		{&merged.CallSign, &next.CallSign},
+		{&merged.TypeCode, &next.TypeCode},
+		{&merged.TypeCodeLong, &next.TypeCodeLong},
+		{&merged.Serial, &next.Serial},
+		{&merged.RegisteredOwner, &next.RegisteredOwner},
+		{&merged.COFAOwner, &next.COFAOwner},
+		{&merged.EngineType, &next.EngineType},
+		{&merged.FlagCode, &next.FlagCode},
+		{&merged.Operator, &next.Operator},
+		{&merged.RouteCode, &next.RouteCode},
+	} {
+		if unPtr(*pair.src) != "" {
+			*pair.dst = ptr(unPtr(*pair.src))
+		}
 	}
-	if unPtr(next.CallSign) != "" {
-		merged.CallSign = ptr(unPtr(next.CallSign))
+	if len(next.Segments) > 0 {
+		merged.Segments = next.Segments
 	}
 	merged.SourceTag = "merged"
 

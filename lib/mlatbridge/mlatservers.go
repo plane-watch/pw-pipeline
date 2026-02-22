@@ -13,6 +13,15 @@ func MLATServer(fid int) string {
 	return MLATServers[Unknown]
 }
 
+func GetMLATRegionByFID(fid int) MLATRegion {
+	for region, rfids := range MLATRegionByFID {
+		if slices.Contains(rfids, fid) {
+			return region
+		}
+	}
+	return Unknown
+}
+
 type MLATRegion uint8
 
 const (
