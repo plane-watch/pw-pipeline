@@ -548,7 +548,11 @@ func (f *Filter) SetupCoordinator(ns *nats_io.Server) error {
 		return nil
 	}
 
-	f.coordinator = NewCoordinator(ns, f, &f.config, f.log)
+	var err error
+	f.coordinator, err = NewCoordinator(ns, f, &f.config, f.log)
+	if err != nil {
+		return err
+	}
 	if err := f.coordinator.Start(); err != nil {
 		return err
 	}

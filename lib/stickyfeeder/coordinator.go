@@ -1,6 +1,7 @@
 package stickyfeeder
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -105,13 +106,26 @@ type (
 	}
 )
 
-// NewCoordinator creates a new coordinator for multi-instance coordination
-func NewCoordinator(ns *nats_io.Server, filter *Filter, config *Config, log zerolog.Logger) *Coordinator {
+// NewCoordinator creates a new coordinator for multi-instance coordination.
+// It creates its own bidirectional NATS connection using the URL from the
+// provided server, since the sink's connection is typically outgoing-only.
+func NewCoordinator(ns *nats_io.Server, filter *Filter, config *Config, log zerolog.Logger) (*Coordinator, error) {
 	instanceID := randstr.RandString(16)
+
+	// Create our own NATS connection with both incoming and outgoing enabled,
+	// since the sink's connection is outgoing-only.
+	coordinationServer, err := nats_io.NewServer(
+		nats_io.WithServer(ns.URL(), "sticky-coordinator-"+instanceID),
+		nats_io.WithConnections(true, true),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("coordinator NATS connect: %w", err)
+	}
+
 	c := &Coordinator{
 		instanceID: instanceID,
 		config:     config,
-		natsServer: ns,
+		natsServer: coordinationServer,
 		filter:     filter,
 		log:        log.With().Str("component", "Coordinator").Str("instance", instanceID).Logger(),
 		stopCh:     make(chan struct{}),
@@ -127,7 +141,7 @@ func NewCoordinator(ns *nats_io.Server, filter *Filter, config *Config, log zero
 		}),
 	)
 
-	return c
+	return c, nil
 }
 
 // Start begins the coordinator's background workers
@@ -148,11 +162,12 @@ func (c *Coordinator) Start() error {
 	return nil
 }
 
-// Stop halts the coordinator
+// Stop halts the coordinator and closes its NATS connection
 func (c *Coordinator) Stop() {
 	close(c.stopCh)
 	c.wg.Wait()
 	c.remoteClaims.Stop()
+	c.natsServer.Close()
 }
 
 // InstanceID returns this coordinator's unique instance ID
