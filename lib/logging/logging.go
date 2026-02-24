@@ -41,6 +41,7 @@ func IncludeVerbosityFlags(app *cli.App) {
 			Category: "Logging",
 			Name:     CPUProfile,
 			Usage:    "Specifying this parameter causes a CPU Profile to be generated",
+			EnvVars:  []string{"CPU_PROFILE"},
 		},
 	)
 	// append our after func to stop profiling
