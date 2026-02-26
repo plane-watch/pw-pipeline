@@ -1,7 +1,30 @@
+// Package stickyfeeder implements the sticky feeder middleware for aircraft tracking.
+//
+// The sticky feeder algorithm picks one preferred data source (feeder) per aircraft
+// and rejects competing sources unless they demonstrate significantly better performance.
+// This improves data quality by avoiding interleaved position data from multiple sources
+// with different latencies.
+//
+// # Epoch-Based Sub-Feeder Isolation
+//
+// When a single feeder connection aggregates multiple independent receivers (sub-producers),
+// each receiver has its own MLAT epoch. The sticky feeder algorithm now treats each
+// (feederTag, epochID) pair as a separate logical producer:
+//
+//   - Epoch detection happens in the Producer layer (lib/producer/epoch.go)
+//   - Each frame is tagged with its MLAT epoch ID
+//   - Sticky feeder internally uses composite keys like "rx-north#1" and "rx-north#2"
+//   - Each epoch competes independently for being the preferred source
+//   - When advertising to other instances, only the winning feeder tag is published (epoch hidden)
+//
+// This naturally filters out weaker sub-producers without explicit rejection logic.
+// The coordinator remains unchanged - it sees clean feeder names without epoch details.
 package stickyfeeder
 
 import (
+	"fmt"
 	"math"
+	"strings"
 	"sync"
 	"time"
 
@@ -59,7 +82,45 @@ var (
 		Name:      "non_position_dropped_total",
 		Help:      "Total non-position frames dropped from non-sticky feeders",
 	})
+
+	prometheusEpochChanges = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "pw_ingest",
+		Subsystem: "sticky_feeder",
+		Name:      "epoch_changes_total",
+		Help:      "Number of MLAT epoch changes detected (sub-producer restarts/new sub-producers)",
+	}, []string{"feeder"})
+
+	prometheusActiveEpochs = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "pw_ingest",
+		Subsystem: "sticky_feeder",
+		Name:      "active_epochs",
+		Help:      "Number of active epochs per feeder (sub-producers behind single feeder)",
+	}, []string{"feeder"})
 )
+
+// EpochIDProvider is an interface for frames that can provide an epoch ID
+type EpochIDProvider interface {
+	EpochID() uint32
+}
+
+// producerKey creates a unique key for (feederTag, epochID) pair
+// Used internally to treat each epoch as a separate logical producer
+func producerKey(feederTag string, epochID uint32) string {
+	if epochID == 0 {
+		// Fallback for frames without epoch info (backwards compatibility)
+		return feederTag
+	}
+	return fmt.Sprintf("%s#%d", feederTag, epochID)
+}
+
+// extractFeederTag extracts the feeder tag from a composite key (feederTag#epochID)
+func extractFeederTag(compositeKey string) string {
+	idx := strings.Index(compositeKey, "#")
+	if idx < 0 {
+		return compositeKey // Fallback for legacy keys without epoch suffix
+	}
+	return compositeKey[:idx]
+}
 
 type (
 	// Option is a functional option for Filter configuration
@@ -89,6 +150,10 @@ type (
 
 		// Coordinator for multi-instance coordination (nil if disabled)
 		coordinator *Coordinator
+
+		// lastSeenEpochID tracks the highest epoch ID seen per feeder, for metrics
+		// No explicit cleanup needed - sync.Map is garbage collected when Filter is freed.
+		lastSeenEpochID sync.Map // map[string]uint32 keyed by feeder tag
 	}
 
 	// aircraftState tracks the sticky feeder state for a single aircraft
@@ -265,6 +330,25 @@ func (f *Filter) Handle(fe *tracker.FrameEvent) tracker.Frame {
 	}
 	feederTag := source.Tag
 
+	// Extract epoch ID from frame (if the frame implements EpochIDProvider)
+	epochID := uint32(0)
+	if provider, ok := frame.(EpochIDProvider); ok {
+		epochID = provider.EpochID()
+	}
+
+	// Use composite key combining feeder tag and epoch
+	compositeFeederKey := producerKey(feederTag, epochID)
+
+	// Track epoch changes per feeder for metrics
+	if epochID > 0 {
+		val, _ := f.lastSeenEpochID.LoadOrStore(feederTag, uint32(0))
+		lastSeenEpoch := val.(uint32)
+		if epochID > lastSeenEpoch {
+			prometheusEpochChanges.WithLabelValues(feederTag).Inc()
+			f.lastSeenEpochID.Store(feederTag, epochID)
+		}
+	}
+
 	// Fast path: check existing aircraft state to skip work for common cases.
 	// If the frame is from the sticky feeder, skip the coordinator check entirely
 	// (it does 3+ map lookups and multiple lock acquisitions — wasted for sticky frames).
@@ -276,7 +360,7 @@ func (f *Filter) Handle(fe *tracker.FrameEvent) tracker.Frame {
 		state.mu.RUnlock()
 
 		if sticky != "" {
-			if sticky == feederTag {
+			if sticky == compositeFeederKey {
 				// Frame from the sticky feeder — skip coordinator, go straight to processing
 				goto process
 			}
@@ -291,7 +375,7 @@ func (f *Filter) Handle(fe *tracker.FrameEvent) tracker.Frame {
 
 	// Coordinator check: only reached for frames from non-sticky feeders (or new aircraft)
 	if f.coordinator != nil {
-		localScore := f.GetLocalScore(icao, feederTag)
+		localScore := f.GetLocalScore(icao, compositeFeederKey)
 		if f.coordinator.ShouldDropForRemote(icao, localScore, f.config.HysteresisThreshold) {
 			return nil // Remote instance has better feeder
 		}
@@ -312,11 +396,11 @@ process:
 
 	// Record arrival for latency tracking (before processing)
 	if payloadKey != "" {
-		f.background.RecordArrival(payloadKey, feederTag)
+		f.background.RecordArrival(payloadKey, compositeFeederKey)
 	}
 
 	// Process the frame and decide whether to accept or reject
-	accepted, switched := state.processFrame(feederTag, rssi, payloadKey, &f.config, f.sameTagDedupe, &f.loggedDuplicateTags, &f.log, f.background)
+	accepted, switched := state.processFrame(compositeFeederKey, rssi, payloadKey, &f.config, f.sameTagDedupe, &f.loggedDuplicateTags, &f.log, f.background)
 
 	// Update metrics
 	if accepted {
@@ -606,7 +690,7 @@ func (f *Filter) GetAllAircraftScores() map[uint32]AircraftScore {
 				honestyScore := f.background.GetHonestyScore(state.stickyFeeder)
 				score := calculateScore(stats, &f.config, latenessScore, honestyScore)
 				scores[icao] = AircraftScore{
-					FeederTag: state.stickyFeeder,
+					FeederTag: extractFeederTag(state.stickyFeeder),
 					Score:     score,
 				}
 			}
@@ -616,6 +700,48 @@ func (f *Filter) GetAllAircraftScores() map[uint32]AircraftScore {
 	})
 
 	return scores
+}
+
+// countActiveEpochsPerFeeder returns the number of unique epochs per feeder
+func (f *Filter) countActiveEpochsPerFeeder() map[string]int {
+	result := make(map[string]int)
+
+	f.aircraft.Range(func(key, value any) bool {
+		state := value.(*aircraftState)
+		state.mu.RLock()
+		defer state.mu.RUnlock()
+
+		// Count unique epochs per feeder
+		feederEpochs := make(map[string]map[uint32]bool)
+		for compositeKey := range state.feeders {
+			feederTag := extractFeederTag(compositeKey)
+
+			// Extract epoch ID from composite key
+			idx := strings.Index(compositeKey, "#")
+			if idx >= 0 {
+				var epochID uint32
+				fmt.Sscanf(compositeKey[idx+1:], "%d", &epochID)
+				if feederEpochs[feederTag] == nil {
+					feederEpochs[feederTag] = make(map[uint32]bool)
+				}
+				feederEpochs[feederTag][epochID] = true
+			} else {
+				// Legacy key without epoch suffix
+				if feederEpochs[feederTag] == nil {
+					feederEpochs[feederTag] = make(map[uint32]bool)
+				}
+				feederEpochs[feederTag][0] = true
+			}
+		}
+
+		for feeder, epochs := range feederEpochs {
+			result[feeder] += len(epochs)
+		}
+
+		return true
+	})
+
+	return result
 }
 
 // SetPostDecodeCallback registers this filter to receive position updates from the tracker.
@@ -638,9 +764,18 @@ func (f *Filter) HealthCheckName() string {
 
 // HealthCheck performs a health check and logs status
 func (f *Filter) HealthCheck() bool {
+	activeEpochs := f.countActiveEpochsPerFeeder()
+
 	f.log.Info().
 		Int32("NumAircraft", f.aircraft.Len()).
 		Int32("DedupeEntries", f.sameTagDedupe.Len()).
+		Interface("ActiveEpochs", activeEpochs).
 		Msg("Health Check")
+
+	// Update gauge metrics
+	for feeder, count := range activeEpochs {
+		prometheusActiveEpochs.WithLabelValues(feeder).Set(float64(count))
+	}
+
 	return true
 }

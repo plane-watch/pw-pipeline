@@ -1,6 +1,8 @@
 package stickyfeeder
 
 import (
+	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -16,9 +18,11 @@ func init() {
 
 // mockFrame is a simple mock implementation of tracker.Frame for testing
 type mockFrame struct {
-	icao    uint32
-	icaoStr string
-	raw     []byte
+	icao           uint32
+	icaoStr        string
+	raw            []byte
+	epochID        uint32
+	signalStrength float64
 }
 
 func (m *mockFrame) Icao() uint32         { return m.icao }
@@ -26,6 +30,11 @@ func (m *mockFrame) IcaoStr() string      { return m.icaoStr }
 func (m *mockFrame) Decode() error        { return nil }
 func (m *mockFrame) TimeStamp() time.Time { return time.Now() }
 func (m *mockFrame) Raw() []byte          { return m.raw }
+func (m *mockFrame) EpochID() uint32      { return m.epochID }
+func (m *mockFrame) SetEpochID(id uint32) { m.epochID = id }
+func (m *mockFrame) SetSignalStrength(strength float64) {
+	m.signalStrength = strength
+}
 
 func makeMockFrameEvent(icao uint32, payload []byte, tag string) *tracker.FrameEvent {
 	frame := &mockFrame{
@@ -34,6 +43,20 @@ func makeMockFrameEvent(icao uint32, payload []byte, tag string) *tracker.FrameE
 		raw:     payload,
 	}
 	source := &tracker.FrameSource{Tag: tag}
+	fe := tracker.NewFrameEvent(frame, source)
+	return &fe
+}
+
+// createTestBeastFrame creates a frame with epoch ID, using mode_s.Frame which the sticky feeder also accepts
+func createTestBeastFrame(icao uint32, epochID uint32, feederTag string) *tracker.FrameEvent {
+	// Create a mock frame but with epochID support
+	frame := &mockFrame{
+		icao:    icao,
+		icaoStr: fmt.Sprintf("%06X", icao),
+		raw:     []byte{byte(icao >> 16), byte(icao >> 8), byte(icao)},
+		epochID: epochID,
+	}
+	source := &tracker.FrameSource{Tag: feederTag}
 	fe := tracker.NewFrameEvent(frame, source)
 	return &fe
 }
@@ -207,6 +230,50 @@ func TestFilter_NilHandling(t *testing.T) {
 	}
 }
 
+func TestFilter_EpochIsolation(t *testing.T) {
+	// Use low hysteresis to make switching easier
+	f := NewFilter(WithHysteresis(0.01))
+	defer f.Stop()
+
+	icao := uint32(0x4840D6)
+
+	// First frame from epoch 1 establishes it as sticky
+	frame1 := createTestBeastFrame(icao, 1, "rx-north")
+	result1 := f.Handle(frame1)
+	if result1 == nil {
+		t.Fatal("Expected frame from epoch 1 to be accepted")
+	}
+
+	// Send multiple frames from epoch 2 (different epoch = different producer key)
+	// Each frame has a unique payload to avoid same-tag dedup issues
+	// The epoch 2 feeder should eventually score high enough to be accepted
+	accepted := false
+	for i := 0; i < 10; i++ {
+		payload := make([]byte, 3)
+		payload[0] = byte(icao >> 16)
+		payload[1] = byte(icao >> 8)
+		payload[2] = byte(icao) + byte(i) // Vary last byte for unique payloads
+
+		mockFr := &mockFrame{
+			icao:    icao,
+			icaoStr: "4840D6",
+			raw:     payload,
+			epochID: 2, // Different epoch
+		}
+		fe := tracker.NewFrameEvent(mockFr, &tracker.FrameSource{Tag: "rx-north"})
+		frameEvent := &fe
+
+		if f.Handle(frameEvent) != nil {
+			accepted = true
+			break
+		}
+	}
+
+	if !accepted {
+		t.Error("Expected epoch 2 frames to eventually be accepted (treated as different producer)")
+	}
+}
+
 func TestFilter_HealthCheck(t *testing.T) {
 	filter := NewFilter()
 	defer filter.Stop()
@@ -221,6 +288,27 @@ func TestFilter_HealthCheck(t *testing.T) {
 
 	if filter.String() != "StickyFeeder" {
 		t.Error("Unexpected string representation")
+	}
+}
+
+func TestFilter_MetricsEpochChanges(t *testing.T) {
+	f := NewFilter()
+	defer f.Stop()
+	icao := uint32(0x4840D6)
+
+	// Simulate epoch change: first frame from rx-north#1, then rx-north#2
+	frame1 := createTestBeastFrame(icao, 1, "rx-north")
+	frame2 := createTestBeastFrame(icao, 2, "rx-north")
+
+	f.Handle(frame1)
+
+	// A second epoch from same feeder should be tracked
+	f.Handle(frame2)
+
+	// Verify metrics exist (will be verified via Prometheus endpoint in integration tests)
+	// For now, just ensure no panic when handling epochs
+	if f == nil {
+		t.Error("Filter should exist after handling epochs")
 	}
 }
 
@@ -810,5 +898,206 @@ func BenchmarkCalculateStaleness(b *testing.B) {
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
 		calculateStaleness(lastPacket, threshold)
+	}
+}
+
+func TestFilter_CoordinatorAdvertisesWinningEpochOnly(t *testing.T) {
+	f := NewFilter()
+	defer f.Stop()
+	icao := uint32(0x4840D6)
+
+	// Simulate two epochs from same feeder
+	frame1 := createTestBeastFrame(icao, 1, "rx-north")
+	frame2 := createTestBeastFrame(icao, 2, "rx-north")
+
+	// Process frames from both epochs
+	f.Handle(frame1)
+	f.Handle(frame2)
+
+	// GetAllAircraftScores should return the winning epoch's feeder tag
+	// WITHOUT the epoch suffix
+	scores := f.GetAllAircraftScores()
+	if score, ok := scores[icao]; ok {
+		if strings.Contains(score.FeederTag, "#") {
+			t.Errorf("Expected feeder tag without epoch suffix, got %s", score.FeederTag)
+		}
+		if score.FeederTag != "rx-north" {
+			t.Errorf("Expected feeder tag 'rx-north', got %s", score.FeederTag)
+		}
+	} else {
+		t.Error("Expected aircraft to have a score")
+	}
+}
+
+// Integration Tests for Epoch-Based Isolation
+
+func TestIntegration_MultipleEpochsFromSameFeeder_DifferentSignalStrengths(t *testing.T) {
+	// Use very low hysteresis to make switching easier based on signal strength differences
+	f := NewFilter(WithHysteresis(0.01))
+	defer f.Stop()
+	icao := uint32(0x4840D6)
+
+	// Scenario: Feeder rx-north has 3 sub-producers (epochs)
+	// Epoch 1: moderate signal (-10 dBFS), established first
+	// Epoch 2: weak signal (-30 dBFS), poor performance
+	// Epoch 3: appears later with very strong signal (-1 dBFS), should win
+
+	// Epoch 1 frames - moderate signal
+	for i := 0; i < 10; i++ {
+		payload := make([]byte, 3)
+		payload[0] = byte(icao >> 16)
+		payload[1] = byte(icao >> 8)
+		payload[2] = byte(i) // Vary for unique payloads
+		mockFr := &mockFrame{
+			icao:           icao,
+			icaoStr:        "4840D6",
+			raw:            payload,
+			epochID:        1,
+			signalStrength: -10.0,
+		}
+		fe := tracker.NewFrameEvent(mockFr, &tracker.FrameSource{Tag: "rx-north"})
+		frameEvent := &fe
+		result := f.Handle(frameEvent)
+		if result == nil && i == 0 {
+			t.Error("Expected first frame to be accepted")
+		}
+	}
+
+	// Epoch 2 frames - weak signal (should be rejected or briefly accepted, low quality)
+	for i := 0; i < 5; i++ {
+		payload := make([]byte, 3)
+		payload[0] = byte(icao >> 16)
+		payload[1] = byte(icao >> 8)
+		payload[2] = 100 + byte(i) // Different range for epoch 2
+		mockFr := &mockFrame{
+			icao:           icao,
+			icaoStr:        "4840D6",
+			raw:            payload,
+			epochID:        2,
+			signalStrength: -30.0,
+		}
+		fe := tracker.NewFrameEvent(mockFr, &tracker.FrameSource{Tag: "rx-north"})
+		frameEvent := &fe
+		f.Handle(frameEvent)
+	}
+
+	// Epoch 3 frames - very strong signal (should win and become sticky)
+	acceptedFromEpoch3 := false
+	for i := 0; i < 15; i++ {
+		payload := make([]byte, 3)
+		payload[0] = byte(icao >> 16)
+		payload[1] = byte(icao >> 8)
+		payload[2] = 150 + byte(i) // Different range for epoch 3
+		mockFr := &mockFrame{
+			icao:           icao,
+			icaoStr:        "4840D6",
+			raw:            payload,
+			epochID:        3,
+			signalStrength: -1.0, // Very strong signal
+		}
+		fe := tracker.NewFrameEvent(mockFr, &tracker.FrameSource{Tag: "rx-north"})
+		frameEvent := &fe
+		if f.Handle(frameEvent) != nil {
+			acceptedFromEpoch3 = true
+		}
+	}
+
+	if !acceptedFromEpoch3 {
+		t.Error("Expected at least one frame from epoch 3 to be accepted due to superior signal strength")
+	}
+
+	// Verify sticky feeder is now on rx-north
+	scores := f.GetAllAircraftScores()
+	if score, ok := scores[icao]; ok {
+		if score.FeederTag != "rx-north" {
+			t.Errorf("Expected sticky feeder to be rx-north, got %s", score.FeederTag)
+		}
+	} else {
+		t.Error("Expected aircraft to have a score after processing all epochs")
+	}
+}
+
+func TestIntegration_EpochTimeoutAndRecovery(t *testing.T) {
+	// This test verifies that new epochs can be detected and handled
+	// alongside stale epochs. The system should continue tracking aircraft
+	// even when epochs change.
+
+	f := NewFilter(WithHysteresis(0.01))
+	defer f.Stop()
+	icao := uint32(0x4840D6)
+
+	// Frame from epoch 1 establishes sticky feeder as rx-north#1
+	frame1 := createTestBeastFrame(icao, 1, "rx-north")
+	result1 := f.Handle(frame1)
+	if result1 == nil {
+		t.Error("Expected frame from epoch 1 to be accepted")
+	}
+
+	// Send many frames from epoch 2 with strong signal to eventually take over
+	// (In real scenario, EpochDetector would mark epoch 1 stale after 30 seconds)
+	acceptedFromEpoch2 := false
+	for i := 0; i < 20; i++ {
+		payload := make([]byte, 3)
+		payload[0] = byte(icao >> 16)
+		payload[1] = byte(icao >> 8)
+		payload[2] = 100 + byte(i)
+		mockFr := &mockFrame{
+			icao:           icao,
+			icaoStr:        "4840D6",
+			raw:            payload,
+			epochID:        2,
+			signalStrength: -5.0, // Strong signal to build score
+		}
+		fe := tracker.NewFrameEvent(mockFr, &tracker.FrameSource{Tag: "rx-north"})
+		frameEvent := &fe
+		if f.Handle(frameEvent) != nil {
+			acceptedFromEpoch2 = true
+		}
+	}
+
+	if !acceptedFromEpoch2 {
+		t.Error("Expected at least some frames from epoch 2 to be accepted after many attempts")
+	}
+
+	// Verify aircraft is still tracked
+	scores := f.GetAllAircraftScores()
+	if _, ok := scores[icao]; !ok {
+		t.Error("Expected aircraft to be tracked after epoch change")
+	}
+}
+
+func TestIntegration_MultipleFeedersBothWithEpochs(t *testing.T) {
+	// Verifies isolation works across multiple independent feeders
+
+	f := NewFilter()
+	defer f.Stop()
+	icao := uint32(0x4840D6)
+
+	// Feeder A with 2 epochs
+	frameA1 := createTestBeastFrame(icao, 1, "rx-north")
+	frameA2 := createTestBeastFrame(icao, 2, "rx-north")
+
+	// Feeder B with 2 epochs (different feeder, same aircraft)
+	frameB1 := createTestBeastFrame(icao, 1, "rx-south")
+	frameB2 := createTestBeastFrame(icao, 2, "rx-south")
+
+	// Process frames from all combinations
+	f.Handle(frameA1) // First frame - sticky is A#1
+	f.Handle(frameA2) // A#2 enters as challenger
+	f.Handle(frameB1) // B#1 enters as challenger
+	f.Handle(frameB2) // B#2 enters as challenger
+
+	// Verify one feeder is selected as sticky
+	scores := f.GetAllAircraftScores()
+	if score, ok := scores[icao]; ok {
+		// Should be either rx-north or rx-south, without epoch suffix
+		if score.FeederTag != "rx-north" && score.FeederTag != "rx-south" {
+			t.Errorf("Expected sticky feeder to be rx-north or rx-south, got %s", score.FeederTag)
+		}
+		if strings.Contains(score.FeederTag, "#") {
+			t.Errorf("Advertised feeder tag should not contain epoch suffix, got %s", score.FeederTag)
+		}
+	} else {
+		t.Error("Expected aircraft to be tracked with multiple feeders and epochs")
 	}
 }

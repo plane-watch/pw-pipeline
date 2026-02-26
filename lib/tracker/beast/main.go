@@ -50,6 +50,10 @@ type (
 
 		// decodedModeS contains the decoded Mode-S frame (if the msgType is 0x32 or 0x33 - Mode-S short or Mode-S long).
 		decodedModeS mode_s.Frame
+
+		// epochID identifies which MLAT epoch this frame belongs to.
+		// Used for sub-producer isolation when multiple receivers are aggregated.
+		epochID uint32
 	}
 )
 
@@ -78,6 +82,7 @@ func init() {
 				isRadarCape:   false,
 				hasDecoded:    false,
 				decodedModeS:  mode_s.Frame{},
+				epochID:       0,
 			}
 		},
 	}
@@ -95,6 +100,7 @@ func Release(frame *Frame) {
 		frame.isRadarCape = false
 		frame.hasDecoded = false
 		frame.decodedModeS = mode_s.Frame{}
+		frame.epochID = 0
 		// return to pool
 		beastPool.Put(frame)
 	}
@@ -151,6 +157,16 @@ func (f *Frame) Decode() error {
 func (f *Frame) TimeStamp() time.Time {
 	// todo: calculate this off the mlat timestamp
 	return time.Now()
+}
+
+// SetEpochID sets the MLAT epoch ID for this frame
+func (f *Frame) SetEpochID(id uint32) {
+	f.epochID = id
+}
+
+// EpochID returns the MLAT epoch ID for this frame
+func (f *Frame) EpochID() uint32 {
+	return f.epochID
 }
 
 // Raw gives us back our raw beast message

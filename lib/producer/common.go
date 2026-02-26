@@ -65,6 +65,13 @@ type (
 		poisonPillCancel context.CancelFunc
 
 		cleanUpTasks []func() error
+
+		// Epoch detectors for sub-feeder isolation (one per feeder, tracks MLAT epoch changes)
+		// No explicit cleanup needed - sync.Map is garbage collected when Producer is freed.
+		epochDetectors sync.Map // map[string]*EpochDetector keyed by feeder tag
+
+		// Default stale timeout for epochs (config option)
+		epochStaleTimeout time.Duration
 	}
 
 	Option func(*Producer)
@@ -80,8 +87,9 @@ func New(opts ...Option) *Producer {
 			RefLon:           nil,
 			VelocityCheck:    true,
 		},
-		out:     make(chan tracker.FrameEvent, 100),
-		cmdChan: make(chan int),
+		out:               make(chan tracker.FrameEvent, 100),
+		cmdChan:           make(chan int),
+		epochStaleTimeout: 30 * time.Second, // Default: 30 seconds before epoch is considered stale
 		run: func() {
 			println("You did not specify any sources")
 			os.Exit(1) // TODO(mikenye): something more graceful?
@@ -349,6 +357,19 @@ func WithPoisonPill(poisonPill func() bool, t time.Duration) Option {
 	return func(p *Producer) {
 		p.poisonPill = poisonPill
 	}
+}
+
+// WithEpochStaleTimeout sets how long before an epoch is considered stale
+func WithEpochStaleTimeout(timeout time.Duration) Option {
+	return func(p *Producer) {
+		p.epochStaleTimeout = timeout
+	}
+}
+
+// getEpochDetector returns or creates an epoch detector for a feeder tag
+func (p *Producer) getEpochDetector(feederTag string) *EpochDetector {
+	val, _ := p.epochDetectors.LoadOrStore(feederTag, NewEpochDetector(p.epochStaleTimeout))
+	return val.(*EpochDetector)
 }
 
 func (p *Producer) String() string {

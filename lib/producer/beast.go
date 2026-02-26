@@ -24,6 +24,11 @@ func (p *Producer) beastScanner(scan *bufio.Scanner) error {
 			continue
 		}
 
+		// Extract MLAT ticks and detect epoch
+		mlatTicks := frame.BeastTicksNs()
+		epochID := p.getEpochDetector(p.Tag).ProcessTicks(mlatTicks)
+		frame.SetEpochID(epochID)
+
 		if p.beastDelay {
 			currentTs := frame.BeastTicksNs()
 			if lastTimeStamp > 0 && lastTimeStamp < currentTs {
