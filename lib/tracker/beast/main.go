@@ -240,7 +240,9 @@ func (f *Frame) decodeConfig() {
 	// TODO: Decode RadarCape Config Info
 }
 
-// BeastTicksNs returns the number of nanoseconds the beast has been on for (the mlat timestamp is calculated from power on)
+// BeastTicksNs returns the number of nanoseconds since the Beast receiver powered on.
+// MLAT timestamps are in 1/12 microsecond increments per Beast format specification.
+// Conversion: ticks * (1000 nanoseconds / 12) = ticks in nanoseconds
 func (f *Frame) BeastTicksNs() time.Duration {
 	var t uint64
 	inc := 40
@@ -250,10 +252,13 @@ func (f *Frame) BeastTicksNs() time.Duration {
 	}
 
 	if f.isRadarCape {
+		// RadarCape may use different scaling, keep as-is for now
 		return time.Duration(t)
 	}
 
-	return time.Duration(t * 500)
+	// Standard Beast: convert from 1/12 microsecond ticks to nanoseconds
+	// Formula: ticks * (1e9 / 12) = ticks * 1000 / 12 (integer division safe here)
+	return time.Duration(t * 1000 / 12)
 }
 
 func (f *Frame) String() string {
