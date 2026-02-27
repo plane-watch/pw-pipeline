@@ -503,17 +503,20 @@ func (s *aircraftState) processFrame(
 	}
 
 	// Same-tag dedupe check: if this is from the sticky feeder (or will become sticky),
-	// check if we've seen this exact payload recently from the same tag
+	// check if we've seen this exact payload recently from the same tag.
+	// Use the base feeder tag (without epoch) for dedup so we detect duplicates
+	// across different sub-producers behind the same ingress feeder.
 	if payloadKey != "" && (s.stickyFeeder == "" || s.stickyFeeder == feederTag) {
-		dedupeKey := feederTag + ":" + payloadKey
+		baseTag := extractFeederTag(feederTag)
+		dedupeKey := baseTag + ":" + payloadKey
 		if sameTagDedupe.HasKeyStr(dedupeKey) {
-			// Duplicate from same tag - log first occurrence per feeder (globally, not per aircraft)
-			if _, alreadyLogged := sameTagLoggedTags.LoadOrStore(feederTag, true); !alreadyLogged {
+			// Duplicate from same tag - log first occurrence per base feeder
+			if _, alreadyLogged := sameTagLoggedTags.LoadOrStore(baseTag, true); !alreadyLogged {
 				logger.Info().
-					Str("feeder", feederTag).
+					Str("feeder", baseTag).
 					Msg("Detected same-tag duplicate frames (multiple receivers with same API key)")
 			}
-			prometheusSameTagDuplicates.WithLabelValues(feederTag).Inc()
+			prometheusSameTagDuplicates.WithLabelValues(baseTag).Inc()
 			return false, false
 		}
 	}

@@ -26,9 +26,8 @@ type (
 
 		atcUpdateQueue chan feederStat
 
-		log zerolog.Logger
-		mu  sync.Mutex
-		stopped bool
+		log  zerolog.Logger
+		done chan struct{}
 	}
 
 	feederStat struct {
@@ -58,6 +57,7 @@ func NewAccounting(opts ...AccountingOption) *Accounting {
 
 	a.handleQueue = make(chan *tracker.FrameSource, 1000)
 	a.atcUpdateQueue = make(chan feederStat, 1000)
+	a.done = make(chan struct{})
 
 	// config check
 	if a.natsServer == nil {
@@ -71,17 +71,13 @@ func NewAccounting(opts ...AccountingOption) *Accounting {
 }
 
 func (a *Accounting) Handle(event *tracker.FrameEvent) tracker.Frame {
-	a.mu.Lock()
-	stopped := a.stopped
-	a.mu.Unlock()
-
-	if !stopped {
-		select {
-		case a.handleQueue <- event.Source():
-		default:
-			// Queue full, drop the accounting update (not the frame)
-			a.log.Warn().Msg("accounting queue full, dropping update")
-		}
+	select {
+	case <-a.done:
+		// Stopped, don't send
+	case a.handleQueue <- event.Source():
+	default:
+		// Queue full, drop the accounting update (not the frame)
+		a.log.Warn().Msg("accounting queue full, dropping update")
 	}
 	return event.Frame()
 }
@@ -150,9 +146,7 @@ func (a *Accounting) HealthCheck() bool {
 }
 
 func (a *Accounting) Stop() {
-	a.mu.Lock()
-	a.stopped = true
-	a.mu.Unlock()
+	close(a.done)
 	close(a.handleQueue)
 	close(a.atcUpdateQueue)
 	a.exitQueueWaiter.Wait()

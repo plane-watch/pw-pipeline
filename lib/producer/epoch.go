@@ -6,9 +6,10 @@ import (
 )
 
 // EpochDetector detects MLAT epoch changes and stores the epoch start time.
-// The epoch ID is the wall-clock time when the receiver powered on, calculated as:
-// epoch_id = now - mlat_ticks_in_nanoseconds
+// The epoch ID is the unix timestamp (seconds) when the receiver powered on:
+// epoch_id = uint32(now_unix_seconds - mlat_ticks_in_seconds)
 //
+// Using seconds (not nanoseconds) avoids uint32 overflow -- wraps every ~136 years.
 // All frames from the same receiver will have the same epoch_id until it restarts.
 // When MLAT ticks reset or jump backwards significantly, it signals either:
 // 1. A sub-producer restart (same receiver, new epoch)
@@ -16,8 +17,8 @@ import (
 type EpochDetector struct {
 	mu sync.RWMutex
 
-	// currentEpochID is the wall-clock time when the current epoch started
-	// Calculated as: now - mlat_ticks. All frames from same receiver have same ID.
+	// currentEpochID is the unix timestamp (seconds) when the receiver powered on.
+	// Calculated as: now_unix - mlat_seconds. All frames from same receiver have same ID.
 	currentEpochID uint32
 
 	// lastTicks is the last MLAT tick value seen
@@ -48,19 +49,22 @@ func NewEpochDetector(staleTimeout time.Duration) *EpochDetector {
 	}
 }
 
-// ProcessTicks processes MLAT ticks and returns the current epoch ID.
-// The epoch ID is calculated as: now - mlat_ticks (the wall-clock time when receiver started).
-// All frames from the same receiver have the same epoch ID until it restarts.
+// ProcessTicks processes MLAT ticks (in nanoseconds) and returns the current epoch ID.
+// The epoch ID is: uint32(now_unix_seconds - mlat_seconds) — the unix timestamp when
+// the receiver powered on. Using seconds avoids uint32 overflow (wraps every ~136 years).
 func (ed *EpochDetector) ProcessTicks(ticks time.Duration) uint32 {
 	ed.mu.Lock()
 	defer ed.mu.Unlock()
 
 	now := time.Now()
+	epochStart := func() uint32 {
+		return uint32(now.Unix() - int64(ticks.Seconds()))
+	}
 
 	// First frame - calculate when this receiver powered on
 	if !ed.initialized {
 		ed.initialized = true
-		ed.currentEpochID = uint32(now.UnixNano() - ticks.Nanoseconds())
+		ed.currentEpochID = epochStart()
 		ed.lastTicks = ticks
 		ed.lastSeen = now
 		return ed.currentEpochID
@@ -68,7 +72,7 @@ func (ed *EpochDetector) ProcessTicks(ticks time.Duration) uint32 {
 
 	// Check if current epoch is stale
 	if now.Sub(ed.lastSeen) > ed.staleTimeout {
-		ed.currentEpochID = uint32(now.UnixNano() - ticks.Nanoseconds())
+		ed.currentEpochID = epochStart()
 		ed.lastTicks = ticks
 		ed.lastSeen = now
 		return ed.currentEpochID
@@ -77,7 +81,7 @@ func (ed *EpochDetector) ProcessTicks(ticks time.Duration) uint32 {
 	// Check for backwards jump (reset/new sub-producer)
 	// Only trigger if backwards jump exceeds threshold (filters network jitter)
 	if ticks < ed.lastTicks && (ed.lastTicks-ticks) > ed.resetThreshold {
-		ed.currentEpochID = uint32(now.UnixNano() - ticks.Nanoseconds())
+		ed.currentEpochID = epochStart()
 		ed.lastTicks = ticks
 		ed.lastSeen = now
 		return ed.currentEpochID

@@ -25,7 +25,13 @@ func (p *Producer) beastScanner(scan *bufio.Scanner) error {
 		}
 
 		// Extract MLAT ticks and detect epoch
+		// BeastTicksNs() returns nanoseconds for Beast, but raw ticks for RadarCape.
+		// ProcessTicks expects nanoseconds, so convert RadarCape if needed.
 		mlatTicks := frame.BeastTicksNs()
+		if p.isRadarCape {
+			// RadarCape returns raw ticks, convert to nanoseconds: ticks * 1000 / 12
+			mlatTicks = time.Duration(int64(mlatTicks) * 1000 / 12)
+		}
 		epochID := p.getEpochDetector(p.Tag).ProcessTicks(mlatTicks)
 		frame.SetEpochID(epochID)
 
