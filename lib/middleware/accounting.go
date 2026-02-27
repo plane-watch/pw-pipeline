@@ -27,6 +27,8 @@ type (
 		atcUpdateQueue chan feederStat
 
 		log zerolog.Logger
+		mu  sync.Mutex
+		stopped bool
 	}
 
 	feederStat struct {
@@ -69,11 +71,17 @@ func NewAccounting(opts ...AccountingOption) *Accounting {
 }
 
 func (a *Accounting) Handle(event *tracker.FrameEvent) tracker.Frame {
-	select {
-	case a.handleQueue <- event.Source():
-	default:
-		// Queue full, drop the accounting update (not the frame)
-		a.log.Warn().Msg("accounting queue full, dropping update")
+	a.mu.Lock()
+	stopped := a.stopped
+	a.mu.Unlock()
+
+	if !stopped {
+		select {
+		case a.handleQueue <- event.Source():
+		default:
+			// Queue full, drop the accounting update (not the frame)
+			a.log.Warn().Msg("accounting queue full, dropping update")
+		}
 	}
 	return event.Frame()
 }
@@ -142,6 +150,9 @@ func (a *Accounting) HealthCheck() bool {
 }
 
 func (a *Accounting) Stop() {
+	a.mu.Lock()
+	a.stopped = true
+	a.mu.Unlock()
 	close(a.handleQueue)
 	close(a.atcUpdateQueue)
 	a.exitQueueWaiter.Wait()
