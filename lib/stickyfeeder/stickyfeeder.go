@@ -506,20 +506,22 @@ func (s *aircraftState) processFrame(
 	// Used for both lookup and storage so keys always match.
 	baseTag := extractFeederTag(feederTag)
 
-	// Same-tag dedupe check: if this is from the sticky feeder (or will become sticky),
-	// check if we've seen this exact payload recently from the same tag.
-	// Use the base feeder tag (without epoch) for dedup so we detect duplicates
-	// across different sub-producers behind the same ingress feeder.
+	// Same-tag dedupe: drop identical payloads from the same base feeder tag within the TTL.
+	// Key = baseTag:payload (matches across epochs), value = composite feederTag that stored it.
+	// All same-payload repeats are dropped (basic dedup). The stored value distinguishes
+	// multi-receiver setups: if a different epoch stored it, log the detection.
 	if payloadKey != "" && (s.stickyFeeder == "" || s.stickyFeeder == feederTag) {
 		dedupeKey := baseTag + ":" + payloadKey
-		if sameTagDedupe.HasKeyStr(dedupeKey) {
-			// Duplicate from same tag - log first occurrence per base feeder
-			if _, alreadyLogged := sameTagLoggedTags.LoadOrStore(baseTag, true); !alreadyLogged {
-				logger.Info().
-					Str("feeder", baseTag).
-					Msg("Detected same-tag duplicate frames (multiple receivers with same API key)")
+		if storedBy, ok := sameTagDedupe.Load(dedupeKey); ok {
+			// Different epoch → multi-receiver setup, log once per feeder
+			if storedBy.(string) != feederTag {
+				if _, alreadyLogged := sameTagLoggedTags.LoadOrStore(baseTag, true); !alreadyLogged {
+					logger.Info().
+						Str("feeder", baseTag).
+						Msg("Detected same-tag duplicate frames (multiple receivers with same API key)")
+				}
+				prometheusSameTagDuplicates.WithLabelValues(baseTag).Inc()
 			}
-			prometheusSameTagDuplicates.WithLabelValues(baseTag).Inc()
 			return false, false
 		}
 	}
@@ -538,7 +540,7 @@ func (s *aircraftState) processFrame(
 		s.lockedAt = now
 		// Record payload for same-tag dedupe
 		if payloadKey != "" {
-			sameTagDedupe.AddKeyStr(baseTag + ":" + payloadKey)
+			sameTagDedupe.Store(baseTag+":"+payloadKey, feederTag)
 		}
 		return true, false
 	}
@@ -547,7 +549,7 @@ func (s *aircraftState) processFrame(
 	if s.stickyFeeder == feederTag {
 		// Record payload for same-tag dedupe
 		if payloadKey != "" {
-			sameTagDedupe.AddKeyStr(baseTag + ":" + payloadKey)
+			sameTagDedupe.Store(baseTag+":"+payloadKey, feederTag)
 		}
 		return true, false
 	}
@@ -559,7 +561,7 @@ func (s *aircraftState) processFrame(
 		s.stickyFeeder = feederTag
 		s.lockedAt = now
 		if payloadKey != "" {
-			sameTagDedupe.AddKeyStr(baseTag + ":" + payloadKey)
+			sameTagDedupe.Store(baseTag+":"+payloadKey, feederTag)
 		}
 		return true, true
 	}
@@ -590,7 +592,7 @@ func (s *aircraftState) processFrame(
 		s.stickyFeeder = feederTag
 		s.lockedAt = now
 		if payloadKey != "" {
-			sameTagDedupe.AddKeyStr(baseTag + ":" + payloadKey)
+			sameTagDedupe.Store(baseTag+":"+payloadKey, feederTag)
 		}
 		return true, true
 	}
