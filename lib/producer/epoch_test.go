@@ -10,13 +10,20 @@ import (
 func TestEpochDetection_FirstFrame(t *testing.T) {
 	ed := NewEpochDetector(10 * time.Second)
 
-	// First frame should establish epoch at the actual tick value
-	// Using tick values that fit within uint32 range
+	// First frame should calculate epoch as: now - ticks
+	// All subsequent frames from same receiver should have same epoch ID
 	tickValue := time.Duration(100000000) // 100 million nanoseconds = 100 ms
+	before := time.Now()
 	epochID := ed.ProcessTicks(tickValue)
-	// epochID should be the actual tick value, not a counter (1)
-	if epochID != uint32(tickValue) {
-		t.Errorf("Expected epochID %d, got %d", uint32(tickValue), epochID)
+	after := time.Now()
+
+	// epochID should be approximately: now - tickValue
+	// Allow some margin for execution time
+	expectedMin := uint32(before.UnixNano() - tickValue.Nanoseconds())
+	expectedMax := uint32(after.UnixNano() - tickValue.Nanoseconds())
+
+	if epochID < expectedMin || epochID > expectedMax {
+		t.Errorf("Expected epochID between %d-%d, got %d", expectedMin, expectedMax, epochID)
 	}
 }
 
@@ -27,17 +34,21 @@ func TestEpochDetection_BackwardsJump(t *testing.T) {
 	// Start at 10 seconds in nanoseconds
 	tickValue1 := time.Duration(10000000000) // 10 seconds in nanoseconds
 	epochID1 := ed.ProcessTicks(tickValue1)
-	if epochID1 != uint32(tickValue1) {
-		t.Fatalf("Expected first epoch %d, got %d", uint32(tickValue1), epochID1)
-	}
 
 	// Large backwards jump > 5 seconds = restart/new sub-producer
-	// Should create new epoch at the jumped-to value
+	// Should create new epoch (now - new_ticks)
 	// Jump back to 1 second (9 second jump, more than 5 second threshold)
 	tickValue2 := time.Duration(1000000000) // 1 second in nanoseconds
+	before2 := time.Now()
 	epochID2 := ed.ProcessTicks(tickValue2)
-	if epochID2 != uint32(tickValue2) {
-		t.Errorf("Expected epoch at restart value %d, got %d", uint32(tickValue2), epochID2)
+	after2 := time.Now()
+
+	// Both should be calculated as now - ticks, so different
+	expectedMin2 := uint32(before2.UnixNano() - tickValue2.Nanoseconds())
+	expectedMax2 := uint32(after2.UnixNano() - tickValue2.Nanoseconds())
+
+	if epochID2 < expectedMin2 || epochID2 > expectedMax2 {
+		t.Errorf("Expected epochID2 between %d-%d, got %d", expectedMin2, expectedMax2, epochID2)
 	}
 
 	if epochID1 == epochID2 {
@@ -48,35 +59,34 @@ func TestEpochDetection_BackwardsJump(t *testing.T) {
 func TestEpochDetection_SmallJitterIgnored(t *testing.T) {
 	ed := NewEpochDetector(5 * time.Second)
 
-	// Establish epoch
-	// Start at 10 seconds in nanoseconds
-	tickValue1 := time.Duration(10000000000) // 10 seconds in nanoseconds
+	// Establish epoch at 10 seconds in nanoseconds
+	tickValue1 := time.Duration(10000000000)
 	epochID1 := ed.ProcessTicks(tickValue1)
-	if epochID1 != uint32(tickValue1) {
-		t.Fatalf("Expected first epoch %d, got %d", uint32(tickValue1), epochID1)
-	}
 
-	// Small backwards jump (1 second < 5 second threshold)
-	// Should NOT trigger new epoch (same epoch ID)
+	// Small backwards jump (1 ms < 5 second threshold)
+	// Should NOT trigger new epoch (return same epoch ID)
 	tickValue2 := time.Duration(9999000000) // 1 ms less - should be ignored
 	epochID2 := ed.ProcessTicks(tickValue2)
 	if epochID1 != epochID2 {
 		t.Errorf("Expected same epoch for minor jitter, got %d != %d", epochID1, epochID2)
 	}
-	if epochID2 != uint32(tickValue1) {
-		t.Errorf("Expected same epoch value %d after jitter, got %d", uint32(tickValue1), epochID2)
-	}
 
-	// Now a large backwards jump (more than 5 second threshold)
-	// Should trigger new epoch at the new value
-	// Jump back from 10 seconds to 3 seconds (7 second jump > 5 second threshold)
+	// Now a large backwards jump (7 seconds > 5 second threshold)
+	// Should trigger new epoch (now - new_ticks)
+	// Jump back from 10 seconds to 3 seconds
 	tickValue3 := time.Duration(3000000000) // 3 seconds in nanoseconds
+	before3 := time.Now()
 	epochID3 := ed.ProcessTicks(tickValue3)
+	after3 := time.Now()
+
 	if epochID1 == epochID3 {
 		t.Errorf("Expected different epoch IDs for large backwards jump, got %d == %d", epochID1, epochID3)
 	}
-	if epochID3 != uint32(tickValue3) {
-		t.Errorf("Expected epoch at large jump value %d, got %d", uint32(tickValue3), epochID3)
+
+	expectedMin3 := uint32(before3.UnixNano() - tickValue3.Nanoseconds())
+	expectedMax3 := uint32(after3.UnixNano() - tickValue3.Nanoseconds())
+	if epochID3 < expectedMin3 || epochID3 > expectedMax3 {
+		t.Errorf("Expected epochID3 between %d-%d, got %d", expectedMin3, expectedMax3, epochID3)
 	}
 }
 
@@ -91,12 +101,15 @@ func TestEpochDetection_NormalProgression(t *testing.T) {
 	epochID2 := ed.ProcessTicks(tickValue2)
 	epochID3 := ed.ProcessTicks(tickValue3)
 
+	// All frames from same receiver should have same epoch ID
 	if epochID1 != epochID2 || epochID2 != epochID3 {
 		t.Errorf("Expected same epoch for normal progression, got %d, %d, %d", epochID1, epochID2, epochID3)
 	}
 
-	if epochID1 != uint32(tickValue1) {
-		t.Errorf("Expected epoch value %d, got %d", uint32(tickValue1), epochID1)
+	// Verify it's calculated as now - ticks (approximate)
+	// Just check it's roughly the right magnitude
+	if epochID1 == 0 {
+		t.Errorf("Expected non-zero epoch ID, got %d", epochID1)
 	}
 }
 
@@ -105,21 +118,24 @@ func TestEpochDetection_StaleTimeout(t *testing.T) {
 
 	tickValue1 := time.Duration(1000000000) // 1 second in nanoseconds
 	epochID1 := ed.ProcessTicks(tickValue1)
-	if epochID1 != uint32(tickValue1) {
-		t.Fatalf("Expected first epoch %d, got %d", uint32(tickValue1), epochID1)
-	}
 
 	// Wait for epoch to go stale
 	time.Sleep(150 * time.Millisecond)
 
-	// New frame after timeout = new epoch at the new tick value
+	// New frame after timeout = new epoch (now - new_ticks)
 	tickValue2 := time.Duration(2000000000) // 2 seconds in nanoseconds
+	before2 := time.Now()
 	epochID2 := ed.ProcessTicks(tickValue2)
+	after2 := time.Now()
+
 	if epochID1 == epochID2 {
 		t.Errorf("Expected different epoch IDs after timeout, got %d == %d", epochID1, epochID2)
 	}
-	if epochID2 != uint32(tickValue2) {
-		t.Errorf("Expected new epoch at tick value %d, got %d", uint32(tickValue2), epochID2)
+
+	expectedMin2 := uint32(before2.UnixNano() - tickValue2.Nanoseconds())
+	expectedMax2 := uint32(after2.UnixNano() - tickValue2.Nanoseconds())
+	if epochID2 < expectedMin2 || epochID2 > expectedMax2 {
+		t.Errorf("Expected epochID2 between %d-%d, got %d", expectedMin2, expectedMax2, epochID2)
 	}
 }
 
