@@ -502,12 +502,15 @@ func (s *aircraftState) processFrame(
 		s.feeders[feederTag] = stats
 	}
 
+	// Base feeder tag (without epoch) for same-tag dedup.
+	// Used for both lookup and storage so keys always match.
+	baseTag := extractFeederTag(feederTag)
+
 	// Same-tag dedupe check: if this is from the sticky feeder (or will become sticky),
 	// check if we've seen this exact payload recently from the same tag.
 	// Use the base feeder tag (without epoch) for dedup so we detect duplicates
 	// across different sub-producers behind the same ingress feeder.
 	if payloadKey != "" && (s.stickyFeeder == "" || s.stickyFeeder == feederTag) {
-		baseTag := extractFeederTag(feederTag)
 		dedupeKey := baseTag + ":" + payloadKey
 		if sameTagDedupe.HasKeyStr(dedupeKey) {
 			// Duplicate from same tag - log first occurrence per base feeder
@@ -535,7 +538,7 @@ func (s *aircraftState) processFrame(
 		s.lockedAt = now
 		// Record payload for same-tag dedupe
 		if payloadKey != "" {
-			sameTagDedupe.AddKeyStr(feederTag + ":" + payloadKey)
+			sameTagDedupe.AddKeyStr(baseTag + ":" + payloadKey)
 		}
 		return true, false
 	}
@@ -544,7 +547,7 @@ func (s *aircraftState) processFrame(
 	if s.stickyFeeder == feederTag {
 		// Record payload for same-tag dedupe
 		if payloadKey != "" {
-			sameTagDedupe.AddKeyStr(feederTag + ":" + payloadKey)
+			sameTagDedupe.AddKeyStr(baseTag + ":" + payloadKey)
 		}
 		return true, false
 	}
@@ -556,7 +559,7 @@ func (s *aircraftState) processFrame(
 		s.stickyFeeder = feederTag
 		s.lockedAt = now
 		if payloadKey != "" {
-			sameTagDedupe.AddKeyStr(feederTag + ":" + payloadKey)
+			sameTagDedupe.AddKeyStr(baseTag + ":" + payloadKey)
 		}
 		return true, true
 	}
@@ -587,7 +590,7 @@ func (s *aircraftState) processFrame(
 		s.stickyFeeder = feederTag
 		s.lockedAt = now
 		if payloadKey != "" {
-			sameTagDedupe.AddKeyStr(feederTag + ":" + payloadKey)
+			sameTagDedupe.AddKeyStr(baseTag + ":" + payloadKey)
 		}
 		return true, true
 	}
