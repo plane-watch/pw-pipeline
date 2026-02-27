@@ -143,34 +143,51 @@ Possible improvements (not in current implementation):
 
 ## Technical Details
 
-### MLAT Epoch Detection Algorithm
+### MLAT Epoch Storage and Identification
 
+**Epoch Value Semantics:**
+The epoch ID is the actual MLAT tick value (from `BeastTicksNs()`) when that epoch began. This provides:
+- **Absolute Timing Reference**: The timestamp can be used to reconstruct wall-clock time across epoch boundaries
+- **Pseudo-Random Identification**: Two receivers restarting at identical tick values is statistically impossible
+- **Backward Compatible**: Sequential counter semantics changed to actual values; external API unchanged
+
+**Conversion Formula:**
+```
+MLAT tick (Beast format) → nanoseconds conversion:
+  ticks * (1000 / 12) = nanoseconds
+
+Where each MLAT tick represents 1/12 microsecond per Beast specification.
+```
+
+**Example Values:**
+- Receiver running 1 second: epoch ID ≈ 83,333,333 (nanoseconds)
+- Receiver running 10 seconds: epoch ID ≈ 833,333,333
+- Receiver running 1 minute: epoch ID ≈ 5,000,000,000
+- Receiver running 1 hour: epoch ID ≈ 3,600,000,000,000
+
+Composite key format: `feederTag#epochID` (e.g., `LEPP-2043#5000000000`)
+
+**Epoch Change Detection:**
 ```
 ProcessTicks(currentTicks):
   if first_frame:
-    epochID = 1
+    epochID = currentTicks  // Store actual MLAT tick value
     lastTicks = currentTicks
-    return 1
+    return epochID
 
   if time_since_last_frame > staleTimeout:
-    epochID++
+    epochID = currentTicks  // New epoch starts at this tick
     return epochID
 
   if currentTicks < lastTicks AND (lastTicks - currentTicks) > resetThreshold:
-    epochID++
+    epochID = currentTicks  // Backwards jump detected, new epoch
     return epochID
 
   if currentTicks > lastTicks:
-    lastTicks = currentTicks
+    lastTicks = currentTicks  // Normal progression, same epoch
 
   return epochID
 ```
-
-**Why this works:**
-- MLAT ticks should always increase (monotonic)
-- Any backwards jump > 5 seconds indicates restart/new sub-producer
-- Minor jitter (< 5 seconds) ignored to tolerate NTP adjustments
-- Stale timeout prevents old epochs from being resurrected
 
 ### Composite Key Format
 
