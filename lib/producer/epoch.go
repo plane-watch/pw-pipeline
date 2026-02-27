@@ -5,14 +5,19 @@ import (
 	"time"
 )
 
-// EpochDetector detects MLAT epoch changes in a Beast frame stream.
+// EpochDetector detects MLAT epoch changes and stores the actual epoch start timestamp.
+// The epoch value is the MLAT tick at which the epoch began, providing both:
+// 1. Absolute timing reference (when receiver/sub-producer started)
+// 2. Pseudo-random identifier within each feeder (uniqueness near-guaranteed)
+//
 // When MLAT ticks reset or jump backwards significantly, it signals either:
 // 1. A sub-producer restart (same receiver, new epoch)
 // 2. A new sub-producer behind the aggregator (different receiver)
 type EpochDetector struct {
 	mu sync.RWMutex
 
-	// currentEpochID increments each time we detect an epoch change
+	// currentEpochID is the MLAT tick value when the current epoch started
+	// (not a counter - the actual timestamp from the Beast frame)
 	currentEpochID uint32
 
 	// lastTicks is the last MLAT tick value seen
@@ -44,17 +49,18 @@ func NewEpochDetector(staleTimeout time.Duration) *EpochDetector {
 }
 
 // ProcessTicks processes MLAT ticks and returns the current epoch ID.
-// Detects resets/new sub-producers based on tick patterns.
+// The epoch ID is the actual MLAT tick value when that epoch started.
+// This provides both absolute timing reference and pseudo-random identification.
 func (ed *EpochDetector) ProcessTicks(ticks time.Duration) uint32 {
 	ed.mu.Lock()
 	defer ed.mu.Unlock()
 
 	now := time.Now()
 
-	// First frame - establish epoch
+	// First frame - epoch starts at this tick value
 	if !ed.initialized {
 		ed.initialized = true
-		ed.currentEpochID = 1
+		ed.currentEpochID = uint32(ticks) // Store actual MLAT tick value
 		ed.lastTicks = ticks
 		ed.lastSeen = now
 		return ed.currentEpochID
@@ -62,7 +68,7 @@ func (ed *EpochDetector) ProcessTicks(ticks time.Duration) uint32 {
 
 	// Check if current epoch is stale
 	if now.Sub(ed.lastSeen) > ed.staleTimeout {
-		ed.currentEpochID++
+		ed.currentEpochID = uint32(ticks) // New epoch starts at this tick value
 		ed.lastTicks = ticks
 		ed.lastSeen = now
 		return ed.currentEpochID
@@ -71,7 +77,7 @@ func (ed *EpochDetector) ProcessTicks(ticks time.Duration) uint32 {
 	// Check for backwards jump (reset/new sub-producer)
 	// Only trigger if backwards jump exceeds threshold (filters network jitter)
 	if ticks < ed.lastTicks && (ed.lastTicks-ticks) > ed.resetThreshold {
-		ed.currentEpochID++
+		ed.currentEpochID = uint32(ticks) // New epoch starts at this tick value
 		ed.lastTicks = ticks
 		ed.lastSeen = now
 		return ed.currentEpochID

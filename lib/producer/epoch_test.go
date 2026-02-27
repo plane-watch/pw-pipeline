@@ -10,21 +10,35 @@ import (
 func TestEpochDetection_FirstFrame(t *testing.T) {
 	ed := NewEpochDetector(10 * time.Second)
 
-	// First frame should establish epoch
-	epochID := ed.ProcessTicks(time.Duration(1000) * time.Second)
-	if epochID != 1 {
-		t.Errorf("Expected epochID 1, got %d", epochID)
+	// First frame should establish epoch at the actual tick value
+	// Using tick values that fit within uint32 range
+	tickValue := time.Duration(100000000) // 100 million nanoseconds = 100 ms
+	epochID := ed.ProcessTicks(tickValue)
+	// epochID should be the actual tick value, not a counter (1)
+	if epochID != uint32(tickValue) {
+		t.Errorf("Expected epochID %d, got %d", uint32(tickValue), epochID)
 	}
 }
 
 func TestEpochDetection_BackwardsJump(t *testing.T) {
 	ed := NewEpochDetector(10 * time.Second)
 
-	// Establish epoch with a large tick value (e.g., boot time in seconds)
-	epochID1 := ed.ProcessTicks(time.Duration(1000) * time.Second)
+	// Establish epoch with a tick value
+	// Start at 10 seconds in nanoseconds
+	tickValue1 := time.Duration(10000000000) // 10 seconds in nanoseconds
+	epochID1 := ed.ProcessTicks(tickValue1)
+	if epochID1 != uint32(tickValue1) {
+		t.Fatalf("Expected first epoch %d, got %d", uint32(tickValue1), epochID1)
+	}
 
 	// Large backwards jump > 5 seconds = restart/new sub-producer
-	epochID2 := ed.ProcessTicks(time.Duration(100) * time.Second)
+	// Should create new epoch at the jumped-to value
+	// Jump back to 1 second (9 second jump, more than 5 second threshold)
+	tickValue2 := time.Duration(1000000000) // 1 second in nanoseconds
+	epochID2 := ed.ProcessTicks(tickValue2)
+	if epochID2 != uint32(tickValue2) {
+		t.Errorf("Expected epoch at restart value %d, got %d", uint32(tickValue2), epochID2)
+	}
 
 	if epochID1 == epochID2 {
 		t.Errorf("Expected different epoch IDs for backwards jump, got %d == %d", epochID1, epochID2)
@@ -35,50 +49,77 @@ func TestEpochDetection_SmallJitterIgnored(t *testing.T) {
 	ed := NewEpochDetector(5 * time.Second)
 
 	// Establish epoch
-	epochID1 := ed.ProcessTicks(time.Duration(1000) * time.Second)
+	// Start at 10 seconds in nanoseconds
+	tickValue1 := time.Duration(10000000000) // 10 seconds in nanoseconds
+	epochID1 := ed.ProcessTicks(tickValue1)
+	if epochID1 != uint32(tickValue1) {
+		t.Fatalf("Expected first epoch %d, got %d", uint32(tickValue1), epochID1)
+	}
 
 	// Small backwards jump (1 second < 5 second threshold)
 	// Should NOT trigger new epoch (same epoch ID)
-	epochID2 := ed.ProcessTicks(time.Duration(999) * time.Second)
-
+	tickValue2 := time.Duration(9999000000) // 1 ms less - should be ignored
+	epochID2 := ed.ProcessTicks(tickValue2)
 	if epochID1 != epochID2 {
 		t.Errorf("Expected same epoch for minor jitter, got %d != %d", epochID1, epochID2)
 	}
+	if epochID2 != uint32(tickValue1) {
+		t.Errorf("Expected same epoch value %d after jitter, got %d", uint32(tickValue1), epochID2)
+	}
 
-	// Now a large backwards jump (10 seconds > 5 second threshold)
-	// Should trigger new epoch
-	epochID3 := ed.ProcessTicks(time.Duration(990) * time.Second)
-
+	// Now a large backwards jump (more than 5 second threshold)
+	// Should trigger new epoch at the new value
+	// Jump back from 10 seconds to 3 seconds (7 second jump > 5 second threshold)
+	tickValue3 := time.Duration(3000000000) // 3 seconds in nanoseconds
+	epochID3 := ed.ProcessTicks(tickValue3)
 	if epochID1 == epochID3 {
 		t.Errorf("Expected different epoch IDs for large backwards jump, got %d == %d", epochID1, epochID3)
+	}
+	if epochID3 != uint32(tickValue3) {
+		t.Errorf("Expected epoch at large jump value %d, got %d", uint32(tickValue3), epochID3)
 	}
 }
 
 func TestEpochDetection_NormalProgression(t *testing.T) {
 	ed := NewEpochDetector(10 * time.Second)
 
-	epochID1 := ed.ProcessTicks(time.Duration(1000) * time.Second)
-	epochID2 := ed.ProcessTicks(time.Duration(1100) * time.Second)
-	epochID3 := ed.ProcessTicks(time.Duration(1200) * time.Second)
+	tickValue1 := time.Duration(1000000000) // 1 second in nanoseconds
+	tickValue2 := time.Duration(1100000000) // 1.1 seconds
+	tickValue3 := time.Duration(1200000000) // 1.2 seconds
+
+	epochID1 := ed.ProcessTicks(tickValue1)
+	epochID2 := ed.ProcessTicks(tickValue2)
+	epochID3 := ed.ProcessTicks(tickValue3)
 
 	if epochID1 != epochID2 || epochID2 != epochID3 {
 		t.Errorf("Expected same epoch for normal progression, got %d, %d, %d", epochID1, epochID2, epochID3)
+	}
+
+	if epochID1 != uint32(tickValue1) {
+		t.Errorf("Expected epoch value %d, got %d", uint32(tickValue1), epochID1)
 	}
 }
 
 func TestEpochDetection_StaleTimeout(t *testing.T) {
 	ed := NewEpochDetector(100 * time.Millisecond)
 
-	epochID1 := ed.ProcessTicks(time.Duration(1000) * time.Second)
+	tickValue1 := time.Duration(1000000000) // 1 second in nanoseconds
+	epochID1 := ed.ProcessTicks(tickValue1)
+	if epochID1 != uint32(tickValue1) {
+		t.Fatalf("Expected first epoch %d, got %d", uint32(tickValue1), epochID1)
+	}
 
 	// Wait for epoch to go stale
 	time.Sleep(150 * time.Millisecond)
 
-	// New frame after timeout = new epoch
-	epochID2 := ed.ProcessTicks(time.Duration(2000) * time.Second)
-
+	// New frame after timeout = new epoch at the new tick value
+	tickValue2 := time.Duration(2000000000) // 2 seconds in nanoseconds
+	epochID2 := ed.ProcessTicks(tickValue2)
 	if epochID1 == epochID2 {
 		t.Errorf("Expected different epoch IDs after timeout, got %d == %d", epochID1, epochID2)
+	}
+	if epochID2 != uint32(tickValue2) {
+		t.Errorf("Expected new epoch at tick value %d, got %d", uint32(tickValue2), epochID2)
 	}
 }
 
@@ -115,10 +156,12 @@ func TestBeastFrame_EpochID(t *testing.T) {
 		t.Errorf("Expected default EpochID 0, got %d", frame.EpochID())
 	}
 
-	// Test setting epoch ID
-	frame.SetEpochID(42)
-	if frame.EpochID() != 42 {
-		t.Errorf("Expected EpochID 42 after SetEpochID, got %d", frame.EpochID())
+	// Test setting epoch ID to an actual MLAT tick value
+	// Use a realistic MLAT tick value (1 second in nanoseconds, truncated to uint32)
+	epochValue := uint32(time.Duration(1000000000))
+	frame.SetEpochID(epochValue)
+	if frame.EpochID() != epochValue {
+		t.Errorf("Expected EpochID %d after SetEpochID, got %d", epochValue, frame.EpochID())
 	}
 }
 
