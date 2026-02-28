@@ -1,104 +1,133 @@
 package producer
 
 import (
+	"math"
 	"sync"
 	"time"
 )
 
-// EpochDetector detects MLAT epoch changes and stores the epoch start time.
+// tickStream represents one physical receiver's tick progression with a stable epoch ID.
+type tickStream struct {
+	epochID   uint32        // Stable: computed once at stream creation
+	lastTicks time.Duration // Most recent tick value from this receiver
+	lastSeen  time.Time     // Wall-clock time of most recent frame
+}
+
+// EpochDetector detects MLAT epoch changes for multiple concurrent receivers behind
+// a single Beast feeder connection.
+//
+// A single feeder (e.g., SBKP-1742) can aggregate multiple physical receivers, each
+// with independent MLAT clocks. The detector maintains a slice of tickStream entries,
+// one per receiver, and matches incoming ticks to the correct stream based on proximity.
+//
 // The epoch ID is the unix timestamp (seconds) when the receiver powered on:
 // epoch_id = uint32(now_unix_seconds - mlat_ticks_in_seconds)
-//
-// Using seconds (not nanoseconds) avoids uint32 overflow -- wraps every ~136 years.
-// All frames from the same receiver will have the same epoch_id until it restarts.
-// When MLAT ticks reset or jump backwards significantly, it signals either:
-// 1. A sub-producer restart (same receiver, new epoch)
-// 2. A new sub-producer behind the aggregator (different receiver)
 type EpochDetector struct {
-	mu sync.RWMutex
-
-	// currentEpochID is the unix timestamp (seconds) when the receiver powered on.
-	// Calculated as: now_unix - mlat_seconds. All frames from same receiver have same ID.
-	currentEpochID uint32
-
-	// lastTicks is the last MLAT tick value seen
-	lastTicks time.Duration
-
-	// lastSeen is when we last saw a frame from this feeder
-	lastSeen time.Time
-
-	// staleTimeout: if we haven't seen frames for this long, consider the epoch stale
-	staleTimeout time.Duration
-
-	// resetThreshold: if ticks jump backwards by more than this, assume restart/new sub-producer
-	// This filters out minor clock jitter and NTP adjustments
-	resetThreshold time.Duration
-
-	// initialized tracks whether we've seen the first frame
-	initialized bool
+	mu             sync.Mutex
+	streams        []tickStream
+	staleTimeout   time.Duration // 30s default
+	resetThreshold time.Duration // 5s default (jitter tolerance)
+	maxStreams     int           // 10 (hard cap)
 }
 
 // NewEpochDetector creates a new epoch detector for a feeder.
-// staleTimeout defines how long to wait before considering an epoch stale.
+// staleTimeout defines how long to wait before considering a stream stale.
 func NewEpochDetector(staleTimeout time.Duration) *EpochDetector {
 	return &EpochDetector{
-		currentEpochID: 0,
 		staleTimeout:   staleTimeout,
-		resetThreshold: 5 * time.Second, // Filter out jitter < 5 seconds, detect real restarts
-		initialized:    false,
+		resetThreshold: 5 * time.Second,
+		maxStreams:     10,
 	}
 }
 
-// ProcessTicks processes MLAT ticks (in nanoseconds) and returns the current epoch ID.
+// ProcessTicks processes MLAT ticks and returns the epoch ID for the matching receiver stream.
 // The epoch ID is: uint32(now_unix_seconds - mlat_seconds) — the unix timestamp when
-// the receiver powered on. Using seconds avoids uint32 overflow (wraps every ~136 years).
+// the receiver powered on.
 func (ed *EpochDetector) ProcessTicks(ticks time.Duration) uint32 {
 	ed.mu.Lock()
 	defer ed.mu.Unlock()
 
 	now := time.Now()
-	epochStart := func() uint32 {
-		return uint32(now.Unix() - int64(ticks.Seconds()))
+
+	// Step 1: Evict stale streams
+	alive := ed.streams[:0]
+	for _, s := range ed.streams {
+		if now.Sub(s.lastSeen) <= ed.staleTimeout {
+			alive = append(alive, s)
+		}
+	}
+	ed.streams = alive
+
+	// Step 2: Match incoming ticks to an existing stream.
+	// A stream matches if ticks falls within [lastTicks - resetThreshold, lastTicks + staleTimeout].
+	// Among matches, pick the closest by absolute distance.
+	bestIdx := -1
+	bestDist := time.Duration(math.MaxInt64)
+	for i, s := range ed.streams {
+		lo := s.lastTicks - ed.resetThreshold
+		hi := s.lastTicks + ed.staleTimeout
+		if ticks >= lo && ticks <= hi {
+			dist := ticks - s.lastTicks
+			if dist < 0 {
+				dist = -dist
+			}
+			if dist < bestDist {
+				bestDist = dist
+				bestIdx = i
+			}
+		}
 	}
 
-	// First frame - calculate when this receiver powered on
-	if !ed.initialized {
-		ed.initialized = true
-		ed.currentEpochID = epochStart()
-		ed.lastTicks = ticks
-		ed.lastSeen = now
-		return ed.currentEpochID
+	// Step 3: Match found — update stream
+	if bestIdx >= 0 {
+		s := &ed.streams[bestIdx]
+		if ticks > s.lastTicks {
+			s.lastTicks = ticks
+		}
+		s.lastSeen = now
+		return s.epochID
 	}
 
-	// Check if current epoch is stale
-	if now.Sub(ed.lastSeen) > ed.staleTimeout {
-		ed.currentEpochID = epochStart()
-		ed.lastTicks = ticks
-		ed.lastSeen = now
-		return ed.currentEpochID
+	// Step 4: No match — new receiver. Create a new stream.
+	epochID := uint32(now.Unix() - int64(ticks.Seconds()))
+
+	// If at capacity, evict least-recently-seen stream.
+	if len(ed.streams) >= ed.maxStreams {
+		lruIdx := 0
+		for i := 1; i < len(ed.streams); i++ {
+			if ed.streams[i].lastSeen.Before(ed.streams[lruIdx].lastSeen) {
+				lruIdx = i
+			}
+		}
+		ed.streams[lruIdx] = tickStream{
+			epochID:   epochID,
+			lastTicks: ticks,
+			lastSeen:  now,
+		}
+		return epochID
 	}
 
-	// Check for backwards jump (reset/new sub-producer)
-	// Only trigger if backwards jump exceeds threshold (filters network jitter)
-	if ticks < ed.lastTicks && (ed.lastTicks-ticks) > ed.resetThreshold {
-		ed.currentEpochID = epochStart()
-		ed.lastTicks = ticks
-		ed.lastSeen = now
-		return ed.currentEpochID
-	}
-
-	// Normal progression - same epoch
-	if ticks > ed.lastTicks {
-		ed.lastTicks = ticks
-		ed.lastSeen = now
-	}
-
-	return ed.currentEpochID
+	ed.streams = append(ed.streams, tickStream{
+		epochID:   epochID,
+		lastTicks: ticks,
+		lastSeen:  now,
+	})
+	return epochID
 }
 
-// CurrentEpochID returns the current epoch ID without processing ticks
+// CurrentEpochID returns the epoch ID of the most recently seen stream.
 func (ed *EpochDetector) CurrentEpochID() uint32 {
-	ed.mu.RLock()
-	defer ed.mu.RUnlock()
-	return ed.currentEpochID
+	ed.mu.Lock()
+	defer ed.mu.Unlock()
+	if len(ed.streams) == 0 {
+		return 0
+	}
+	// Return the most recently seen stream's epoch ID
+	latest := ed.streams[0]
+	for _, s := range ed.streams[1:] {
+		if s.lastSeen.After(latest.lastSeen) {
+			latest = s
+		}
+	}
+	return latest.epochID
 }
