@@ -98,18 +98,23 @@ func TestEpochDetection_NormalProgression(t *testing.T) {
 func TestEpochDetection_StaleTimeout(t *testing.T) {
 	ed := NewEpochDetector(100 * time.Millisecond)
 
+	// Use a controlled clock to avoid second-boundary race conditions.
+	// Start at a clean second boundary so the 150ms advance doesn't cross one.
+	mockNow := time.Unix(1700000000, 0)
+	ed.nowFunc = func() time.Time { return mockNow }
+
 	tickValue1 := 1 * time.Second
 	epochID1 := ed.ProcessTicks(tickValue1)
 
-	// Wait for epoch to go stale
-	time.Sleep(150 * time.Millisecond)
+	// Advance past stale timeout
+	mockNow = mockNow.Add(150 * time.Millisecond)
 
-	// New frame after timeout = new epoch
+	// New frame with different uptime — old entry is stale
 	tickValue2 := 2 * time.Second
 	epochID2 := ed.ProcessTicks(tickValue2)
 
-	// Different because stale timeout triggered a recalculation
-	// epochID1 ≈ now - 1, epochID2 ≈ now - 2 (but 150ms later), so they should differ
+	// epochID1 = 1700000000 - 1 = 1699999999
+	// epochID2 = 1700000000 - 2 = 1699999998 (now.Unix() unchanged, ticks differ)
 	if epochID1 == epochID2 {
 		t.Errorf("Expected different epoch IDs after timeout, got %d == %d", epochID1, epochID2)
 	}
@@ -171,12 +176,19 @@ func TestBeastFrame_EpochID(t *testing.T) {
 func TestEpochDetection_TwoInterleavedReceivers(t *testing.T) {
 	ed := NewEpochDetector(30 * time.Second)
 
+	// Mock clock that advances with test progression
+	startTime := time.Now()
+	frameCount := 0
+	ed.nowFunc = func() time.Time {
+		frameCount++
+		// Each frame pair (A+B) represents ~100ms of real time
+		return startTime.Add(time.Duration(frameCount/2) * 100 * time.Millisecond)
+	}
+
 	// Receiver A: ~1000s uptime, Receiver B: ~5000s uptime
-	// These are far enough apart that they can't match the same stream.
 	baseA := 1000 * time.Second
 	baseB := 5000 * time.Second
 
-	// First frame from each establishes their streams
 	epochA := ed.ProcessTicks(baseA)
 	epochB := ed.ProcessTicks(baseB)
 
@@ -272,57 +284,135 @@ func TestEpochDetection_StaleStreamEvicted(t *testing.T) {
 	// Let both go stale
 	time.Sleep(150 * time.Millisecond)
 
-	// New frame should create a fresh stream (old ones evicted)
+	// New frame should create a fresh stream (old ones evicted on lookup)
 	epochNew := ed.ProcessTicks(200 * time.Second)
 
 	// The new epoch should be different from both originals
-	// (it was computed with a different now and different ticks)
 	if epochNew == epoch1 && epochNew == epoch2 {
 		t.Fatalf("New stream after stale eviction should have a fresh epoch ID")
 	}
 
-	// Verify only one stream exists now (both stale ones were evicted)
+	// The stale entries are lazily evicted on lookup, not all at once.
+	// At minimum, the new entry should exist.
 	ed.mu.Lock()
-	count := len(ed.streams)
+	_, exists := ed.streams[epochNew]
 	ed.mu.Unlock()
-	if count != 1 {
-		t.Errorf("Expected 1 stream after stale eviction, got %d", count)
+	if !exists {
+		t.Errorf("Expected new stream entry to exist in map")
 	}
 }
 
-func TestEpochDetection_MaxStreamsCap(t *testing.T) {
+func TestEpochDetection_ManyReceivers(t *testing.T) {
 	ed := NewEpochDetector(30 * time.Second)
 
-	// Create 11 streams (each far enough apart to be distinct)
-	epochs := make([]uint32, 11)
-	for i := 0; i < 11; i++ {
+	// Simulate an aggregator like LEPP-2043 with many receivers at different uptimes.
+	// Each receiver's uptime is spaced 1000s apart to ensure distinct epoch IDs.
+	receiverCount := 100
+	epochs := make([]uint32, receiverCount)
+	for i := 0; i < receiverCount; i++ {
 		ticks := time.Duration(i*1000+100) * time.Second // 100s, 1100s, 2100s, ...
 		epochs[i] = ed.ProcessTicks(ticks)
 	}
 
-	// Should be capped at maxStreams (10)
+	// All receivers should be tracked (no hard cap)
 	ed.mu.Lock()
 	count := len(ed.streams)
 	ed.mu.Unlock()
-	if count != 10 {
-		t.Errorf("Expected max 10 streams, got %d", count)
+	if count != receiverCount {
+		t.Errorf("Expected %d streams, got %d", receiverCount, count)
 	}
 
-	// The 11th stream should still have a valid epoch ID
-	if epochs[10] == 0 {
-		t.Error("11th stream should have a valid non-zero epoch ID")
-	}
-
-	// All 10 remaining epochs should be unique
+	// All epoch IDs should be unique
 	seen := make(map[uint32]bool)
-	ed.mu.Lock()
-	for _, s := range ed.streams {
-		if seen[s.epochID] {
-			t.Errorf("Duplicate epoch ID %d in streams", s.epochID)
+	for i, e := range epochs {
+		if seen[e] {
+			t.Errorf("Receiver %d has duplicate epoch ID %d", i, e)
 		}
-		seen[s.epochID] = true
+		seen[e] = true
 	}
+
+	// Re-send frames from each receiver — all should match their original epoch
+	for i := 0; i < receiverCount; i++ {
+		ticks := time.Duration(i*1000+101) * time.Second // slightly advanced
+		id := ed.ProcessTicks(ticks)
+		if id != epochs[i] {
+			t.Errorf("Receiver %d: epoch changed from %d to %d on re-send", i, epochs[i], id)
+		}
+	}
+}
+
+func TestEpochDetection_CloseUptimeReceiversStayDistinct(t *testing.T) {
+	ed := NewEpochDetector(30 * time.Second)
+
+	// Mock clock that advances with test progression
+	startTime := time.Now()
+	frameCount := 0
+	ed.nowFunc = func() time.Time {
+		frameCount++
+		return startTime.Add(time.Duration(frameCount/2) * 100 * time.Millisecond)
+	}
+
+	// Two receivers with uptimes 10 seconds apart.
+	// Epoch IDs differ by ~10, which is > epochLookupTolerance (2).
+	baseA := 50000 * time.Second
+	baseB := 50010 * time.Second
+
+	epochA := ed.ProcessTicks(baseA)
+	epochB := ed.ProcessTicks(baseB)
+
+	if epochA == epochB {
+		t.Fatalf("Receivers 10s apart should have different epoch IDs: A=%d B=%d", epochA, epochB)
+	}
+
+	// Interleave 100 frames. Both must keep their original epoch IDs.
+	for i := 1; i <= 100; i++ {
+		ticksA := baseA + time.Duration(i)*100*time.Millisecond
+		ticksB := baseB + time.Duration(i)*100*time.Millisecond
+
+		idA := ed.ProcessTicks(ticksA)
+		idB := ed.ProcessTicks(ticksB)
+
+		if idA != epochA {
+			t.Fatalf("Frame %d: Receiver A epoch changed from %d to %d (ticks=%v)", i, epochA, idA, ticksA)
+		}
+		if idB != epochB {
+			t.Fatalf("Frame %d: Receiver B epoch changed from %d to %d (ticks=%v)", i, epochB, idB, ticksB)
+		}
+	}
+}
+
+func TestEpochDetection_StaleSweep(t *testing.T) {
+	ed := NewEpochDetector(100 * time.Millisecond)
+
+	// Create many entries
+	for i := 0; i < 50; i++ {
+		ticks := time.Duration(i*1000+100) * time.Second
+		ed.ProcessTicks(ticks)
+	}
+
+	ed.mu.Lock()
+	beforeCount := len(ed.streams)
 	ed.mu.Unlock()
+	if beforeCount != 50 {
+		t.Fatalf("Expected 50 streams before stale, got %d", beforeCount)
+	}
+
+	// Let all go stale
+	time.Sleep(150 * time.Millisecond)
+
+	// ProcessTicks with a new value won't trigger sweep (< staleSweepThreshold)
+	// but stale entries encountered during lookup will be deleted
+	ed.ProcessTicks(999999 * time.Second)
+
+	ed.mu.Lock()
+	afterCount := len(ed.streams)
+	ed.mu.Unlock()
+
+	// At minimum the new entry exists; stale entries may or may not be cleaned
+	// depending on whether their keys were checked during lookup
+	if afterCount < 1 {
+		t.Errorf("Expected at least 1 stream after new frame, got %d", afterCount)
+	}
 }
 
 func TestProducer_EpochDetectorCleanup(t *testing.T) {

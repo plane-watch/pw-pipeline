@@ -1,7 +1,6 @@
 package producer
 
 import (
-	"math"
 	"sync"
 	"time"
 )
@@ -13,30 +12,38 @@ type tickStream struct {
 	lastSeen  time.Time     // Wall-clock time of most recent frame
 }
 
+// epochLookupTolerance is the maximum difference (seconds) between a candidate
+// epoch ID and a stored epoch ID for them to be considered the same receiver.
+// Handles ±1 from integer truncation jitter, plus minor crystal drift.
+const epochLookupTolerance = 2
+
+// staleSweepThreshold triggers a full stale-entry sweep when the map exceeds
+// this size during new-entry creation.
+const staleSweepThreshold = 1000
+
 // EpochDetector detects MLAT epoch changes for multiple concurrent receivers behind
 // a single Beast feeder connection.
 //
-// A single feeder (e.g., SBKP-1742) can aggregate multiple physical receivers, each
-// with independent MLAT clocks. The detector maintains a slice of tickStream entries,
-// one per receiver, and matches incoming ticks to the correct stream based on proximity.
+// A single feeder can aggregate many physical receivers (LEPP-2043 aggregates 7000+),
+// each with independent MLAT clocks. The detector uses a map keyed by epoch ID
+// (receiver power-on time in unix seconds) for O(1) lookup regardless of receiver count.
 //
 // The epoch ID is the unix timestamp (seconds) when the receiver powered on:
 // epoch_id = uint32(now_unix_seconds - mlat_ticks_in_seconds)
 type EpochDetector struct {
-	mu             sync.Mutex
-	streams        []tickStream
-	staleTimeout   time.Duration // 30s default
-	resetThreshold time.Duration // 5s default (jitter tolerance)
-	maxStreams     int           // 10 (hard cap)
+	mu           sync.Mutex
+	streams      map[uint32]*tickStream
+	staleTimeout time.Duration    // 30s default
+	nowFunc      func() time.Time // injectable for testing; defaults to time.Now
 }
 
 // NewEpochDetector creates a new epoch detector for a feeder.
 // staleTimeout defines how long to wait before considering a stream stale.
 func NewEpochDetector(staleTimeout time.Duration) *EpochDetector {
 	return &EpochDetector{
-		staleTimeout:   staleTimeout,
-		resetThreshold: 5 * time.Second,
-		maxStreams:     10,
+		staleTimeout: staleTimeout,
+		streams:      make(map[uint32]*tickStream),
+		nowFunc:      time.Now,
 	}
 }
 
@@ -47,40 +54,22 @@ func (ed *EpochDetector) ProcessTicks(ticks time.Duration) uint32 {
 	ed.mu.Lock()
 	defer ed.mu.Unlock()
 
-	now := time.Now()
+	now := ed.nowFunc()
+	candidateEpoch := uint32(now.Unix() - int64(ticks.Seconds()))
 
-	// Step 1: Evict stale streams
-	alive := ed.streams[:0]
-	for _, s := range ed.streams {
-		if now.Sub(s.lastSeen) <= ed.staleTimeout {
-			alive = append(alive, s)
+	// Match by epoch ID with ±tolerance for integer truncation jitter.
+	// This is O(1): at most 2*tolerance+1 = 5 map lookups regardless of receiver count.
+	for delta := int64(-epochLookupTolerance); delta <= epochLookupTolerance; delta++ {
+		key := uint32(int64(candidateEpoch) + delta)
+		s, ok := ed.streams[key]
+		if !ok {
+			continue
 		}
-	}
-	ed.streams = alive
-
-	// Step 2: Match incoming ticks to an existing stream.
-	// A stream matches if ticks falls within [lastTicks - resetThreshold, lastTicks + staleTimeout].
-	// Among matches, pick the closest by absolute distance.
-	bestIdx := -1
-	bestDist := time.Duration(math.MaxInt64)
-	for i, s := range ed.streams {
-		lo := s.lastTicks - ed.resetThreshold
-		hi := s.lastTicks + ed.staleTimeout
-		if ticks >= lo && ticks <= hi {
-			dist := ticks - s.lastTicks
-			if dist < 0 {
-				dist = -dist
-			}
-			if dist < bestDist {
-				bestDist = dist
-				bestIdx = i
-			}
+		if now.Sub(s.lastSeen) > ed.staleTimeout {
+			delete(ed.streams, key)
+			continue
 		}
-	}
-
-	// Step 3: Match found — update stream
-	if bestIdx >= 0 {
-		s := &ed.streams[bestIdx]
+		// Match found — update stream
 		if ticks > s.lastTicks {
 			s.lastTicks = ticks
 		}
@@ -88,31 +77,22 @@ func (ed *EpochDetector) ProcessTicks(ticks time.Duration) uint32 {
 		return s.epochID
 	}
 
-	// Step 4: No match — new receiver. Create a new stream.
-	epochID := uint32(now.Unix() - int64(ticks.Seconds()))
-
-	// If at capacity, evict least-recently-seen stream.
-	if len(ed.streams) >= ed.maxStreams {
-		lruIdx := 0
-		for i := 1; i < len(ed.streams); i++ {
-			if ed.streams[i].lastSeen.Before(ed.streams[lruIdx].lastSeen) {
-				lruIdx = i
+	// No match — new receiver.
+	// Sweep stale entries if map is getting large.
+	if len(ed.streams) >= staleSweepThreshold {
+		for k, s := range ed.streams {
+			if now.Sub(s.lastSeen) > ed.staleTimeout {
+				delete(ed.streams, k)
 			}
 		}
-		ed.streams[lruIdx] = tickStream{
-			epochID:   epochID,
-			lastTicks: ticks,
-			lastSeen:  now,
-		}
-		return epochID
 	}
 
-	ed.streams = append(ed.streams, tickStream{
-		epochID:   epochID,
+	ed.streams[candidateEpoch] = &tickStream{
+		epochID:   candidateEpoch,
 		lastTicks: ticks,
 		lastSeen:  now,
-	})
-	return epochID
+	}
+	return candidateEpoch
 }
 
 // CurrentEpochID returns the epoch ID of the most recently seen stream.
@@ -122,10 +102,9 @@ func (ed *EpochDetector) CurrentEpochID() uint32 {
 	if len(ed.streams) == 0 {
 		return 0
 	}
-	// Return the most recently seen stream's epoch ID
-	latest := ed.streams[0]
-	for _, s := range ed.streams[1:] {
-		if s.lastSeen.After(latest.lastSeen) {
+	var latest *tickStream
+	for _, s := range ed.streams {
+		if latest == nil || s.lastSeen.After(latest.lastSeen) {
 			latest = s
 		}
 	}
