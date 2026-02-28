@@ -151,9 +151,10 @@ type (
 		// Coordinator for multi-instance coordination (nil if disabled)
 		coordinator *Coordinator
 
-		// lastSeenEpochID tracks the highest epoch ID seen per feeder, for metrics
-		// No explicit cleanup needed - sync.Map is garbage collected when Filter is freed.
-		lastSeenEpochID sync.Map // map[string]uint32 keyed by feeder tag
+		// knownEpochs tracks epoch IDs already seen per feeder, for metrics.
+		// Keyed by "feederTag#epochID". Only increments epoch_changes_total
+		// for genuinely new epochs, not for interleaving between known receivers.
+		knownEpochs sync.Map // map[string]struct{}
 	}
 
 	// aircraftState tracks the sticky feeder state for a single aircraft
@@ -339,13 +340,11 @@ func (f *Filter) Handle(fe *tracker.FrameEvent) tracker.Frame {
 	// Use composite key combining feeder tag and epoch
 	compositeFeederKey := producerKey(feederTag, epochID)
 
-	// Track epoch changes per feeder for metrics
+	// Track epoch changes per feeder for metrics — only increment for new epochs
 	if epochID > 0 {
-		val, _ := f.lastSeenEpochID.LoadOrStore(feederTag, uint32(0))
-		lastSeenEpoch := val.(uint32)
-		if epochID > lastSeenEpoch {
+		epochKey := fmt.Sprintf("%s#%d", feederTag, epochID)
+		if _, loaded := f.knownEpochs.LoadOrStore(epochKey, struct{}{}); !loaded {
 			prometheusEpochChanges.WithLabelValues(feederTag).Inc()
-			f.lastSeenEpochID.Store(feederTag, epochID)
 		}
 	}
 
