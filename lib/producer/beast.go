@@ -16,6 +16,8 @@ func (p *Producer) beastScanner(scan *bufio.Scanner) error {
 	// make our best lib allocate out of a sync.Pool
 	beast.UsePoolAllocator = true
 	p.log.Debug().Msg("entering scan.Scan() loop")
+
+	epochDetector := p.getEpochDetector(p.Tag)
 	for scan.Scan() && scan.Err() == nil {
 		msg := bytes.Clone(scan.Bytes())
 
@@ -32,7 +34,8 @@ func (p *Producer) beastScanner(scan *bufio.Scanner) error {
 			// RadarCape returns raw ticks, convert to nanoseconds: ticks * 1000 / 12
 			mlatTicks = time.Duration(int64(mlatTicks) * 1000 / 12)
 		}
-		epochID := p.getEpochDetector(p.Tag).ProcessTicks(mlatTicks)
+		// TODO: remember epoch between frames and avoid the lookup overhead if we are within 1s of last arrival?
+		epochID := epochDetector.ProcessTicks(mlatTicks)
 		frame.SetEpochID(epochID)
 
 		if p.beastDelay {
