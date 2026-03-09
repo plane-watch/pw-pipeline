@@ -7,6 +7,11 @@ import (
 	"time"
 )
 
+func TestMain(m *testing.M) {
+	DisableICAOChecking()
+	m.Run()
+}
+
 // Test Utilities for generating frames with correct CRC values
 
 // ComputePIField computes the correct PI field (CRC) for a message

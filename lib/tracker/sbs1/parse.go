@@ -56,6 +56,11 @@ type Frame struct {
 	HasPosition bool
 }
 
+var (
+	ErrNoIcao      = errors.New("no ICAO presented")
+	ErrInvalidIcao = errors.New("failed to decode ICAO HEX into uint32")
+)
+
 func NewFrame(sbsString string) *Frame {
 	return &Frame{
 		original: strings.TrimSpace(sbsString),
@@ -185,10 +190,15 @@ func (f *Frame) Parse() error {
 }
 
 func icaoStringToInt(icao string) (uint32, error) {
+	if icao == "" {
+		return 0, ErrNoIcao
+	}
+
 	btoi, err := hex.DecodeString(icao)
 	if nil != err {
-		return 0, fmt.Errorf("failed to decode ICAO HEX (%s) into uint32. %w", icao, err)
+		return 0, fmt.Errorf("%w: (%s) - %w", ErrInvalidIcao, icao, err)
 	}
+
 	return uint32(btoi[0])<<16 | uint32(btoi[1])<<8 | uint32(btoi[2]), nil
 }
 

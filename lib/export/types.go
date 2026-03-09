@@ -122,13 +122,14 @@ func (pl *PlaneLocation) CloneSourceTags() map[string]uint32 {
 // PrepareSourceTags is used to return a cloned map that has the 4 digit icao code removed from a feeder id
 // YPPH-0001 -> 0001
 // YPAD-12345 -> 12345
-func (pl *PlaneLocation) PrepareSourceTags(m map[string]uint32) map[string]uint32 {
+func (pl *PlaneLocation) PrepareSourceTags() map[string]uint32 {
 	pl.sourceTagsMutex.Lock()
 	defer pl.sourceTagsMutex.Unlock()
+	m := make(map[string]uint32, len(pl.SourceTags))
 	var sk string
 	for k, v := range pl.SourceTags {
 		// allow up to 7 numbers
-		if len(k) <= 12 && k[4:5] == "-" {
+		if len(k) <= 12 && len(k) > 5 && k[4:5] == "-" {
 			sk = k[5:]
 		} else {
 			sk = k
@@ -136,6 +137,23 @@ func (pl *PlaneLocation) PrepareSourceTags(m map[string]uint32) map[string]uint3
 		m[sk] = v
 	}
 	return m
+}
+
+func (pl *PlaneLocation) InitSourceTags() {
+	if nil == pl.sourceTagsMutex {
+		pl.sourceTagsMutex = &sync.Mutex{}
+	}
+	pl.sourceTagsMutex.Lock()
+	defer pl.sourceTagsMutex.Unlock()
+	if nil == pl.SourceTags {
+		pl.SourceTags = make(map[string]uint32)
+	}
+}
+
+func (pl *PlaneLocation) IncSourceTag(key string) {
+	pl.sourceTagsMutex.Lock()
+	defer pl.sourceTagsMutex.Unlock()
+	pl.SourceTags[key]++
 }
 
 // Clone returns a copy of m.  This is a shallow clone:

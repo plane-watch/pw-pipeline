@@ -9,6 +9,7 @@ import (
 	jsoniter "github.com/json-iterator/go"
 	"github.com/rs/zerolog"
 	"plane.watch/lib/export"
+	"plane.watch/lib/icaoregion"
 	"plane.watch/lib/nats_io"
 	"plane.watch/lib/timing"
 )
@@ -22,6 +23,18 @@ type (
 
 		// muFeeders is the mutex for Manifest.feeders
 		muFeeders sync.RWMutex
+
+		// feederRegion is a map containing a cache of feeder UUIDs and their region
+		feederRegion map[string]icaoregion.Region
+
+		// muFeederRegion is the mutex for Manifest.feederRegion
+		muFeederRegion sync.RWMutex
+
+		// feederFIDs is a map containing a cache of feeder UUIDs and their FID
+		feederFIDs map[string]int
+
+		// muFeederRegion is the mutex for Manifest.feederRegion
+		muFeederFIDs sync.RWMutex
 
 		// feedersConnected map has a key for each connected feeder. The key is the feeder's api key.
 		// This is used to limit the number of connections per feeder to one.
@@ -44,6 +57,8 @@ type (
 		log zerolog.Logger
 
 		refresherCancelFunc context.CancelFunc
+
+		locator *icaoregion.Locator
 	}
 
 	Option func(*FeederCache)
@@ -73,6 +88,13 @@ func New(opts ...Option) (*FeederCache, error) {
 	f.feeders = make(map[string]export.Feeder)
 	f.feedersConnected = make(map[string]map[Protocol]struct{})
 	f.feederConnectionTime = make(map[string]map[Protocol]time.Time)
+	f.feederRegion = make(map[string]icaoregion.Region)
+	f.feederFIDs = make(map[string]int)
+
+	f.locator, err = icaoregion.NewLocator()
+	if err != nil {
+		return nil, fmt.Errorf("error creating NewLocator: %v", err)
+	}
 
 	for _, opt := range opts {
 		opt(f)
@@ -196,7 +218,12 @@ func (f *FeederCache) Authenticate(apiKey string, p Protocol) (bool, error) {
 
 func (f *FeederCache) Close() error {
 	if f != nil {
-		f.refresherCancelFunc()
+		if f.refresherCancelFunc != nil {
+			f.refresherCancelFunc()
+		}
+		if f.natsServer != nil {
+			f.natsServer.Close()
+		}
 	}
 	return nil
 }
@@ -209,6 +236,54 @@ func (f *FeederCache) Get(apiKey string) (export.Feeder, error) {
 		return export.Feeder{}, fmt.Errorf("feeder %s not found", apiKey)
 	}
 	return feeder, nil
+}
+
+func (f *FeederCache) Region(apiKey string) (icaoregion.Region, error) {
+
+	// get feeder for lat & lon
+	feeder, err := f.Get(apiKey)
+	if err != nil {
+		return icaoregion.Unknown, fmt.Errorf("failed to get feeder %s: %w", apiKey, err)
+	}
+
+	// get region if possible
+	f.muFeederRegion.RLock()
+	r, ok := f.feederRegion[apiKey]
+	f.muFeederRegion.RUnlock()
+
+	// if not possible, look up & set region
+	if !ok {
+		r = f.locator.RegionOfLatLon(*feeder.Latitude, *feeder.Longitude)
+		f.muFeederRegion.Lock()
+		f.feederRegion[apiKey] = r
+		f.muFeederRegion.Unlock()
+	}
+
+	return r, nil
+}
+
+func (f *FeederCache) FID(apiKey string) (int, error) {
+
+	// get feeder for lat & lon
+	feeder, err := f.Get(apiKey)
+	if err != nil {
+		return -1, fmt.Errorf("failed to get feeder %s: %w", apiKey, err)
+	}
+
+	// get region if possible
+	f.muFeederFIDs.RLock()
+	fid, ok := f.feederFIDs[apiKey]
+	f.muFeederFIDs.RUnlock()
+
+	// if not possible, look up & set region
+	if !ok {
+		fid = f.locator.FIDOfLatLon(*feeder.Latitude, *feeder.Longitude)
+		f.muFeederFIDs.Lock()
+		f.feederFIDs[apiKey] = fid
+		f.muFeederFIDs.Unlock()
+	}
+
+	return fid, nil
 }
 
 func (f *FeederCache) populate(feeders *export.Feeders) {

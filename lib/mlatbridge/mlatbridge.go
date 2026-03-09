@@ -129,6 +129,16 @@ func ListenForIncomingPlaneWatchMLAT(ctx context.Context, opts ...Option) (*MLAT
 	return mb, nil
 }
 
+// Close releases resources owned by the MLAT bridge.
+func (mb *MLATBridge) Close() {
+	if mb == nil {
+		return
+	}
+	if mb.natsServer != nil {
+		mb.natsServer.Close()
+	}
+}
+
 func (mb *MLATBridge) authenticator(apiKey string) (bool, error) {
 	return mb.feeders.Authenticate(apiKey, feederauth.MLAT)
 }
@@ -153,13 +163,15 @@ func (mb *MLATBridge) handler(feederConn net.Conn, apiKey string) error {
 	}()
 
 	// lookup which mlat server to use
-	mlatHost, ok := muxes[feeder.Mux]
-	if !ok {
-		return fmt.Errorf("could not find mux %q", feeder.Mux)
+	fid, err := mb.feeders.FID(apiKey)
+	if err != nil {
+		return fmt.Errorf("failed to get region for %s: %w", apiKey, err)
 	}
 
+	mlatServer := MLATServer(fid)
+
 	// establish a connection to mlat server
-	mlatConn, err := net.Dial("tcp", mlatHost)
+	mlatConn, err := net.Dial("tcp", mlatServer)
 	if err != nil {
 		return fmt.Errorf("could not connect to mlat server: %w", err)
 	}
@@ -179,7 +191,7 @@ func (mb *MLATBridge) handler(feederConn net.Conn, apiKey string) error {
 			"feeder_id":    strconv.FormatInt(int64(feeder.Id), 10),
 			"feeder_label": feeder.Label,
 			"feeder_user":  feeder.User,
-			"feeder_mux":   feeder.Mux,
+			"mlat_server":  mlatServer,
 		},
 	})
 	err = prometheus.Register(prometheusMLATBytesRx)
@@ -198,7 +210,7 @@ func (mb *MLATBridge) handler(feederConn net.Conn, apiKey string) error {
 			"feeder_id":    strconv.FormatInt(int64(feeder.Id), 10),
 			"feeder_label": feeder.Label,
 			"feeder_user":  feeder.User,
-			"feeder_mux":   feeder.Mux,
+			"mlat_server":  mlatServer,
 		},
 	})
 	err = prometheus.Register(prometheusMLATBytesTx)
@@ -254,14 +266,6 @@ func (mb *MLATBridge) simplexBridge(ctx context.Context, cancel context.CancelFu
 		err  error
 		m, n int
 	)
-
-	// close both sides of the bridge when done
-	defer func() {
-		_ = from.Close()
-	}()
-	defer func() {
-		_ = to.Close()
-	}()
 
 	// make buffer to hold data in flight
 	buf := make([]byte, 64*1024) // 64KiB is a good general-purpose size

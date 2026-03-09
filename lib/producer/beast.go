@@ -19,12 +19,11 @@ func (p *Producer) beastScanner(scan *bufio.Scanner) error {
 	for scan.Scan() && scan.Err() == nil {
 		msg := bytes.Clone(scan.Bytes())
 
-		frame, err := beast.NewFrame(msg, false)
+		frame, err := beast.NewFrame(msg, p.isRadarCape)
 		if nil != err {
 			continue
 		}
 
-		// TODO(mikenye): Ask Boxie what this does.
 		if p.beastDelay {
 			currentTs := frame.BeastTicksNs()
 			if lastTimeStamp > 0 && lastTimeStamp < currentTs {

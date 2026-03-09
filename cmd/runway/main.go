@@ -28,6 +28,16 @@ var (
 		Name:      "num_decoded_frames",
 		Help:      "The number of AVR frames decoded",
 	})
+	prometheusCounterFramesErrored = promauto.NewGauge(prometheus.GaugeOpts{
+		Namespace: "pw_ingest",
+		Name:      "num_decode_errors",
+		Help:      "The number of AVR frames decoded with errors",
+	})
+	prometheusCounterPlanesPurgedBeforeViable = promauto.NewGauge(prometheus.GaugeOpts{
+		Namespace: "pw_ingest",
+		Name:      "num_planes_purged_before_viable",
+		Help:      "The number aircraft that were purged before having received enough frames to be viable",
+	})
 	prometheusGaugeCurrentPlanes = promauto.NewGauge(prometheus.GaugeOpts{
 		Namespace: "pw_ingest",
 		Name:      "current_tracked_planes_count",
@@ -99,7 +109,13 @@ func main() {
 			Name:     setup.Tag,
 			Usage:    "default tag name for feeders if they do not have one",
 			Hidden:   true, // because the HandleSinkFlag expects this to be present, but we do not need it
-			Value:    "unknown",
+			Value:    "runway",
+		},
+		&cli.BoolFlag{
+			Category: "Network",
+			Name:     "no-adsb-frame-dedupe",
+			Usage:    "do no dedupe ADSB frames before processing them",
+			Value:    false,
 		},
 	}
 
@@ -133,7 +149,12 @@ func runDaemon(c *cli.Context) error {
 	trackerOpts := make([]tracker.Option, 0)
 	trackerOpts = append(
 		trackerOpts,
-		tracker.WithPrometheusCounters(prometheusGaugeCurrentPlanes, prometheusCounterFramesDecoded),
+		tracker.WithPrometheusCounters(
+			prometheusGaugeCurrentPlanes,
+			prometheusCounterFramesDecoded,
+			prometheusCounterFramesErrored,
+			prometheusCounterPlanesPurgedBeforeViable,
+		),
 		tracker.WithDecodeWorkerCount(1), // only need a single decoder per source
 	)
 	trk := tracker.NewTracker(trackerOpts...)
@@ -153,7 +174,10 @@ func runDaemon(c *cli.Context) error {
 	}
 
 	// no need to process the same ADSB from the same plane more than once
-	trk.AddMiddleware(dedupe.NewFilter(dedupe.WithDedupeCounter(prometheusOutputFrameDedupe)))
+	if !c.Bool("no-adsb-frame-dedupe") {
+		println("Include ADSB Dedupe")
+		trk.AddMiddleware(dedupe.NewFilter(dedupe.WithDedupeCounter(prometheusOutputFrameDedupe)))
+	}
 
 	// allow our ingest tap to see what is going on
 	if sinkType, ok := sinkDest.(*sink.Sink); ok {
@@ -182,7 +206,7 @@ func runDaemon(c *cli.Context) error {
 	// BEAST Listener
 	wg.Go(func() {
 		defer cancel()
-		_, err := ListenForIncomingPlaneWatchBeast(
+		manifest, err := ListenForIncomingPlaneWatchBeast(
 			ctx,
 			WithListenHostPort(c.String("listen-beast")),
 			WithTLSCertificate(c.String("cert"), c.String("key")),
@@ -190,6 +214,9 @@ func runDaemon(c *cli.Context) error {
 			WithNatsURL(c.String("sink")),
 			WithFeederAuthenticator(feederAuthenticator),
 		)
+		if manifest != nil {
+			manifest.Close()
+		}
 		if err != nil {
 			log.Error().Err(err).Msg("failed to listen for beast")
 		}
@@ -198,13 +225,16 @@ func runDaemon(c *cli.Context) error {
 	// MLAT Listener
 	wg.Go(func() {
 		defer cancel()
-		_, err := mlatbridge.ListenForIncomingPlaneWatchMLAT(
+		mb, err := mlatbridge.ListenForIncomingPlaneWatchMLAT(
 			ctx,
 			mlatbridge.WithListenHostPort(c.String("listen-mlat")),
 			mlatbridge.WithTLSCertificate(c.String("cert"), c.String("key")),
 			mlatbridge.WithNatsURL(c.String("sink")),
 			mlatbridge.WithFeederAuthenticator(feederAuthenticator),
 		)
+		if mb != nil {
+			mb.Close()
+		}
 		if err != nil {
 			log.Error().Err(err).Msg("failed to listen for mlat")
 		}

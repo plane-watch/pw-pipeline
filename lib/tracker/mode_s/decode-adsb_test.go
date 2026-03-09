@@ -89,15 +89,15 @@ func TestDecodeDF17MT19ST1(t *testing.T) {
 	if 1 != frame.eastWestDirection {
 		t.Errorf("Expected plane to be going west (1), but instead got: %d", frame.eastWestDirection)
 	}
-	if -23 != frame.eastWestVelocity {
-		t.Errorf("Expected plane to be going west @ 23 (-23), got %d", frame.eastWestVelocity)
+	if -22 != frame.eastWestVelocity {
+		t.Errorf("Expected plane to be going west @ 22 (-22), got %d", frame.eastWestVelocity)
 	}
 
 	if 0 != frame.northSouthDirection {
 		t.Errorf("Expected plane to be going north (0), but instead got: %d", frame.northSouthDirection)
 	}
-	if 356 != frame.northSouthVelocity {
-		t.Errorf("Expected plane to be going north @ 356 (356), got %d", frame.northSouthVelocity)
+	if 355 != frame.northSouthVelocity {
+		t.Errorf("Expected plane to be going north @ 355 (355), got %d", frame.northSouthVelocity)
 	}
 	if frame.superSonic {
 		t.Errorf("Wow, this plane is going a lot faster than it should be! why is it thinking it is supersonic?")

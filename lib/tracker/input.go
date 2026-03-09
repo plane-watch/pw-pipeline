@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"slices"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"golang.org/x/exp/slices"
 	"plane.watch/lib/monitoring"
 	"plane.watch/lib/tracker/beast"
 	"plane.watch/lib/tracker/mode_s"
@@ -72,16 +72,31 @@ func WithDecodeWorkerCount(numDecodeWorkers int) Option {
 	}
 }
 
+// WithNumFramesToBeViable sets the number of received mode_s frames we need to receive before sending
+// a plane information
+func WithNumFramesToBeViable(numFramesToBeViable int) Option {
+	return func(t *Tracker) {
+		t.numFramesToBeViable = numFramesToBeViable
+	}
+}
+
 func WithPruneTiming(pruneTick, pruneAfter time.Duration) Option {
 	return func(t *Tracker) {
 		t.pruneTick = pruneTick
 		t.pruneAfter = pruneAfter
 	}
 }
-func WithPrometheusCounters(currentPlanes prometheus.Gauge, decodedFrames prometheus.Counter) Option {
+func WithPrometheusCounters(
+	currentPlanes prometheus.Gauge,
+	decodedFrames prometheus.Counter,
+	erroredFrames prometheus.Counter,
+	purgedBeforeViable prometheus.Counter,
+) Option {
 	return func(t *Tracker) {
 		t.stats.currentPlanes = currentPlanes
 		t.stats.decodedFrames = decodedFrames
+		t.stats.erroredFrames = erroredFrames
+		t.stats.purgedBeforeViable = purgedBeforeViable
 	}
 }
 
@@ -97,19 +112,26 @@ func (t *Tracker) Finish() {
 	wg := sync.WaitGroup{}
 	// stop all producers
 	t.muProducers.RLock()
+	t.log.Debug().Str("func", "Finish()").Int("producer-count", len(t.producers)).Msg("Stopping Producers")
 	for _, p := range t.producers {
-		t.log.Debug().Str("func", "Finish()").Str("producer", p.String()).Msg("Stopping Producer")
-		wg.Go(p.Stop)
+		wg.Go(func() {
+			t.log.Debug().Str("func", "Finish()").Str("producer", p.String()).Msg("Stopping Producer")
+			p.Stop()
+			t.log.Debug().Str("func", "Finish()").Str("producer", p.String()).Msg("Stopped Producer")
+		})
 	}
 	t.muProducers.RUnlock()
 
+	t.log.Debug().Str("func", "Finish()").Int("middleware-count", len(t.middlewares)).Msg("Stopping Producers")
 	for _, m := range t.middlewares {
 		wg.Go(func() {
 			t.log.Debug().Str("func", "Finish()").Str("middleware", m.String()).Msg("Stopping middleware")
 			m.Stop()
 			t.middlewareWaiter.Done()
+			t.log.Debug().Str("func", "Finish()").Str("middleware", m.String()).Msg("Stopped middleware")
 		})
 	}
+	t.log.Debug().Str("func", "Finish()").Msg("awaiting stoppers")
 
 	wg.Wait()
 
@@ -280,9 +302,24 @@ func (t *Tracker) decodeQueue(decodingQueue chan FrameEvent, done chan bool) {
 		frame := frameEvent.Frame()
 		err := frame.Decode()
 		if nil != err {
+			if nil != t.stats.erroredFrames {
+				t.stats.erroredFrames.Inc()
+			}
 			if !errors.Is(mode_s.ErrNoOp, err) {
-				// the decode operation failed to produce valid output, and we tell someone about it
-				t.log.Error().Err(err).Str("Tag", frameEvent.Source().Tag).Send()
+				var rawFrame string
+				// the decode operation failed to produce valid output, and we tell someone about it in debug mode
+				if t.log.Debug().Enabled() {
+					if b, ok := frame.(*beast.Frame); ok {
+						rawFrame = b.AvrFrame().RawString()
+					} else {
+						rawFrame = fmt.Sprintf("@%X", frame.Raw())
+					}
+					t.log.Error().
+						Err(err).
+						Str("Tag", frameEvent.Source().Tag).
+						Str("AVR", rawFrame).
+						Msg("failed to decode message")
+				}
 			}
 			continue
 		}
@@ -304,6 +341,7 @@ func (t *Tracker) decodeQueue(decodingQueue chan FrameEvent, done chan bool) {
 
 		switch typeFrame := frame.(type) {
 		case *beast.Frame:
+			t.log.Debug().Msg(typeFrame.AvrFrame().RawString())
 			plane.HandleModeSFrame(typeFrame.AvrFrame(), frameEvent.Source())
 			plane.setSignalLevel(typeFrame.SignalRssi())
 			beast.Release(typeFrame)

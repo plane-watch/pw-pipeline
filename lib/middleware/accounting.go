@@ -69,6 +69,11 @@ func NewAccounting(opts ...AccountingOption) *Accounting {
 }
 
 func (a *Accounting) Handle(event *tracker.FrameEvent) tracker.Frame {
+	defer func() {
+		if r := recover(); r != nil {
+			a.log.Error().Any("recover", r).Msg("recovering...")
+		}
+	}()
 	a.handleQueue <- event.Source()
 
 	return event.Frame()

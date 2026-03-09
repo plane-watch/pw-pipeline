@@ -138,6 +138,16 @@ func ListenForIncomingPlaneWatchBeast(ctx context.Context, opts ...Option) (*Man
 	return manifest, nil
 }
 
+// Close releases resources owned by the listener manifest.
+func (m *Manifest) Close() {
+	if m == nil {
+		return
+	}
+	if m.natsServer != nil {
+		m.natsServer.Close()
+	}
+}
+
 func (m *Manifest) authenticator(apiKey string) (bool, error) {
 	return m.feeders.Authenticate(apiKey, feederauth.BEAST)
 }
@@ -153,11 +163,11 @@ func (m *Manifest) handler(conn net.Conn, apiKey string) error {
 	// register prom metrics
 	prometheusInputBeastFrames := prometheus.NewCounter(prometheus.CounterOpts{
 		Namespace: "runway",
-		Subsystem: "beast",
-		Name:      "input-total",
+		Subsystem: "input",
+		Name:      "beast_total",
 		Help:      "The total number of beast frames processed.",
 		ConstLabels: map[string]string{
-			"feeder_id":    strconv.FormatInt(int64(feeder.Id), 10),
+			"feeder_id":    strconv.FormatInt(feeder.Id, 10),
 			"feeder_label": feeder.Label,
 			"feeder_user":  feeder.User,
 		},

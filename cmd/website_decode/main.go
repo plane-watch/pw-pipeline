@@ -4,23 +4,24 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/rs/zerolog/log"
-	"github.com/urfave/cli/v2"
 	"html"
 	"io/fs"
 	"net/http"
 	"os"
 	"os/signal"
 	"path"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/rs/zerolog/log"
+	"github.com/urfave/cli/v2"
 	"plane.watch/lib/export"
 	"plane.watch/lib/logging"
 	"plane.watch/lib/monitoring"
 	"plane.watch/lib/tracker"
 	"plane.watch/lib/tracker/mode_s"
-	"strconv"
-	"strings"
-	"syscall"
-	"time"
 )
 
 // this is a website where you put in one or more Mode S frames and they are decoded
@@ -129,8 +130,12 @@ func runHttpServer(c *cli.Context) error {
 				log.Debug().Str("frame", packet).Msg("Decoding Frame")
 				frame, err := mode_s.DecodeString(packet, time.Now())
 				if err != nil {
-					_, _ = fmt.Fprintln(w, "Failed to decode.", html.EscapeString(err.Error()))
-					return
+					_, _ = fmt.Fprintf(
+						w,
+						"\n<span class='text-danger'>Decoding Failure.\n%s</span>\n\n",
+						html.EscapeString(err.Error()),
+					)
+					//return
 				}
 				if nil == frame {
 					_, _ = fmt.Fprintln(w, "Not an AVR Frame", html.EscapeString(err.Error()))
