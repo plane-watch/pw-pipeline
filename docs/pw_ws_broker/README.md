@@ -56,8 +56,23 @@ See [ws_protocol documentation](../ws_protocol/README.md) for complete protocol 
 
 **Subscribe to tile**:
 ```json
-{"type": "sub", "gridTile": "tile60"}
+{"type": "sub", "gridTile": "tile60_high"}
 ```
+
+**Set subscribed tile list** (atomic replacement):
+```json
+{"type": "set-sub-tile-list", "gridTile": "tile35_high,tile36_high", "requestId": "req-1"}
+```
+
+The `set-sub-tile-list` lifecycle:
+1. Server validates all tiles — rejects entire request if any tile is unknown (existing subscriptions preserved)
+2. `ack-sub` — subscriptions applied, includes sorted tile list and `requestId`
+3. `plane-location-list` — immediate snapshot of matching aircraft (omitted if zero match), includes `requestId`
+4. `initial-sync-complete` — snapshot phase done, includes `tiles`, `aircraftCount`, and `requestId`. **Always sent**, even when zero aircraft match.
+
+After the initial sync, live updates arrive as tick-batched `plane-location-list` messages (without `requestId`).
+
+**Tile matching**: Subscriptions use suffixed tile names (e.g. `tile35_high`). Aircraft `TileLocation` is always bare (e.g. `tile35`). Both the snapshot path and the live streaming path use the same matching function (`tileMatchesSubs`) to determine whether an aircraft matches the subscription set.
 
 **Receive updates**:
 ```json

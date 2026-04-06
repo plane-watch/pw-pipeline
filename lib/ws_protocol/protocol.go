@@ -18,15 +18,16 @@ const (
 	RequestTypeTickAdjust         ProtocolRequest = "adjust-tick"            // adjusts how often we send updates
 	RequestTypeSearch             ProtocolRequest = "search"                 // adjusts how often we send updates
 
-	ResponseTypeError           ProtocolResponse = "error"
-	ResponseTypeMsg             ProtocolResponse = "info"
-	ResponseTypeAckSub          ProtocolResponse = "ack-sub"
-	ResponseTypeAckUnsub        ProtocolResponse = "ack-unsub"
-	ResponseTypeSubTiles        ProtocolResponse = "sub-list"
-	ResponseTypePlaneLocation   ProtocolResponse = "plane-location"
-	ResponseTypePlaneLocations  ProtocolResponse = "plane-location-list"
-	ResponseTypePlaneLocHistory ProtocolResponse = "plane-location-history"
-	ResponseTypeSearchResults   ProtocolResponse = "search-results"
+	ResponseTypeError               ProtocolResponse = "error"
+	ResponseTypeMsg                 ProtocolResponse = "info"
+	ResponseTypeAckSub              ProtocolResponse = "ack-sub"
+	ResponseTypeAckUnsub            ProtocolResponse = "ack-unsub"
+	ResponseTypeSubTiles            ProtocolResponse = "sub-list"
+	ResponseTypePlaneLocation       ProtocolResponse = "plane-location"
+	ResponseTypePlaneLocations      ProtocolResponse = "plane-location-list"
+	ResponseTypePlaneLocHistory     ProtocolResponse = "plane-location-history"
+	ResponseTypeSearchResults       ProtocolResponse = "search-results"
+	ResponseTypeInitialSyncComplete ProtocolResponse = "initial-sync-complete"
 
 	GridTileAllLow  = "all_low"
 	GridTileAllHigh = "all_high"
@@ -37,12 +38,13 @@ type (
 	ProtocolResponse string
 
 	WsRequest struct {
-		Type     ProtocolRequest `json:"type"`
-		GridTile string          `json:"gridTile"`
-		Icao     string          `json:"icao,omitempty"`
-		CallSign string          `json:"callSign,omitempty"`
-		Tick     int             `json:"tick,omitempty"`  // in Milliseconds
-		Query    string          `json:"query,omitempty"` // in Milliseconds
+		Type      ProtocolRequest `json:"type"`
+		GridTile  string          `json:"gridTile"`
+		Icao      string          `json:"icao,omitempty"`
+		CallSign  string          `json:"callSign,omitempty"`
+		Tick      int             `json:"tick,omitempty"`  // in Milliseconds
+		Query     string          `json:"query,omitempty"` // in Milliseconds
+		RequestId string          `json:"requestId,omitempty"`
 	}
 	LocationHistory struct {
 		Lat, Lon          float64
@@ -70,10 +72,12 @@ type (
 		Location  *export.PlaneLocation   `json:"location,omitempty"`
 		Locations []*export.PlaneLocation `json:"locations,omitempty"`
 
-		Icao     string            `json:"icao,omitempty"`
-		CallSign string            `json:"callSign,omitempty"`
-		History  []LocationHistory `json:"history,omitempty"`
-		Results  *SearchResult     `json:"results,omitempty"`
+		Icao          string            `json:"icao,omitempty"`
+		CallSign      string            `json:"callSign,omitempty"`
+		History       []LocationHistory `json:"history,omitempty"`
+		Results       *SearchResult     `json:"results,omitempty"`
+		RequestId     string            `json:"requestId,omitempty"`
+		AircraftCount *int              `json:"aircraftCount,omitempty"`
 	}
 )
 
