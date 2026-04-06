@@ -71,6 +71,7 @@ type (
 		listening bool
 
 		sendTickDuration time.Duration
+		snapshotMaxAge   time.Duration
 	}
 
 	loadedResponse struct {
@@ -90,6 +91,7 @@ type (
 		log        zerolog.Logger
 
 		sendTickDuration time.Duration
+		snapshotMaxAge   time.Duration
 	}
 	WsCmd struct {
 		action     ws_protocol.ProtocolRequest
@@ -325,7 +327,7 @@ func (bw *PwWsBrokerWeb) servePlanes(w http.ResponseWriter, r *http.Request) {
 	log.Debug().Str("protocol", conn.Subprotocol()).Msg("Speaking...")
 	switch conn.Subprotocol() {
 	case ws_protocol.WsProtocolPlanes:
-		client := NewWsClient(conn, r.RemoteAddr, bw.sendTickDuration)
+		client := NewWsClient(conn, r.RemoteAddr, bw.sendTickDuration, bw.snapshotMaxAge)
 		bw.clients.addClient(client)
 		client.Handle(r.Context())
 		bw.clients.removeClient(client)
@@ -348,7 +350,7 @@ func (bw *PwWsBrokerWeb) HealthCheckName() string {
 }
 
 // NewWsClient creates a new Websocket Client. This represents an individual connection and its handling
-func NewWsClient(conn *websocket.Conn, identifier string, defaultSendTick time.Duration) *WsClient {
+func NewWsClient(conn *websocket.Conn, identifier string, defaultSendTick, snapshotMaxAge time.Duration) *WsClient {
 	client := WsClient{
 		conn:             conn,
 		cmdChan:          make(chan WsCmd),
@@ -356,6 +358,7 @@ func NewWsClient(conn *websocket.Conn, identifier string, defaultSendTick time.D
 		identifier:       identifier,
 		log:              log.With().Str("client", identifier).Logger(),
 		sendTickDuration: defaultSendTick,
+		snapshotMaxAge:   snapshotMaxAge,
 	}
 	return &client
 }
@@ -629,8 +632,16 @@ func (c *WsClient) planeProtocolHandler(ctx context.Context, conn *websocket.Con
 				if err == nil {
 					matching := 0
 					snapshotLocations := make([]*export.PlaneLocation, 0, 1000)
+					var cutoff time.Time
+					enforceSnapshotMaxAge := c.snapshotMaxAge > 0
+					if enforceSnapshotMaxAge {
+						cutoff = time.Now().UTC().Add(-c.snapshotMaxAge)
+					}
 					c.parent.globalList.Range(func(key, value interface{}) bool {
 						loc := value.(*export.PlaneLocation)
+						if enforceSnapshotMaxAge && loc.LastMsg.Before(cutoff) {
+							return true
+						}
 						if locationMatchesSubs(subs, loc) {
 							snapshotLocations = append(snapshotLocations, loc)
 							matching++
@@ -671,6 +682,50 @@ func (c *WsClient) planeProtocolHandler(ctx context.Context, conn *websocket.Con
 					Tiles: tiles,
 				})
 
+			case ws_protocol.RequestTypeSendAllSubscribed:
+				matching := 0
+				var cutoff time.Time
+				enforceSnapshotMaxAge := c.snapshotMaxAge > 0
+				if enforceSnapshotMaxAge {
+					cutoff = time.Now().UTC().Add(-c.snapshotMaxAge)
+				}
+				// Find all current matching aircraft, filtered by recency.
+				c.parent.globalList.Range(func(key, value interface{}) bool {
+					loc := value.(*export.PlaneLocation)
+					if enforceSnapshotMaxAge && loc.LastMsg.Before(cutoff) {
+						return true
+					}
+					if locationMatchesSubs(subs, loc) {
+						if id, ok := icaoIdLookup[loc.Icao]; ok {
+							locationMessages[id] = loc
+						} else {
+							locationMessages = append(locationMessages, loc)
+							icaoIdLookup[loc.Icao] = len(locationMessages) - 1
+						}
+						matching++
+					}
+					return true
+				})
+
+				if len(locationMessages) > 0 {
+					err = c.sendPlaneMessage(ctx, &ws_protocol.WsResponse{
+						Type:      ws_protocol.ResponseTypePlaneLocations,
+						Locations: locationMessages,
+					})
+					locationMessages = make([]*export.PlaneLocation, 0, 1000)
+					clear(icaoIdLookup)
+				}
+				_ = matching
+				if err == nil {
+					// Legacy path has no requestId, but still emits completion for parity.
+					appliedTiles := maps.Keys(subs)
+					slices.Sort(appliedTiles)
+					err = c.sendPlaneMessage(ctx, &ws_protocol.WsResponse{
+						Type:          ws_protocol.ResponseTypeInitialSyncComplete,
+						Tiles:         appliedTiles,
+						AircraftCount: &matching,
+					})
+				}
 			case ws_protocol.RequestTypeGridPlanes:
 				if _, gridOk := gridNames[cmdMsg.what]; gridOk {
 					matching := 0
