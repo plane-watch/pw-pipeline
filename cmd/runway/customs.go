@@ -50,7 +50,7 @@ var (
 	prometheusConnectedBeastFeeders = promauto.NewGauge(prometheus.GaugeOpts{
 		Namespace: "runway",
 		Subsystem: "beast",
-		Name:      "feeders-connected",
+		Name:      "feeders_connected",
 		Help:      "The total number of beast feeders connected.",
 	})
 )
