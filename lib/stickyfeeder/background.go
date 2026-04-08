@@ -332,8 +332,14 @@ func (w *BackgroundWorker) computeHonestyScores() {
 	}
 }
 
-// RecordArrival records when a frame arrived from a feeder (called from hot path)
+// RecordArrival records when a frame arrived from a feeder (called from hot path).
+//
+// feederTag may be either a bare feeder tag or a composite "tag#epoch" key —
+// it is normalized to the bare tag here so the per-frame frameArrival entries
+// agree with the per-feeder latency stats produced by recordDelay (which
+// performs the canonical normalization).
 func (w *BackgroundWorker) RecordArrival(payloadKey string, feederTag string) {
+	bareTag := extractFeederTag(feederTag)
 	now := time.Now()
 
 	// Try to load existing arrival record
@@ -341,36 +347,43 @@ func (w *BackgroundWorker) RecordArrival(payloadKey string, feederTag string) {
 		arrival := existing.(*frameArrival)
 		arrival.mu.Lock()
 		arrival.arrivals = append(arrival.arrivals, feederArrival{
-			feeder:    feederTag,
+			feeder:    bareTag,
 			arrivedAt: now,
 		})
 		delay := now.Sub(arrival.firstArrival)
 		arrival.mu.Unlock()
 
 		// Record the delay for this feeder
-		w.recordDelay(feederTag, delay)
+		w.recordDelay(bareTag, delay)
 		return
 	}
 
 	// First arrival for this frame
 	arrival := &frameArrival{
 		firstArrival: now,
-		firstFeeder:  feederTag,
+		firstFeeder:  bareTag,
 		arrivals: []feederArrival{{
-			feeder:    feederTag,
+			feeder:    bareTag,
 			arrivedAt: now,
 		}},
 	}
 	w.arrivals.Store(payloadKey, arrival)
 
 	// First arrival has zero delay
-	w.recordDelay(feederTag, 0)
+	w.recordDelay(bareTag, 0)
 }
 
 // recordDelay adds a delay sample to a feeder's latency stats.
 // Uses RLock for the common case where the feeder already exists,
 // upgrading to Lock only when creating a new entry.
+//
+// This is the canonical normalization point for latency writes: feeder may
+// be either bare or composite, and is reduced to the bare feeder tag before
+// touching feederLatency. Keeping this map bare-keyed bounds the cardinality
+// of prometheusFeederLatenessScore (one label combination per physical feeder)
+// and matches the read-side normalization in GetLatenessScore.
 func (w *BackgroundWorker) recordDelay(feeder string, delay time.Duration) {
+	feeder = extractFeederTag(feeder)
 	w.feederLatencyMu.RLock()
 	stats, exists := w.feederLatency[feeder]
 	w.feederLatencyMu.RUnlock()
@@ -398,8 +411,14 @@ func (w *BackgroundWorker) recordDelay(feeder string, delay time.Duration) {
 	stats.mu.Unlock()
 }
 
-// RecordPosition records a position report for consensus scoring (called from hot path)
+// RecordPosition records a position report for consensus scoring (called from hot path).
+//
+// This is the canonical normalization point for honesty writes: feederTag may
+// be either bare or composite, and is reduced to the bare feeder tag before
+// touching positionReports. Honesty scores are aggregated per physical feeder,
+// not per MLAT epoch, and the read-side (GetHonestyScore) normalizes to match.
 func (w *BackgroundWorker) RecordPosition(icao uint32, feederTag string, lat, lon float64, altitude int32) {
+	bareTag := extractFeederTag(feederTag)
 	w.positionReportsMu.Lock()
 	defer w.positionReportsMu.Unlock()
 
@@ -407,7 +426,7 @@ func (w *BackgroundWorker) RecordPosition(icao uint32, feederTag string, lat, lo
 		w.positionReports[icao] = make(map[string]*positionReport)
 	}
 
-	w.positionReports[icao][feederTag] = &positionReport{
+	w.positionReports[icao][bareTag] = &positionReport{
 		lat:       lat,
 		lon:       lon,
 		altitude:  altitude,
@@ -415,8 +434,13 @@ func (w *BackgroundWorker) RecordPosition(icao uint32, feederTag string, lat, lo
 	}
 }
 
-// GetLatenessScore returns the current lateness score for a feeder (called from hot path)
+// GetLatenessScore returns the current lateness score for a feeder (called from hot path).
+//
+// feeder may be either a bare feeder tag or a composite "tag#epoch" key —
+// it is normalized to the bare tag before lookup so callers in the hot path
+// (which typically hold composite keys) match the bare-keyed feederLatency map.
 func (w *BackgroundWorker) GetLatenessScore(feeder string) float64 {
+	feeder = extractFeederTag(feeder)
 	w.feederLatencyMu.RLock()
 	stats, exists := w.feederLatency[feeder]
 	w.feederLatencyMu.RUnlock()
@@ -432,8 +456,16 @@ func (w *BackgroundWorker) GetLatenessScore(feeder string) float64 {
 	return score
 }
 
-// GetHonestyScore returns the current honesty score for a feeder (called from hot path)
+// GetHonestyScore returns the current honesty score for a feeder (called from hot path).
+//
+// feeder may be either a bare feeder tag or a composite "tag#epoch" key —
+// it is normalized to the bare tag before lookup. Prior to this normalization,
+// callers in the hot path passed composite keys while feederHonesty was
+// bare-keyed (RecordPosition is called with source.Tag), so every lookup
+// missed and silently returned the default 1.0 — meaning honesty scoring had
+// no effect on feeder selection. This normalization restores intended behavior.
 func (w *BackgroundWorker) GetHonestyScore(feeder string) float64 {
+	feeder = extractFeederTag(feeder)
 	w.feederHonestyMu.RLock()
 	stats, exists := w.feederHonesty[feeder]
 	w.feederHonestyMu.RUnlock()
