@@ -340,10 +340,10 @@ func (f *Filter) Handle(fe *tracker.FrameEvent) tracker.Frame {
 	// Use composite key combining feeder tag and epoch
 	compositeFeederKey := producerKey(feederTag, epochID)
 
-	// Track epoch changes per feeder for metrics — only increment for new epochs
+	// Track epoch changes per feeder for metrics — only increment for new epochs.
+	// Reuse compositeFeederKey here rather than formatting the same string twice.
 	if epochID > 0 {
-		epochKey := fmt.Sprintf("%s#%d", feederTag, epochID)
-		if _, loaded := f.knownEpochs.LoadOrStore(epochKey, struct{}{}); !loaded {
+		if _, loaded := f.knownEpochs.LoadOrStore(compositeFeederKey, struct{}{}); !loaded {
 			prometheusEpochChanges.WithLabelValues(feederTag).Inc()
 		}
 	}
@@ -352,8 +352,15 @@ func (f *Filter) Handle(fe *tracker.FrameEvent) tracker.Frame {
 	// If the frame is from the sticky feeder, skip the coordinator check entirely
 	// (it does 3+ map lookups and multiple lock acquisitions — wasted for sticky frames).
 	// If the frame is from a non-sticky feeder and is non-position, drop it early.
+	//
+	// state is lifted to outer scope so that when we find the aircraft here, we
+	// can reuse the loaded pointer past the `process:` label instead of doing a
+	// second sync.Map lookup (and speculatively allocating) in
+	// getOrCreateAircraftState. Remains nil for genuinely new aircraft, which
+	// fall through to the allocation path below.
+	var state *aircraftState
 	if existing, ok := f.aircraft.Load(icao); ok {
-		state := existing.(*aircraftState)
+		state = existing.(*aircraftState)
 		state.mu.RLock()
 		sticky := state.stickyFeeder
 		state.mu.RUnlock()
@@ -390,8 +397,12 @@ process:
 		rssi = beastFrame.SignalRssi()
 	}
 
-	// Get or create aircraft state
-	state := f.getOrCreateAircraftState(icao)
+	// Reuse the state loaded above when we already found this aircraft.
+	// Only genuinely new aircraft fall through to getOrCreateAircraftState,
+	// which does a second sync.Map lookup and allocates a fresh struct.
+	if state == nil {
+		state = f.getOrCreateAircraftState(icao)
+	}
 
 	// Record arrival for latency tracking (before processing)
 	if payloadKey != "" {
