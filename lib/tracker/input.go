@@ -298,6 +298,15 @@ func (t *Tracker) Wait() {
 	t.log.Debug().Msg("events waiter done")
 }
 
+// releaseIfBeast releases a pooled beast frame back to its sync.Pool.
+// Safe to call with a nil Frame or a non-beast frame type — both are no-ops.
+// This is how decodeQueue avoids leaking pooled frames on any drop path.
+func releaseIfBeast(f Frame) {
+	if bf, ok := f.(*beast.Frame); ok {
+		beast.Release(bf)
+	}
+}
+
 func (t *Tracker) decodeQueue(decodingQueue chan FrameEvent, done chan bool) {
 	t.decodingQueueWaiter.Add(1)
 	for frameEvent := range decodingQueue {
@@ -328,9 +337,21 @@ func (t *Tracker) decodeQueue(decodingQueue chan FrameEvent, done chan bool) {
 						Msg("failed to decode message")
 				}
 			}
+			releaseIfBeast(frame)
 			continue
 		}
 
+		// Middleware reads the frame via frameEvent.Frame(), which is
+		// immutable across the chain, so every middleware sees the same
+		// underlying frame regardless of what previous middleware returned.
+		// That means the canonical frame reference to release on drop is
+		// always frameEvent.Frame() — not `frame`, which may have been
+		// reassigned to a non-frame sentinel by an intermediate middleware.
+		//
+		// If a future middleware ever needs to replace the frame, FrameEvent
+		// itself will need to be updated first; releasing an old frame while
+		// later middleware still read it from frameEvent.Frame() would be a
+		// use-after-release.
 		for _, m := range t.middlewares {
 			frame = m.Handle(&frameEvent)
 			if nil == frame {
@@ -339,6 +360,7 @@ func (t *Tracker) decodeQueue(decodingQueue chan FrameEvent, done chan bool) {
 		}
 		if frame == nil || frame.Icao() == 0 {
 			// invalid frame || unable to determine planes ICAO
+			releaseIfBeast(frameEvent.Frame())
 			continue
 		}
 		plane := t.GetPlane(frame.Icao())
