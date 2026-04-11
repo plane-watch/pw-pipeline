@@ -267,7 +267,7 @@ func run(c *cli.Context) error {
 		// and then close all the things
 		cancel()
 	}()
-	monitoring.AddHealthCheck(router)
+	monitoring.AddHealthCheck(&router)
 
 	numWorkers := c.Int("num-workers")
 	destRouteKeyLow := c.String("destination-route-key")
@@ -295,11 +295,11 @@ func run(c *cli.Context) error {
 	return nil
 }
 
-func (p pwRouter) HealthCheckName() string {
+func (p *pwRouter) HealthCheckName() string {
 	return "pw_router"
 }
 
-func (p pwRouter) HealthCheck() bool {
+func (p *pwRouter) HealthCheck() bool {
 	// let's do a chan checks
 
 	l := len(p.incomingMessages)
