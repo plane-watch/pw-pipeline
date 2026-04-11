@@ -130,6 +130,62 @@ func TestMergeCallSign(t *testing.T) {
 	}
 }
 
+func TestMergeHeadingTimestampAdvances(t *testing.T) {
+	t1 := time.Date(2023, time.January, 9, 19, 0, 0, 0, time.UTC)
+	t2 := time.Date(2023, time.January, 9, 19, 0, 1, 0, time.UTC)
+
+	prev := PlaneLocation{
+		HasHeading: true,
+		Heading:    90.0,
+		Updates:    Updates{Heading: t1},
+	}
+	next := PlaneLocation{
+		HasHeading: true,
+		Heading:    180.0,
+		Updates:    Updates{Heading: t2},
+	}
+
+	merged, err := MergePlaneLocations(prev, next)
+	if err != nil {
+		t.Fatalf("MergePlaneLocations() error = %v", err)
+	}
+
+	if merged.Heading != 180.0 {
+		t.Errorf("expected heading 180.0, got %f", merged.Heading)
+	}
+	if !merged.Updates.Heading.Equal(t2) {
+		t.Errorf("expected heading timestamp to advance to t2 (%v), got %v", t2, merged.Updates.Heading)
+	}
+}
+
+func TestMergeHeadingTimestampRejectsStale(t *testing.T) {
+	t1 := time.Date(2023, time.January, 9, 19, 0, 1, 0, time.UTC)
+	t2 := time.Date(2023, time.January, 9, 19, 0, 0, 0, time.UTC)
+
+	prev := PlaneLocation{
+		HasHeading: true,
+		Heading:    90.0,
+		Updates:    Updates{Heading: t1},
+	}
+	next := PlaneLocation{
+		HasHeading: true,
+		Heading:    180.0,
+		Updates:    Updates{Heading: t2},
+	}
+
+	merged, err := MergePlaneLocations(prev, next)
+	if err != nil {
+		t.Fatalf("MergePlaneLocations() error = %v", err)
+	}
+
+	if merged.Heading != 90.0 {
+		t.Errorf("expected stale heading to be rejected, got %f", merged.Heading)
+	}
+	if !merged.Updates.Heading.Equal(t1) {
+		t.Errorf("expected heading timestamp to stay at t1 (%v), got %v", t1, merged.Updates.Heading)
+	}
+}
+
 func TestPlaneLocation_PrepareSourceTags(t *testing.T) {
 	tests := []struct {
 		name   string

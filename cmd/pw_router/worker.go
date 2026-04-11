@@ -202,19 +202,6 @@ func (w *worker) handleMsg(msg []byte) error {
 
 	updatesProcessed.Inc()
 
-	// lookup what we know about this plane.
-	item, ok := w.router.syncSamples.Load(update.Icao)
-
-	// if this Icao is not in the cache, it's new.
-	if !ok {
-		update.InitSourceTags()
-		update.IncSourceTag(update.SourceTag)
-		w.router.syncSamples.Store(update.Icao, update)
-
-		w.handleNewUpdate(update, msg)
-		return nil // finish here, no significance check as we have nothing to compare.
-	}
-
 	// upstream signals that this plane has been removed / lost.
 	if update.Removed {
 		// TODO: we need to do our own reaping, since we can have multiple upstreams and one upstream losing track of
@@ -223,13 +210,34 @@ func (w *worker) handleMsg(msg []byte) error {
 		return nil // don't need to do anything else with this.
 	}
 
+	// Acquire per-ICAO lock so the Load → Merge → Store is atomic.
+	lk, _ := w.router.icaoLocks.LoadOrStore(update.Icao, &icaoLock{})
+	il := lk.(*icaoLock)
+	il.mu.Lock()
+
+	// lookup what we know about this plane.
+	item, ok := w.router.syncSamples.Load(update.Icao)
+
+	// if this Icao is not in the cache, it's new.
+	if !ok {
+		update.InitSourceTags()
+		update.IncSourceTag(update.SourceTag)
+		w.router.syncSamples.Store(update.Icao, update)
+		il.mu.Unlock()
+
+		w.handleNewUpdate(update, msg)
+		return nil // finish here, no significance check as we have nothing to compare.
+	}
+
 	// is this update significant versus the previous one
 	lastRecord := item.(export.PlaneLocation)
 	merged, err := export.MergePlaneLocations(lastRecord, update)
 	if nil != err {
+		il.mu.Unlock()
 		return nil
 	}
 	w.router.syncSamples.Store(merged.Icao, merged)
+	il.mu.Unlock()
 
 	mergedMsg, err := merged.ToJSONBytes()
 	if nil != err {
