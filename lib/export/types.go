@@ -213,7 +213,7 @@ func MergePlaneLocations(prev, next PlaneLocation) (PlaneLocation, error) {
 	}
 	if next.HasHeading && next.Updates.Heading.After(prev.Updates.Heading) {
 		merged.Heading = next.Heading
-		merged.Updates.Heading = prev.Updates.Heading
+		merged.Updates.Heading = next.Updates.Heading
 		merged.HasHeading = true
 	}
 	if next.HasVelocity && next.Updates.Velocity.After(prev.Updates.Velocity) {

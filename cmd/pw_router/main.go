@@ -25,9 +25,22 @@ const (
 	qSuffixHigh = "_high"
 )
 
+// icaoLock is a per-ICAO mutex that protects the Load-Merge-Store sequence
+// in the worker's handleMsg path. Entries are never removed, so the map
+// grows monotonically with distinct ICAOs seen over the process lifetime.
+// In practice this is bounded by the ~18-bit ICAO address space and the
+// subset of aircraft that are ever observed.
+type icaoLock struct {
+	mu sync.Mutex
+}
+
 type (
 	pwRouter struct {
 		syncSamples *forgetfulmap.ForgetfulSyncMap
+
+		// icaoLocks provides per-ICAO mutual exclusion so that the
+		// Load → Merge → Store sequence in handleMsg is atomic.
+		icaoLocks sync.Map // map[string]*icaoLock
 
 		haveSourceSinkConnection bool
 
