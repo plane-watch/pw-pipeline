@@ -16,6 +16,10 @@ on:
       - '.gitignore'
       - '.dockerignore'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 # Set workflow-wide environment variables
 env:
   GHCR_ORG: ${{ github.repository_owner }}

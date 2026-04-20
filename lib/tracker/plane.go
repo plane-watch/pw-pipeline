@@ -514,7 +514,17 @@ func (p *Plane) setRegistration(reg *string, err error) bool {
 	}
 	p.rwLock.Lock()
 	defer p.rwLock.Unlock()
-	hasChanged := p.airframe.registration != reg
+
+	var hasChanged bool
+	switch {
+	case p.airframe.registration == nil && reg == nil:
+		hasChanged = false
+	case p.airframe.registration == nil || reg == nil:
+		hasChanged = true
+	default:
+		hasChanged = *p.airframe.registration != *reg
+	}
+
 	p.airframe.registration = reg
 	return hasChanged
 }

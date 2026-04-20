@@ -11,7 +11,7 @@ RUN set -x && \
     openssl x509 -req -days 3650 -in /ssl/cert.csr -signkey /ssl/cert.key -out /ssl/cert.crt && \
     openssl x509 -in /ssl/cert.crt -noout -text
 
-FROM golang:1.25 AS build
+FROM golang:1.26.0 AS build
 
 # Set necessary environmet variables needed for our image
 ENV GO111MODULE=on \

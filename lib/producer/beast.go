@@ -9,32 +9,34 @@ import (
 )
 
 const tokenBufSize = 1000
-const tokenBufLen = 50
+const maxBeastMessageLen = 23
 
 func (p *Producer) beastScanner(scan *bufio.Scanner) error {
 	lastTimeStamp := time.Duration(0)
+	useDelay := p.beastDelay
+	frameSource := &p.FrameSource
+	beastCounter := p.stats.beast
+
 	// make our best lib allocate out of a sync.Pool
 	beast.UsePoolAllocator = true
 	p.log.Debug().Msg("entering scan.Scan() loop")
-	for scan.Scan() && scan.Err() == nil {
-		msg := bytes.Clone(scan.Bytes())
-
-		frame, err := beast.NewFrame(msg, p.isRadarCape)
+	for scan.Scan() {
+		frame, err := beast.NewFrame(scan.Bytes(), p.isRadarCape)
 		if nil != err {
 			continue
 		}
 
-		if p.beastDelay {
+		if useDelay {
 			currentTs := frame.BeastTicksNs()
 			if lastTimeStamp > 0 && lastTimeStamp < currentTs {
 				time.Sleep(currentTs - lastTimeStamp)
 			}
 			lastTimeStamp = currentTs
 		}
-		p.addFrame(frame, &p.FrameSource)
+		p.addFrame(frame, frameSource)
 
-		if nil != p.stats.beast {
-			p.stats.beast.Inc()
+		if nil != beastCounter {
+			beastCounter.Inc()
 		}
 	}
 	p.log.Debug().Msg("exited scan.Scan() loop")
@@ -80,31 +82,46 @@ func ScanBeast(data []byte, atEOF bool) (int, []byte, error) {
 		// unknown? assume we got an out of sequence and skip
 		return i + 1, nil, nil
 	}
-	bufLen := len(data) - i
-	// println("type", data[i+1], "input len", bufLen, "msg len",msgLen)
-	if bufLen >= tokenBufLen {
-		// we have enough in our buffer
-		// account for double escapes
-		bufferAdvance := i + msgLen
 
-		token := [tokenBufLen]byte{}
-
-		dataIndex := i // start at the <esc>/0x1a
-		tokenIndex := 0
-		for tokenIndex < msgLen && dataIndex < i+tokenBufLen {
-			token[tokenIndex] = data[dataIndex]
-
-			// if the next byte is an escaped 0x1A, jump it
-			if data[dataIndex] == 0x1A && data[dataIndex+1] == 0x1A { // skip over the second <esc>
-				bufferAdvance++
-				dataIndex++
-			}
-
-			dataIndex++
-			tokenIndex++
+	// Fast path: if the full frame is present and there are no escaped bytes
+	// inside it, return a direct slice into scanner buffer (no copy).
+	if len(data) >= i+msgLen {
+		frame := data[i : i+msgLen]
+		if bytes.IndexByte(frame[1:], 0x1A) == -1 {
+			return i + msgLen, frame, nil
 		}
-		return bufferAdvance, token[0:msgLen], nil
 	}
-	// we want more data!
-	return 0, nil, nil
+
+	// Slow path: copy and unescape doubled 0x1A bytes.
+	// If we run out of input, ask scanner for more data.
+	token := [maxBeastMessageLen]byte{}
+	dataIndex := i
+	tokenIndex := 0
+	bufferAdvance := i
+	for tokenIndex < msgLen {
+		if dataIndex >= len(data) {
+			return 0, nil, nil
+		}
+
+		b := data[dataIndex]
+		token[tokenIndex] = b
+		tokenIndex++
+		dataIndex++
+		bufferAdvance++
+
+		// The initial 0x1A is frame start. Any later 0x1A in the encoded stream
+		// must be doubled.
+		if b == 0x1A && tokenIndex > 1 {
+			if dataIndex >= len(data) {
+				return 0, nil, nil
+			}
+			if data[dataIndex] != 0x1A {
+				// malformed escape sequence - skip this marker and continue
+				return i + 1, nil, nil
+			}
+			dataIndex++
+			bufferAdvance++
+		}
+	}
+	return bufferAdvance, token[:msgLen], nil
 }

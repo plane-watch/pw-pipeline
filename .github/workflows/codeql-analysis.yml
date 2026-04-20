@@ -21,6 +21,10 @@ on:
   schedule:
     - cron: '20 7 * * 5'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   analyze:
     name: Analyze
@@ -40,6 +44,13 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Set up Go
+        if: ${{ matrix.language == 'go' }}
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.0'
+          check-latest: true
 
       # Initializes the CodeQL tools for scanning.
       - name: Initialize CodeQL
