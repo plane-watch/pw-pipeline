@@ -26,7 +26,7 @@ RUN set -x && go build -buildvcs=false -ldflags="-X main.version=${IMAGE_VERSION
 # test binary (make sure it will run on this arch)
 RUN ./pw_ws_broker --help
 
-FROM alpine:3.22.2 AS dev
+FROM alpine:3.23.3 AS dev
 LABEL org.opencontainers.image.description="Plane.Watch Websocket Broker"
 
 WORKDIR /app
@@ -38,7 +38,7 @@ HEALTHCHECK --interval=15s --timeout=3s CMD wget --spider http://localhost:9603/
 # Command to run
 CMD [ "/app/pw_ws_broker", "daemon" ]
 
-FROM alpine:3.22.2
+FROM alpine:3.23.3
 LABEL org.opencontainers.image.description="Plane.Watch Websocket Broker"
 
 WORKDIR /app
