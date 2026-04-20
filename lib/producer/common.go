@@ -81,7 +81,7 @@ func New(opts ...Option) *Producer {
 			VelocityCheck:    true,
 		},
 		out:     make(chan tracker.FrameEvent, 100),
-		cmdChan: make(chan int),
+		cmdChan: make(chan int, 1),
 		run: func() {
 			println("You did not specify any sources")
 			os.Exit(1) // TODO(mikenye): something more graceful?
@@ -235,23 +235,31 @@ func WithConnection(conn net.Conn) Option {
 		p.FrameSource.OriginIdentifier = conn.RemoteAddr().String()
 		p.run = func() {
 			p.addInfo("Fetching From Host: %s", p.FrameSource.OriginIdentifier)
+			done := make(chan struct{})
 			go func() {
-				defer p.Cleanup()
-
-				defer func() {
-					p.log.Debug().Msg("closing connection")
-					_ = conn.Close()
-				}()
-
-				scan := bufio.NewScanner(conn)
-				p.log.Debug().Msg("start reading from scanner")
-				errRead := p.readFromScanner(scan)
-				if errRead != nil {
-					p.log.Error().Err(errRead).Msg("error reading from scanner")
+				select {
+				case cmd := <-p.cmdChan:
+					if cmd == cmdExit {
+						_ = conn.Close()
+					}
+				case <-done:
 				}
-				_ = conn.Close()
-				p.log.Debug().Msg("finish reading from scanner")
 			}()
+
+			defer func() {
+				close(done)
+				p.log.Debug().Msg("closing connection")
+				_ = conn.Close()
+				p.Cleanup()
+			}()
+
+			scan := bufio.NewScanner(conn)
+			p.log.Debug().Msg("start reading from scanner")
+			errRead := p.readFromScanner(scan)
+			if errRead != nil && !errors.Is(errRead, net.ErrClosed) && !errors.Is(errRead, io.EOF) {
+				p.log.Error().Err(errRead).Msg("error reading from scanner")
+			}
+			p.log.Debug().Msg("finish reading from scanner")
 		}
 	}
 }
@@ -409,7 +417,10 @@ func (p *Producer) HealthCheckName() string {
 }
 
 func (p *Producer) Stop() {
-	p.cmdChan <- cmdExit
+	select {
+	case p.cmdChan <- cmdExit:
+	default:
+	}
 }
 
 func (p *Producer) AddEvent(e tracker.FrameEvent) {
