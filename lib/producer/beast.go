@@ -13,16 +13,36 @@ const tokenBufLen = 50
 
 func (p *Producer) beastScanner(scan *bufio.Scanner) error {
 	lastTimeStamp := time.Duration(0)
-	// make our best lib allocate out of a sync.Pool
+	// make our beast lib allocate out of a sync.Pool
 	beast.UsePoolAllocator = true
 	p.log.Debug().Msg("entering scan.Scan() loop")
-	for scan.Scan() && scan.Err() == nil {
-		msg := bytes.Clone(scan.Bytes())
 
-		frame, err := beast.NewFrame(msg, p.isRadarCape)
+	epochDetector := p.getEpochDetector(p.Tag)
+	for scan.Scan() && scan.Err() == nil {
+		// NewFrame copies scan.Bytes() into frame-owned storage, so we do not
+		// need to clone here. The returned frame is owned by us until Release.
+		frame, err := beast.NewFrame(scan.Bytes(), p.isRadarCape)
 		if nil != err {
+			// NewFrame returns a non-nil pooled frame even on error
+			// (ErrBadBeastFrame / ErrModeAC / ErrConfigFrame). Release it so
+			// the pool can reuse it; otherwise we churn allocations.
+			if frame != nil {
+				beast.Release(frame)
+			}
 			continue
 		}
+
+		// Extract MLAT ticks and detect epoch
+		// BeastTicksNs() returns nanoseconds for Beast, but raw ticks for RadarCape.
+		// ProcessTicks expects nanoseconds, so convert RadarCape if needed.
+		mlatTicks := frame.BeastTicksNs()
+		if p.isRadarCape {
+			// RadarCape returns raw ticks, convert to nanoseconds: ticks * 1000 / 12
+			mlatTicks = time.Duration(int64(mlatTicks) * 1000 / 12)
+		}
+		// TODO: remember epoch between frames and avoid the lookup overhead if we are within 1s of last arrival?
+		epochID := epochDetector.ProcessTicks(mlatTicks)
+		frame.SetEpochID(epochID)
 
 		if p.beastDelay {
 			currentTs := frame.BeastTicksNs()

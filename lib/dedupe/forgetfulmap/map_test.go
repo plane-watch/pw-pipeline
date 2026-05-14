@@ -284,6 +284,85 @@ func TestForgetfulSyncMap_SweepWithCustomExpiryFunc(t *testing.T) {
 	}
 }
 
+func TestForgetfulSyncMap_LoadOrStore(t *testing.T) {
+	testMap := NewForgetfulSyncMap(WithSweepInterval(time.Second), WithOldAgeAfterSeconds(60))
+
+	// First call should store and return the value
+	val1, loaded := testMap.LoadOrStore("key1", "value1")
+	if loaded {
+		t.Error("Expected loaded=false for first LoadOrStore")
+	}
+	if val1 != "value1" {
+		t.Errorf("Expected value1, got %v", val1)
+	}
+
+	// Second call with same key should return existing value
+	val2, loaded := testMap.LoadOrStore("key1", "value2")
+	if !loaded {
+		t.Error("Expected loaded=true for second LoadOrStore")
+	}
+	if val2 != "value1" {
+		t.Errorf("Expected value1 (original), got %v", val2)
+	}
+
+	// Verify Load returns the original value
+	val3, ok := testMap.Load("key1")
+	if !ok {
+		t.Error("Expected key1 to exist")
+	}
+	if val3 != "value1" {
+		t.Errorf("Expected value1 from Load, got %v", val3)
+	}
+
+	// Different key should store successfully
+	val4, loaded := testMap.LoadOrStore("key2", "value2")
+	if loaded {
+		t.Error("Expected loaded=false for new key")
+	}
+	if val4 != "value2" {
+		t.Errorf("Expected value2, got %v", val4)
+	}
+
+	if testMap.Len() != 2 {
+		t.Errorf("Expected 2 items, got %d", testMap.Len())
+	}
+}
+
+func TestForgetfulSyncMap_LoadOrStore_Concurrent(t *testing.T) {
+	testMap := NewForgetfulSyncMap(WithSweepInterval(time.Second*60), WithOldAgeAfterSeconds(60))
+
+	const goroutines = 100
+	var wg sync.WaitGroup
+	stored := make(chan string, goroutines)
+
+	wg.Add(goroutines)
+	for i := 0; i < goroutines; i++ {
+		go func(id int) {
+			defer wg.Done()
+			val, loaded := testMap.LoadOrStore("race-key", id)
+			if !loaded {
+				stored <- "stored"
+			}
+			// All goroutines should see the same value (the first one stored)
+			_ = val
+		}(i)
+	}
+	wg.Wait()
+	close(stored)
+
+	storeCount := 0
+	for range stored {
+		storeCount++
+	}
+	if storeCount != 1 {
+		t.Errorf("Expected exactly 1 goroutine to store, got %d", storeCount)
+	}
+
+	if testMap.Len() != 1 {
+		t.Errorf("Expected 1 item, got %d", testMap.Len())
+	}
+}
+
 func BenchmarkForgetfulSyncMap(b *testing.B) {
 	m := NewForgetfulSyncMap(
 		UseMemSyncPool(false),

@@ -17,6 +17,10 @@ import (
 )
 
 type (
+	// PostDecodeCallback is called after a frame is decoded and the plane has been updated.
+	// This allows external components to capture position data with the feeder tag still available.
+	PostDecodeCallback func(icao uint32, source *FrameSource, lat, lon float64, altitude int32)
+
 	Tracker struct {
 		log   zerolog.Logger
 		stats struct {
@@ -42,6 +46,9 @@ type (
 		numFramesToBeViable int
 
 		muProducers sync.RWMutex
+
+		// postDecodeCallback is called after frame decoding with position data
+		postDecodeCallback PostDecodeCallback
 	}
 
 	dummySink struct {

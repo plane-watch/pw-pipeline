@@ -82,6 +82,10 @@ func (n *Server) SetURL(serverURL string) {
 	}
 	n.url = serverURLParts.String()
 }
+func (n *Server) URL() string {
+	return n.url
+}
+
 func (n *Server) DroppedCounter(counter prometheus.Counter) {
 	n.droppedMessageCounter = counter
 }

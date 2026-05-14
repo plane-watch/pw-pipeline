@@ -50,6 +50,10 @@ type (
 
 		// decodedModeS contains the decoded Mode-S frame (if the msgType is 0x32 or 0x33 - Mode-S short or Mode-S long).
 		decodedModeS mode_s.Frame
+
+		// epochID identifies which MLAT epoch this frame belongs to.
+		// Used for sub-producer isolation when multiple receivers are aggregated.
+		epochID uint32
 	}
 )
 
@@ -78,6 +82,7 @@ func init() {
 				isRadarCape:   false,
 				hasDecoded:    false,
 				decodedModeS:  mode_s.Frame{},
+				epochID:       0,
 			}
 		},
 	}
@@ -95,6 +100,7 @@ func Release(frame *Frame) {
 		frame.isRadarCape = false
 		frame.hasDecoded = false
 		frame.decodedModeS = mode_s.Frame{}
+		frame.epochID = 0
 		// return to pool
 		beastPool.Put(frame)
 	}
@@ -153,6 +159,16 @@ func (f *Frame) TimeStamp() time.Time {
 	return time.Now()
 }
 
+// SetEpochID sets the MLAT epoch ID for this frame
+func (f *Frame) SetEpochID(id uint32) {
+	f.epochID = id
+}
+
+// EpochID returns the MLAT epoch ID for this frame
+func (f *Frame) EpochID() uint32 {
+	return f.epochID
+}
+
 // Raw gives us back our raw beast message
 func (f *Frame) Raw() []byte {
 	if nil == f {
@@ -161,6 +177,17 @@ func (f *Frame) Raw() []byte {
 	return f.raw
 }
 
+// NewFrame parses a raw BEAST frame into a *Frame. The returned Frame may be
+// drawn from a sync.Pool; see UsePoolAllocator.
+//
+// Ownership: if NewFrame returns a non-nil *Frame, the caller OWNS it and MUST
+// call Release(frame) when done — regardless of whether err is nil, ErrModeAC,
+// ErrConfigFrame, or ErrBadBeastFrame. Release is a no-op when UsePoolAllocator
+// is false, so this is always safe.
+//
+// The Frame's internal buffers (raw, mlatTimestamp, body) are owned by the
+// Frame and may be reused or zeroed after Release. Callers must not retain
+// references to these buffers or to decodedModeS after releasing the frame.
 func NewFrame(rawBytes []byte, isRadarCape bool) (*Frame, error) {
 	if UsePoolAllocator {
 		return newFrameInto(beastPool.Get().(*Frame), rawBytes, isRadarCape)
@@ -168,6 +195,11 @@ func NewFrame(rawBytes []byte, isRadarCape bool) (*Frame, error) {
 		return newFrameInto(&Frame{}, rawBytes, isRadarCape)
 	}
 }
+
+// newFrameInto populates f from rawBytes. The rawBytes are COPIED into
+// frame-owned storage (f.raw), so the caller's slice does not need to outlive
+// this call. This is important for callers reading from bufio.Scanner, which
+// reuses its internal buffer across Scan() calls.
 func newFrameInto(f *Frame, rawBytes []byte, isRadarCape bool) (*Frame, error) {
 	if len(rawBytes) <= 8 {
 		return f, ErrBadBeastFrame
@@ -181,22 +213,19 @@ func newFrameInto(f *Frame, rawBytes []byte, isRadarCape bool) (*Frame, error) {
 		return f, ErrBadBeastFrame
 	}
 
-	// note: our parts here refer to the underlying slice that was passed in
-	f.raw = rawBytes
-	f.msgType = rawBytes[1]
-	f.mlatTimestamp = rawBytes[2:8]
-	f.signalLevel = rawBytes[8]
-	f.body = rawBytes[9:]
+	// Copy into frame-owned storage. Pooled frames reuse f.raw's backing
+	// array across calls, so this is zero-alloc on pool hit.
+	f.raw = append(f.raw[:0], rawBytes...)
+	f.msgType = f.raw[1]
+	f.mlatTimestamp = f.raw[2:8]
+	f.signalLevel = f.raw[8]
+	f.body = f.raw[9:]
 	f.bodyString = "" // Reset for lazy computation in RawString()
-	//copy(f.body[:], rawBytes[9:])
 
 	f.isRadarCape = isRadarCape
 
 	switch f.msgType {
 	case 0x31:
-		//if len(f.body) != 2 {
-		//	return nil
-		//}
 		// mode-ac 10 bytes (2+8)
 		f.decodeModeAc()
 		return f, ErrModeAC
@@ -205,9 +234,6 @@ func newFrameInto(f *Frame, rawBytes []byte, isRadarCape bool) (*Frame, error) {
 		// 0x33 = mode-s long 22 bytes
 		f.decodedModeS = mode_s.NewFrameFromBytes(0, f.body, time.Now())
 	case 0x34:
-		//if len(f.body) != 2 {
-		//	return nil
-		//}
 		// signal strength 10 bytes
 		f.decodeConfig()
 		return f, ErrConfigFrame
@@ -224,7 +250,9 @@ func (f *Frame) decodeConfig() {
 	// TODO: Decode RadarCape Config Info
 }
 
-// BeastTicksNs returns the number of nanoseconds the beast has been on for (the mlat timestamp is calculated from power on)
+// BeastTicksNs returns the number of nanoseconds since the Beast receiver powered on.
+// MLAT timestamps are in 1/12 microsecond increments per Beast format specification.
+// Conversion: ticks * (1000 nanoseconds / 12) = ticks in nanoseconds
 func (f *Frame) BeastTicksNs() time.Duration {
 	var t uint64
 	inc := 40
@@ -234,10 +262,13 @@ func (f *Frame) BeastTicksNs() time.Duration {
 	}
 
 	if f.isRadarCape {
+		// RadarCape may use different scaling, keep as-is for now
 		return time.Duration(t)
 	}
 
-	return time.Duration(t * 500)
+	// Standard Beast: convert from 1/12 microsecond ticks to nanoseconds
+	// Formula: ticks * (1e9 / 12) = ticks * 1000 / 12 (integer division safe here)
+	return time.Duration(t * 1000 / 12)
 }
 
 func (f *Frame) String() string {

@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -26,7 +27,9 @@ type (
 
 		atcUpdateQueue chan feederStat
 
-		log zerolog.Logger
+		log    zerolog.Logger
+		ctx    context.Context
+		cancel context.CancelFunc
 	}
 
 	feederStat struct {
@@ -56,6 +59,7 @@ func NewAccounting(opts ...AccountingOption) *Accounting {
 
 	a.handleQueue = make(chan *tracker.FrameSource, 1000)
 	a.atcUpdateQueue = make(chan feederStat, 1000)
+	a.ctx, a.cancel = context.WithCancel(context.Background())
 
 	// config check
 	if a.natsServer == nil {
@@ -70,6 +74,8 @@ func NewAccounting(opts ...AccountingOption) *Accounting {
 
 func (a *Accounting) Handle(event *tracker.FrameEvent) tracker.Frame {
 	select {
+	case <-a.ctx.Done():
+		// Stopped, don't send
 	case a.handleQueue <- event.Source():
 	default:
 		// Queue full, drop the accounting update (not the frame)
@@ -80,51 +86,61 @@ func (a *Accounting) Handle(event *tracker.FrameEvent) tracker.Frame {
 
 func (a *Accounting) queueHandler() {
 	a.exitQueueWaiter.Add(1)
-	for item := range a.handleQueue {
-		stat, ok := a.stats[item.Tag]
-		if !ok {
-			stat = feederStat{
-				apiKey:     item.Tag,
-				frameCount: 0,
+	defer a.exitQueueWaiter.Done()
+	for {
+		select {
+		case <-a.ctx.Done():
+			return
+		case item := <-a.handleQueue:
+			stat, ok := a.stats[item.Tag]
+			if !ok {
+				stat = feederStat{
+					apiKey:     item.Tag,
+					frameCount: 0,
+				}
 			}
-		}
-		stat.frameCount++
-		stat.lastSeen = time.Now()
+			stat.frameCount++
+			stat.lastSeen = time.Now()
 
-		if stat.lastSeen.After(stat.lastAtcUpdate.Add(time.Minute)) {
-			select {
-			case a.atcUpdateQueue <- stat:
-				stat.lastAtcUpdate = stat.lastSeen
-			default:
-				a.log.Warn().Msg("atc update queue full, skipping update")
+			if stat.lastSeen.After(stat.lastAtcUpdate.Add(time.Minute)) {
+				select {
+				case a.atcUpdateQueue <- stat:
+					stat.lastAtcUpdate = stat.lastSeen
+				default:
+					a.log.Warn().Msg("atc update queue full, skipping update")
+				}
 			}
+			a.stats[item.Tag] = stat
 		}
-		a.stats[item.Tag] = stat
 	}
-	a.exitQueueWaiter.Done()
 }
 
 func (a *Accounting) atcUpdateQueueHandler() {
 	a.exitQueueWaiter.Add(1)
+	defer a.exitQueueWaiter.Done()
 	json := jsoniter.ConfigFastest
-	for stat := range a.atcUpdateQueue {
-		feederUpdates := []export.FeederUpdate{
-			{
-				ApiKey:   stat.apiKey,
-				LastSeen: stat.lastSeen,
-			},
-		}
-		data, err := json.Marshal(feederUpdates)
-		if err != nil {
-			a.log.Error().Err(err).Msg("failed to encode feeder update")
-			continue
-		}
-		err = a.natsServer.Publish(export.NatsApiFeederStatsUpdateV1, data)
-		if err != nil {
-			a.log.Error().Err(err).Msg("failed to publish feeder stats")
+	for {
+		select {
+		case <-a.ctx.Done():
+			return
+		case stat := <-a.atcUpdateQueue:
+			feederUpdates := []export.FeederUpdate{
+				{
+					ApiKey:   stat.apiKey,
+					LastSeen: stat.lastSeen,
+				},
+			}
+			data, err := json.Marshal(feederUpdates)
+			if err != nil {
+				a.log.Error().Err(err).Msg("failed to encode feeder update")
+				continue
+			}
+			err = a.natsServer.Publish(export.NatsApiFeederStatsUpdateV1, data)
+			if err != nil {
+				a.log.Error().Err(err).Msg("failed to publish feeder stats")
+			}
 		}
 	}
-	a.exitQueueWaiter.Done()
 }
 
 func (a *Accounting) String() string {
@@ -142,7 +158,6 @@ func (a *Accounting) HealthCheck() bool {
 }
 
 func (a *Accounting) Stop() {
-	close(a.handleQueue)
-	close(a.atcUpdateQueue)
+	a.cancel()
 	a.exitQueueWaiter.Wait()
 }

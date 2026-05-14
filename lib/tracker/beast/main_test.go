@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
+	"time"
 )
 
 var (
@@ -284,5 +285,45 @@ func BenchmarkNewFrameAndDecodePool(b *testing.B) {
 				Release(frame)
 			}
 		})
+	}
+}
+
+func TestBeastTicksNs_CorrectFormula(t *testing.T) {
+	// Create a frame with known MLAT timestamp bytes
+	// For this test, we'll use a timestamp that represents 12 ticks = 1 microsecond
+	// 12 ticks should convert to 1000 nanoseconds
+
+	f := &Frame{
+		mlatTimestamp: []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x0C}, // 12 ticks in big-endian
+		isRadarCape:   false,
+	}
+
+	result := f.BeastTicksNs()
+
+	// 12 ticks * (1000/12) = 1000 nanoseconds
+	expected := time.Duration(1000)
+
+	if result != expected {
+		t.Errorf("BeastTicksNs() = %d ns, want %d ns (got %v)", result, expected, result)
+	}
+}
+
+func TestBeastTicksNs_LargeValue(t *testing.T) {
+	// Test with a larger value: 1000000 ticks should give ~83.33 milliseconds
+	// 1000000 ticks * (1000/12) nanoseconds = 83,333,333 nanoseconds ≈ 83.3 ms
+	// 1000000 = 0xF4240 in hex, in big-endian 48-bit:
+	// byte[0]=0x00, byte[1]=0x00, byte[2]=0x00, byte[3]=0x0F, byte[4]=0x42, byte[5]=0x40
+
+	f := &Frame{
+		mlatTimestamp: []byte{0x00, 0x00, 0x00, 0x0F, 0x42, 0x40}, // big-endian 48-bit representation of 1000000
+		isRadarCape:   false,
+	}
+
+	result := f.BeastTicksNs()
+
+	// Should be approximately 83.3 milliseconds
+	expectedMs := int64(83333333) // nanoseconds
+	if int64(result) != expectedMs {
+		t.Errorf("BeastTicksNs() = %d ns, want ~%d ns (diff: %d)", int64(result), expectedMs, int64(result)-expectedMs)
 	}
 }
