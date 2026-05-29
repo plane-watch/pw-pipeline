@@ -143,6 +143,12 @@ func main() {
 			EnvVars: []string{"SEND_TICK"},
 			Value:   500 * time.Millisecond,
 		},
+		&cli.DurationFlag{
+			Name:    "snapshot-max-age",
+			Usage:   "Max age of aircraft data included in bulk snapshot after subscription change",
+			EnvVars: []string{"SNAPSHOT_MAX_AGE"},
+			Value:   5 * time.Second,
+		},
 	}
 
 	logging.IncludeVerbosityFlags(app)
@@ -231,6 +237,7 @@ func run(c *cli.Context) error {
 		c.String("tls-cert-key"),
 		c.Bool("serve-test-web"),
 		c.Duration("send-tick"),
+		c.Duration("snapshot-max-age"),
 	)
 	if nil != err {
 		return err

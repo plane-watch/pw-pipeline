@@ -13,14 +13,20 @@ const tokenBufLen = 50
 
 func (p *Producer) beastScanner(scan *bufio.Scanner) error {
 	lastTimeStamp := time.Duration(0)
-	// make our best lib allocate out of a sync.Pool
+	// make our beast lib allocate out of a sync.Pool
 	beast.UsePoolAllocator = true
 	p.log.Debug().Msg("entering scan.Scan() loop")
 	for scan.Scan() && scan.Err() == nil {
-		msg := bytes.Clone(scan.Bytes())
-
-		frame, err := beast.NewFrame(msg, p.isRadarCape)
+		// NewFrame copies scan.Bytes() into frame-owned storage, so we do not
+		// need to clone here. The returned frame is owned by us until Release.
+		frame, err := beast.NewFrame(scan.Bytes(), p.isRadarCape)
 		if nil != err {
+			// NewFrame returns a non-nil pooled frame even on error
+			// (ErrBadBeastFrame / ErrModeAC / ErrConfigFrame). Release it so
+			// the pool can reuse it; otherwise we churn allocations.
+			if frame != nil {
+				beast.Release(frame)
+			}
 			continue
 		}
 
