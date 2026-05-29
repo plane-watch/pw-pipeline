@@ -48,6 +48,11 @@ var (
 		Name:      "output_frame_dedupe_total",
 		Help:      "The total number of deduped frames not output.",
 	})
+	prometheusStaleRejected = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "pw_ingest",
+		Name:      "stale_updates_rejected_total",
+		Help:      "Updates rejected because frame timestamp was older than stored value.",
+	})
 	prometheusAppVer = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "pw_ingest",
 		Name:      "info",
@@ -154,6 +159,7 @@ func runDaemon(c *cli.Context) error {
 			prometheusCounterFramesDecoded,
 			prometheusCounterFramesErrored,
 			prometheusCounterPlanesPurgedBeforeViable,
+			prometheusStaleRejected,
 		),
 		tracker.WithDecodeWorkerCount(1), // only need a single decoder per source
 	)

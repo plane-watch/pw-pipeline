@@ -59,6 +59,20 @@ type (
 			avr, beast, sbs1 prometheus.Counter
 		}
 
+		// MLAT epoch tracking for Beast frames
+		mlatEpoch     time.Duration // First MLAT tick value seen
+		wallEpoch     time.Time     // Wall time when first frame arrived
+		lastMlatTicks time.Duration // Last MLAT ticks seen (for reset detection)
+		hasEpoch      bool          // Whether epoch has been established
+
+		// Metrics for epoch tracking
+		epochResets      prometheus.Counter
+		driftCorrections prometheus.Counter
+
+		// Observability gauges for RTT and drift analysis
+		rttGauge   prometheus.Gauge // TCP RTT for this connection
+		driftGauge prometheus.Gauge // Current drift (arrival - calculated time)
+
 		repeater *keepAliveRepeater
 
 		poisonPill       func() bool
@@ -304,6 +318,25 @@ func WithPrometheusCounters(avr, beast, sbs1 prometheus.Counter) Option {
 		p.stats.avr = avr
 		p.stats.beast = beast
 		p.stats.sbs1 = sbs1
+	}
+}
+
+func WithEpochMetrics(epochResets, driftCorrections prometheus.Counter) Option {
+	return func(p *Producer) {
+		p.epochResets = epochResets
+		p.driftCorrections = driftCorrections
+	}
+}
+
+func WithRTTGauge(g prometheus.Gauge) Option {
+	return func(p *Producer) {
+		p.rttGauge = g
+	}
+}
+
+func WithDriftGauge(g prometheus.Gauge) Option {
+	return func(p *Producer) {
+		p.driftGauge = g
 	}
 }
 

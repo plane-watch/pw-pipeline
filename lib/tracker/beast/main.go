@@ -50,6 +50,10 @@ type (
 
 		// decodedModeS contains the decoded Mode-S frame (if the msgType is 0x32 or 0x33 - Mode-S short or Mode-S long).
 		decodedModeS mode_s.Frame
+
+		// calculatedTime is the wall-clock time calculated from MLAT ticks by the producer.
+		// If zero, TimeStamp() falls back to time.Now().
+		calculatedTime time.Time
 	}
 )
 
@@ -95,6 +99,7 @@ func Release(frame *Frame) {
 		frame.isRadarCape = false
 		frame.hasDecoded = false
 		frame.decodedModeS = mode_s.Frame{}
+		frame.calculatedTime = time.Time{}
 		// return to pool
 		beastPool.Put(frame)
 	}
@@ -149,8 +154,18 @@ func (f *Frame) Decode() error {
 }
 
 func (f *Frame) TimeStamp() time.Time {
-	// todo: calculate this off the mlat timestamp
+	if !f.calculatedTime.IsZero() {
+		return f.calculatedTime
+	}
 	return time.Now()
+}
+
+// SetTimeStamp sets the calculated wall-clock time for this frame.
+// This propagates to the inner mode_s.Frame if it has been decoded.
+func (f *Frame) SetTimeStamp(ts time.Time) {
+	f.calculatedTime = ts
+	// Propagate to inner mode_s.Frame
+	f.decodedModeS.SetTimeStamp(ts)
 }
 
 // Raw gives us back our raw beast message
@@ -259,7 +274,9 @@ func (f *Frame) String() string {
 	)
 }
 
-func (f *Frame) isMlat() bool {
+// IsMlat returns true if this frame has the special MLAT magic timestamp,
+// indicating it came from an MLAT server rather than local reception.
+func (f *Frame) IsMlat() bool {
 	if nil == f {
 		return false
 	}

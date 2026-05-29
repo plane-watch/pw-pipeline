@@ -151,21 +151,82 @@ func (m *Manifest) handler(conn net.Conn, apiKey string) error {
 	m.feeders.SetConnected(apiKey, feederauth.BEAST)
 
 	// register prom metrics
+	feederLabels := map[string]string{
+		"feeder_id":    strconv.FormatInt(feeder.Id, 10),
+		"feeder_label": feeder.Label,
+		"feeder_user":  feeder.User,
+	}
 	prometheusInputBeastFrames := prometheus.NewCounter(prometheus.CounterOpts{
-		Namespace: "runway",
-		Subsystem: "input",
-		Name:      "beast_total",
-		Help:      "The total number of beast frames processed.",
-		ConstLabels: map[string]string{
-			"feeder_id":    strconv.FormatInt(feeder.Id, 10),
-			"feeder_label": feeder.Label,
-			"feeder_user":  feeder.User,
-		},
+		Namespace:   "runway",
+		Subsystem:   "input",
+		Name:        "beast_total",
+		Help:        "The total number of beast frames processed.",
+		ConstLabels: feederLabels,
+	})
+	prometheusEpochResets := prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace:   "runway",
+		Subsystem:   "beast",
+		Name:        "epoch_resets_total",
+		Help:        "Number of MLAT epoch resets (device restarts).",
+		ConstLabels: feederLabels,
+	})
+	prometheusDriftCorrections := prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace:   "runway",
+		Subsystem:   "beast",
+		Name:        "drift_corrections_total",
+		Help:        "Number of clock drift corrections.",
+		ConstLabels: feederLabels,
+	})
+	prometheusRTT := prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace:   "runway",
+		Subsystem:   "beast",
+		Name:        "rtt_microseconds",
+		Help:        "TCP RTT in microseconds (round-trip).",
+		ConstLabels: feederLabels,
+	})
+	prometheusDrift := prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace:   "runway",
+		Subsystem:   "beast",
+		Name:        "drift_microseconds",
+		Help:        "Current drift between arrival and calculated time in microseconds.",
+		ConstLabels: feederLabels,
 	})
 	err = prometheus.Register(prometheusInputBeastFrames)
 	if err != nil {
 		return fmt.Errorf("failed to register prometheus counter: %w", err)
 	}
+	err = prometheus.Register(prometheusEpochResets)
+	if err != nil {
+		_ = prometheus.Unregister(prometheusInputBeastFrames)
+		return fmt.Errorf("failed to register epoch resets counter: %w", err)
+	}
+	err = prometheus.Register(prometheusDriftCorrections)
+	if err != nil {
+		_ = prometheus.Unregister(prometheusInputBeastFrames)
+		_ = prometheus.Unregister(prometheusEpochResets)
+		return fmt.Errorf("failed to register drift corrections counter: %w", err)
+	}
+	err = prometheus.Register(prometheusRTT)
+	if err != nil {
+		_ = prometheus.Unregister(prometheusInputBeastFrames)
+		_ = prometheus.Unregister(prometheusEpochResets)
+		_ = prometheus.Unregister(prometheusDriftCorrections)
+		return fmt.Errorf("failed to register RTT gauge: %w", err)
+	}
+	err = prometheus.Register(prometheusDrift)
+	if err != nil {
+		_ = prometheus.Unregister(prometheusInputBeastFrames)
+		_ = prometheus.Unregister(prometheusEpochResets)
+		_ = prometheus.Unregister(prometheusDriftCorrections)
+		_ = prometheus.Unregister(prometheusRTT)
+		return fmt.Errorf("failed to register drift gauge: %w", err)
+	}
+
+	// Measure and record initial RTT
+	if rtt, rttErr := stunnel.GetTCPInfo(conn); rttErr == nil && rtt > 0 {
+		prometheusRTT.Set(float64(rtt.Microseconds()))
+	}
+
 	prometheusConnectedBeastFeeders.Inc()
 
 	p := producer.New(
@@ -175,6 +236,9 @@ func (m *Manifest) handler(conn net.Conn, apiKey string) error {
 		producer.WithReferenceLatLon(feeder.Latitude, feeder.Longitude),
 		producer.WithSourceTag(feeder.FeederCode),
 		producer.WithPrometheusCounters(nil, prometheusInputBeastFrames, nil),
+		producer.WithEpochMetrics(prometheusEpochResets, prometheusDriftCorrections),
+		producer.WithRTTGauge(prometheusRTT),
+		producer.WithDriftGauge(prometheusDrift),
 		producer.WithPoisonPill(
 			func() bool {
 				if !m.feeders.IsValid(apiKey) {
@@ -194,6 +258,10 @@ func (m *Manifest) handler(conn net.Conn, apiKey string) error {
 			// unregister prom metrics
 			func() error {
 				_ = prometheus.Unregister(prometheusInputBeastFrames)
+				_ = prometheus.Unregister(prometheusEpochResets)
+				_ = prometheus.Unregister(prometheusDriftCorrections)
+				_ = prometheus.Unregister(prometheusRTT)
+				_ = prometheus.Unregister(prometheusDrift)
 				prometheusConnectedBeastFeeders.Dec()
 				return nil
 			},

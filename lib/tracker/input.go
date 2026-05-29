@@ -91,12 +91,14 @@ func WithPrometheusCounters(
 	decodedFrames prometheus.Counter,
 	erroredFrames prometheus.Counter,
 	purgedBeforeViable prometheus.Counter,
+	staleRejected prometheus.Counter,
 ) Option {
 	return func(t *Tracker) {
 		t.stats.currentPlanes = currentPlanes
 		t.stats.decodedFrames = decodedFrames
 		t.stats.erroredFrames = erroredFrames
 		t.stats.purgedBeforeViable = purgedBeforeViable
+		t.stats.staleRejected = staleRejected
 	}
 }
 
