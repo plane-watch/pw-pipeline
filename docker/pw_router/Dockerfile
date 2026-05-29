@@ -26,7 +26,7 @@ RUN set -x && go build -buildvcs=false -ldflags="-X main.version=${IMAGE_VERSION
 # test binary (make sure it will run on this arch)
 RUN ./pw_router --help
 
-FROM alpine:3.22.2 AS dev
+FROM alpine:3.23.3 AS dev
 LABEL org.opencontainers.image.description="Plane.Watch Router"
 
 WORKDIR /app
@@ -37,7 +37,7 @@ HEALTHCHECK --interval=15s --timeout=3s CMD wget --spider http://localhost:9601/
 # Command to run
 CMD [ "/app/pw_router", "daemon" ]
 
-FROM alpine:3.22.2
+FROM alpine:3.23.3
 LABEL org.opencontainers.image.description="Plane.Watch Router"
 
 WORKDIR /app
