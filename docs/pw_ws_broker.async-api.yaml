@@ -1,131 +1,119 @@
-asyncapi: 2.4.0
+asyncapi: 3.0.0
+defaultContentType: application/json
 info:
-  title: PlaneWatch Websocket Protocol
-  version: 0.1.0
-  description: Get a stream of aircraft from plane.watch
+  title: PlaneWatch Websocket Broker API
+  version: 1.0.0
+  description: |
+    WebSocket API for streaming aircraft positions from plane.watch.
+    Client connects to wss://app.plane.watch/planes?compress=true with subprotocol `planes`.
+    Compression query param `compress=true` is used for iOS devices that have issues with websocket compression.
+    Usage pattern from JavaScript frontend:
+    - Connect with WebSocket, subprotocol `planes`
+    - Subscribe to tiles via `sub` request with `gridTile`
+    - Server sends `plane-location` for individual updates and `plane-location-list` in batches based on tick rate
+    - Request historical trail with `plane-location-history`
+    - Search aircraft/airports with `search`
+    - Adjust update tick rate with `adjust-tick`
+    - Request subscribed tiles list with `sub-list`
+    - Set subscribed tiles list with `set-sub-tile-list`
+    - Unsubscribe with `unsub`
+    - Request current planes in tile with `grid-planes`
+    - Request send-all-subscribed-grid-planes
+  contact:
+    name: PlaneWatch
+    url: https://plane.watch/
+  license:
+    name: GPL-3.0-or-later
+    url: https://spdx.org/licenses/GPL-3.0-or-later.html
+
 servers:
-  plane.watch:
-    description: The production plane.watch websocket broker
-    url: plane.watch
+  production:
     protocol: wss
+    host: app.plane.watch
+    pathname: /planes?compress={compress}
+    description: Plane.Watch Production websocket broker, you should be hitting wss://app.plane.watch/planes?compress=true
+    variables:
+      compress:
+        description: Enable websocket compression. Set to false for iOS clients with compression issues.
+        enum: [ 'true', 'false' ]
+        default: 'true'
     bindings:
       ws:
         method: GET
 channels:
-  sub-list:
-    publish:
-      description: Requests the list of currently subscribed tiles
-      message:
-        $ref: '#/components/messages/CmdSubList'
-    subscribe:
-      description: The list of currently subscribed tiles
-      message:
-        $ref: '#/components/messages/TileListResponse'
-  sub:
-    publish:
-      description: Subscribes our client to the requested tile feed
-      message:
-        $ref: '#/components/messages/CmdSubTile'
-  unsub:
-    publish:
-      description: asks the ws broker to stop sending us updated for this tile
-      message:
-        $ref: '#/components/messages/CmdUnSubTile'
-  plane-location-history:
-    publish:
-      description: request the flight path history for the given plane
-      message:
-        $ref: "#/components/messages/CmdPlaneLocationHistory"
-    subscribe:
-      description: The aircraft location history
-      message:
-        $ref: "#/components/messages/PlaneLocationHistoryResponse"
-
-  location-update:
-    description: Plane information that comes from a subscription
-    subscribe:
-      description: a single plane location update
-      message:
-        $ref: '#/components/messages/PlaneLocation'
-  location-update-list:
-    description: Plane information that comes from a subscription
-    subscribe:
-      description: a list of plane location updates
-      message:
-        $ref: '#/components/messages/PlaneLocationList'
+  planes:
+    description: WebSocket endpoint for plane data
+    address: /planes
+    bindings:
+      ws:
+        method: GET
+        headers:
+          Sec-WebSocket-Protocol: planes
+    messages:
+      request:
+        $ref: '#/components/messages/WsRequest'
+      response:
+        $ref: '#/components/messages/WsResponse'
 components:
   messages:
-    CmdSubList:
+    WsRequest:
+      name: WsRequest
+      title: Client request
       contentType: application/json
       payload:
+        type: object
         required:
           - type
-        type: object
         properties:
           type:
             type: string
-            description: sub-list
-      examples:
-        - name: List of subscribed Tiles
-          payload:
-            type: sub-list
-    CmdSubTile:
-      contentType: application/json
-      payload:
-        type: object
-        properties:
-          type:
-            type: string
-            description: sub
+            enum:
+              - sub
+              - sub-list
+              - set-sub-tile-list
+              - send-all-subscribed-grid-planes
+              - unsub
+              - grid-planes
+              - plane-location-history
+              - adjust-tick
+              - search
           gridTile:
             type: string
-            description: the tile to subscribe to
+            description: Tile name, e.g. tile38_low, tile38_high, all_low, all_high
+          icao:
+            type: string
+            description: ICAO hex code
+          callSign:
+            type: string
+            description: Aircraft call sign
+          tick:
+            type: integer
+            description: Tick interval in milliseconds for updates
+          query:
+            type: string
+            description: Search query string
       examples:
-        - name: subscribe to tile updates
+        - name: Subscribe to tile
           payload:
             type: sub
             gridTile: tile38_low
-    CmdUnSubTile:
-      contentType: application/json
-      payload:
-        type: object
-        required:
-          - type
-        properties:
-          type:
-            type: string
-            description: unsub
-          tile:
-            type: string
-            description: the tile to unsubscribe to
-      examples:
-        - name: unsubscribe from tile updates
-          payload:
-            type: unsub
-            gridTile: tile38_low
-    CmdPlaneLocationHistory:
-      contentType: application/json
-      payload:
-        type: object
-        properties:
-          type:
-            type: string
-            description: plane-location-history
-          icao:
-            type: string
-            description: The aircraft's ICAO that we are interested in
-          callSign:
-            type: string
-            description: The flights callsign that we want to track
-      examples:
-        - name: Example
+        - name: Request history
           payload:
             type: plane-location-history
             icao: 7C2E2E
             callSign: JEO
-    TileListResponse:
+        - name: Adjust tick
+          payload:
+            type: adjust-tick
+            tick: 500
+        - name: Search
+          payload:
+            type: search
+            query: JEO
+    WsResponse:
+      name: WsResponse
+      title: Server response
       contentType: application/json
-      description: The response type
       payload:
         type: object
         required:
@@ -133,194 +121,145 @@ components:
         properties:
           type:
             type: string
-            description: 'sub-list, sub-ack, unsub-ack'
+            enum:
+              - error
+              - info
+              - ack-sub
+              - ack-unsub
+              - sub-list
+              - plane-location
+              - plane-location-list
+              - plane-location-history
+              - search-results
+          message:
+            type: string
           tiles:
-            description: the list of tile names
             type: array
             items:
               type: string
-      examples:
-        - name: sub-list
-          payload:
-            type: sub-list
-            tiles:
-              - tile38_low
-              - tile39_low
-              - tile40_low
-        - name: sub-ack
-          payload:
-            type: sub-ack
-            tiles:
-              - tile38_low
-        - name: unsub-ack
-          payload:
-            type: sub-ack
-            tiles:
-              - tile38_low
-    PlaneLocationList:
-      contentType: application/json
-      description: 'a list of PlaneLocations, sent in bulk to save on postage'
-      payload:
-        type: object
-        required:
-          - type
-          - locations
-        properties:
-          type:
-            type: string
-            description: denotes the payload type. in this instance 'plane-location-list'
+          location:
+            $ref: '#/components/schemas/PlaneLocation'
           locations:
             type: array
             items:
-              $ref: '#/components/messages/PlaneLocation'
-    PlaneLocation:
-      contentType: application/json
-      description: A single location event
-      payload:
-        type: object
-        properties:
-          New:
-            type: boolean
-          Removed:
-            type: boolean
-          Icao:
-            type: string
-          Lat:
-            type: number
-          Lon:
-            type: number
-          Heading:
-            type: number
-          Velocity:
-            type: number
-          Altitude:
-            type: number
-          VerticalRate:
-            type: number
-          AltitudeUnits:
-            type: string
-          FlightStatus:
-            type: string
-          OnGround:
-            type: boolean
-          Airframe:
-            type: string
-          AirframeType:
-            type: string
-          HasLocation:
-            type: boolean
-          HasHeading:
-            type: boolean
-          HasVerticalRate:
-            type: boolean
-          HasVelocity:
-            type: boolean
-          SourceTag:
-            type: string
-          Squawk:
-            type: string
-          Special:
-            type: string
-          TileLocation:
-            type: string
-          TrackedSince:
-            type: string
-          LastMsg:
-            type: string
-          SignalRssi:
-            type: number
-          CallSign:
-            type: string
-      examples:
-        - name: Example Payload
-          payload:
-            New: false
-            Removed: false
-            Icao: 48415F
-            Lat: 48.02207817465572
-            Lon: 9.765648475060095
-            Heading: 151.57095116691386
-            Velocity: 455.0703242357163
-            Altitude: 39000
-            VerticalRate: -64
-            AltitudeUnits: ''
-            FlightStatus: 'ALERT, special Position Identification. Airborne or Ground'
-            OnGround: false
-            Airframe: No ADS-B Emitter Category Information
-            AirframeType: 0/0
-            HasLocation: true
-            HasHeading: true
-            HasVerticalRate: true
-            HasVelocity: true
-            SourceTag: boxie
-            Squawk: '6523'
-            Special: Alert
-            TileLocation: tile3
-            TrackedSince: '2022-03-12T09:01:02.069707133Z'
-            LastMsg: '2022-03-12T09:47:22.141293262Z'
-            SignalRssi: 7.781512503836437
-            CallSign: KLM81K
-
-    PlaneLocationHistoryResponse:
-      contentType: application/json
-      description: The response type for a plane location history request
-      payload:
-        type: object
-        required:
-          - type
-        properties:
-          type:
-            type: string
-            description: plane-location-history
+              $ref: '#/components/schemas/PlaneLocation'
           icao:
             type: string
-            description: the ICAO of the requested history
           callSign:
             type: string
-            description: the callsign of the requested history
           history:
             type: array
-            description: A series of places a flight has been
             items:
-              $ref: "#/components/messages/LocationHistory"
-              minimum: 0
-      examples:
-        - name: JEO History Example
-          payload:
-            type: plane-location-history
-            icao: 7C2E2E
-            callSign: JEO
-            history:
-              - Lat: -30.753571
-                Lon: 121.483854
-                Heading: 3.704627
-                Velocity: 140.356688
-                Altitude: 5700
-              - Lat: -30.753571
-                Lon: 121.483854
-                Heading: 3.704627
-                Velocity: 140.356688
-                Altitude: 5750
-
+              $ref: '#/components/schemas/LocationHistory'
+          results:
+            $ref: '#/components/schemas/SearchResult'
+  schemas:
+    PlaneLocation:
+      type: object
+      properties:
+        Icao:
+          type: string
+        Lat:
+          type: number
+        Lon:
+          type: number
+        Heading:
+          type: number
+        Velocity:
+          type: number
+        Altitude:
+          type: integer
+        VerticalRate:
+          type: integer
+        New:
+          type: boolean
+        Removed:
+          type: boolean
+        OnGround:
+          type: boolean
+        HasAltitude:
+          type: boolean
+        HasLocation:
+          type: boolean
+        HasHeading:
+          type: boolean
+        HasOnGround:
+          type: boolean
+        HasFlightStatus:
+          type: boolean
+        HasVerticalRate:
+          type: boolean
+        HasVelocity:
+          type: boolean
+        AltitudeUnits:
+          type: string
+        FlightStatus:
+          type: string
+        Airframe:
+          type: string
+        AirframeType:
+          type: string
+        SourceTag:
+          type: string
+        Squawk:
+          type: string
+        Special:
+          type: string
+        TileLocation:
+          type: string
+        TrackedSince:
+          type: string
+          format: date-time
+        LastMsg:
+          type: string
+          format: date-time
+        SignalRssi:
+          type: number
+        CallSign:
+          type: string
+        Registration:
+          type: string
+        TypeCode:
+          type: string
+      description: Exported aircraft position
     LocationHistory:
-      contentType: application/json
-      description: A place a flight has been
-      payload:
-        type: object
-        required:
-          - Lat
-          - Lon
-          - Heading
-          - Velocity
-          - Altitude
-        properties:
-          Lat:
-            type: number
-          Lon:
-            type: number
-          Heading:
-            type: number
-          Velocity:
-            type: number
-          Altitude:
-            type: number
+      type: object
+      properties:
+        Lat:
+          type: number
+        Lon:
+          type: number
+        Heading:
+          type: number
+        Velocity:
+          type: number
+        Altitude:
+          type: integer
+    SearchResult:
+      type: object
+      properties:
+        Query:
+          type: string
+        Aircraft:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlaneLocation'
+        Airport:
+          type: array
+          items:
+            type: object
+            properties:
+              Name:
+                type: string
+              Icao:
+                type: string
+              Iata:
+                type: string
+              Lat:
+                type: number
+              Lon:
+                type: number
+        Route:
+          type: array
+          items:
+            type: string
