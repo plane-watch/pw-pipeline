@@ -1,0 +1,117 @@
+openapi: 3.0.0
+info:
+  title: PlaneWatch Websocket Broker REST API
+  version: 1.0.0
+  license:
+    name: GPL-3.0-or-later
+    url: https://spdx.org/licenses/GPL-3.0-or-later.html
+  description: |
+    REST endpoints served by pw_ws_broker.
+    - GET / returns a simple text page
+    - GET /grid returns the tile grid JSON used for subscriptions, with ETag and gzip support
+    - GET /planes upgrades to WebSocket with subprotocol `planes`
+servers:
+  - url: https://app.plane.watch
+    description: Production
+tags:
+  - name: broker
+    description: PlaneWatch Websocket Broker endpoints
+paths:
+  /:
+    get:
+      summary: Index page
+      description: Returns a simple identifier for the websocket broker.
+      operationId: getIndex
+      tags:
+        - broker
+      responses:
+        '200':
+          description: Plain text identifier
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: Plane.Watch Websocket Broker
+  /grid:
+    get:
+      summary: Tile grid definition
+      description: Returns the complete tile grid JSON. Supports gzip via Accept-Encoding and ETag for caching.
+      operationId: getGrid
+      tags:
+        - broker
+      responses:
+        '200':
+          description: Grid JSON
+          headers:
+            ETag:
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+            Content-Encoding:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                description: Mapping of tile names to grid metadata
+                additionalProperties: true
+              example:
+                tile38_low:
+                  center:
+                    lat: 0
+                    lon: 0
+        '304':
+          description: Not Modified
+  /planes:
+    get:
+      summary: WebSocket Path
+      description: |
+        Upgrade to WebSocket for plane data streaming.
+        Query parameter `compress` controls websocket compression.
+        - compress=true (default): use websocket compression
+        - compress=false: disable compression for iOS clients with compression issues
+        Subprotocol required: `planes`
+        Origin checks are enforced against configured domains.
+      operationId: getPlanesWebSocket
+      tags:
+        - broker
+      parameters:
+        - name: compress
+          in: query
+          schema:
+            type: string
+            enum: ['true', 'false']
+            default: 'true'
+          description: Enable websocket compression
+      responses:
+        '101':
+          description: Switching Protocols to WebSocket
+          headers:
+            Connection:
+              schema:
+                type: string
+                example: upgrade
+            Upgrade:
+              schema:
+                type: string
+                example: websocket
+        '400':
+          description: Bad Request
+        '426':
+          description: Upgrade Required is returned when we do not correctly request this URL endpoint as a websocket
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: |
+                  WebSocket protocol violation: Connection header "close" does not contain Upgrade
+                  Failed to setup websocket connection
+
+        '500':
+          description: Failed to setup websocket connection
+components:
+  securitySchemes: {}
+security: []
