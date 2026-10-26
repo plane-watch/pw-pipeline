@@ -59,7 +59,8 @@ Core functionality organized into focused, reusable packages:
 
 - **[producer](producer/README.md)** - Data source abstraction (Beast/AVR/SBS1)
 - **[dedupe](dedupe/README.md)** - Frame deduplication using forgetful maps
-- **[middleware](middleware/README.md)** - Frame transformation pipeline (accounting, monitoring)
+- **[middleware](middleware/README.md)** - Frame transformation pipeline (accounting, monitoring, raw archive output)
+- **[rawarchive](rawarchive/README.md)** - Batched raw-frame message format for archiving
 - **[sink](sink/README.md)** - Event publishing abstraction with batching
 
 ### Messaging & Storage

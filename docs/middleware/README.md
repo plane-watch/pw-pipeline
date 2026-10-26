@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `middleware` package provides two middleware components for the tracker pipeline: **Accounting** for feeder statistics tracking and **IngestTap** for real-time frame stream monitoring. Both implement the tracker middleware interface, allowing them to intercept and process frames as they flow through the pipeline.
+The `middleware` package provides three middleware components for the tracker pipeline: **Accounting** for feeder statistics tracking, **IngestTap** for real-time frame stream monitoring, and **RawArchive**, an opt-in batched raw-frame output for an archive. All implement the tracker middleware interface, allowing them to intercept and process frames as they flow through the pipeline.
 
 ## Middleware Pattern
 
@@ -629,6 +629,98 @@ Maintainers: If you add TTL for taps, document here:
 - How to refresh TTL
 - Cleanup mechanism
 -->
+
+## Raw Archive Middleware
+
+### Purpose
+
+Publishes every frame the pipeline accepts, batched, so a separate archiver
+can write raw frames to long-term storage. It exists because the ingest tap
+is a per-frame debugging tool and not a shape that scales to a permanent,
+network-wide consumer.
+
+- **Off by default**: nothing is registered unless `--raw-archive-subject`
+  is set (`PW_RAW_ARCHIVE_SUBJECT`). Needs a `nats://` sink.
+- **One message per instance per interval**, default 5 s
+  (`--raw-archive-interval`, must divide one minute), whatever the frame
+  rate. An empty interval still publishes an empty message: the heartbeat.
+- **Aligned intervals**: each starts on a whole multiple of the interval
+  past the UTC minute, so no batch straddles a minute.
+- **Size flush**: a body over `--raw-archive-max-bytes` (default 512 KiB)
+  is published early with the same `start`, keeping under the NATS payload
+  limit.
+- **Never blocks**: `Handle` copies the frame into a 1,000-entry queue and
+  returns. A full queue drops the frame from the archive only, counts it
+  (`pw_raw_archive_dropped_frames_total`) and reports it in the next
+  message's `dropped` header.
+
+The message format, tiles and the consumer side are in
+[rawarchive](../rawarchive/README.md).
+
+### Architecture
+
+```
+Handle (decode goroutines) ─► copy frame + tile ─► queue ─► batcher goroutine
+                                                                 │ aligned timer, or body over the cap
+                                                                 ▼
+                                                     one nats.Msg: headers instance/start/dropped/v
+                                                                 ▼
+                                                        NATS subject from the flag
+```
+
+**Copy in Handle**: Beast frames come from a `sync.Pool` and the tracker
+releases them (zeroing their bytes) as soon as the middleware chain
+returns, so the frame bytes (at most 23) are copied into the queue item.
+The queue holds values, so this allocates nothing per frame. AVR and SBS
+frames are not pooled and are referenced as is.
+
+**Tile in the instance**: for Beast and AVR frames the tile of the feeder's
+reference position (`FrameSource.RefLat/RefLon`, set by `runway` from the
+feeder record) via `tile_grid.LookupTile`; 255 when the source has no
+position. SBS lines carry 255 and are tiled by the consumer from the line's
+own position. The feeder tag and API key are never sent.
+
+**Order matters**: register after de-duplication so each frame is published
+once per process. `setup.HandleRawArchiveFlags` does the registration for
+`runway` and `pw_ingest`.
+
+### Configuration
+
+| Flag | Env | Default | Meaning |
+|---|---|---|---|
+| `--raw-archive-subject` | `PW_RAW_ARCHIVE_SUBJECT` | empty (off) | NATS subject to publish batches on; the archive proposal uses `v1.pw-ingest.raw` |
+| `--raw-archive-interval` | `PW_RAW_ARCHIVE_INTERVAL` | `5s` | Batch interval; whole milliseconds dividing 60 s |
+| `--raw-archive-max-bytes` | `PW_RAW_ARCHIVE_MAX_BYTES` | `524288` | Early flush size; at least 1024 |
+| `--raw-archive-instance` | `PW_RAW_ARCHIVE_INSTANCE` | hostname + random suffix | Instance name in headers |
+
+Turning the output on or off is a configuration change and a restart; there
+is no request protocol.
+
+### Metrics
+
+- `pw_raw_archive_batches_total`: messages published
+- `pw_raw_archive_records_total`: frames published in them
+- `pw_raw_archive_dropped_frames_total`: frames dropped because the queue was full
+
+### Cost
+
+Idle (flag unset): nothing is registered. Enabled: one copy of each frame
+into a channel on the frame path, and one message per interval on the bus.
+Publishing with no subscriber still sends each message to the NATS server,
+which discards it; with the archiver stopped the instances keep sending
+their small batches until the flag is removed.
+
+### Tests
+
+`raw_archive_test.go`, run with `-race`: configuration rejected (bad
+interval, small cap); a published Beast record equals the frame as it was
+when handled, after the tracker releases it to the pool; tile from the
+source position, 255 without one or off the grid; SBS lines unchanged with
+tile 255; aligned `start` values and record offsets across a minute
+boundary; a heartbeat per empty interval; a size flush keeps its `start`;
+a full queue drops and the accounting (records plus `dropped`) balances;
+`Stop` publishes what is buffered and is idempotent; publish errors do not
+stall `Stop`; concurrent producers.
 
 ## Middleware Comparison
 

@@ -216,6 +216,22 @@ if msg.Header.Get("type") != "beast" {
 - Negligible for large payloads (KB+)
 - Matters for tiny payloads (<100 bytes)
 
+### Publish a Prepared Message
+
+```go
+msg := nats.NewMsg("v1.pw-ingest.raw")
+msg.Header.Set("instance", name)
+msg.Data = body
+err := server.PublishMsg(msg)
+```
+
+`PublishMsg` publishes a `nats.Msg` the caller built. nats.go encodes the
+message before returning, so the caller may reuse `msg`, its header map and
+its data buffer straight away; the raw archive middleware reuses one buffer
+for every batch this way. Unlike `PublishWithHeaders` it does not log
+errors itself: the caller decides how loudly to report them (the middleware
+logs at most once every 10 s).
+
 ## Subscribing
 
 ### Channel-Based Subscriptions
