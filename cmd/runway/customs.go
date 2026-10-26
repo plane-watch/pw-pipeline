@@ -127,6 +127,9 @@ func ListenForIncomingPlaneWatchBeast(ctx context.Context, opts ...Option) (*Man
 		stunnel.WithAuthenticator(manifest.authenticator),
 	)
 	if err != nil {
+		if manifest.natsServer != nil {
+			manifest.natsServer.Close()
+		}
 		return nil, fmt.Errorf("failed to setup stunnel listener: %w", err)
 	}
 
@@ -136,6 +139,16 @@ func ListenForIncomingPlaneWatchBeast(ctx context.Context, opts ...Option) (*Man
 	}
 
 	return manifest, nil
+}
+
+// Close releases resources owned by the listener manifest.
+func (m *Manifest) Close() {
+	if m == nil {
+		return
+	}
+	if m.natsServer != nil {
+		m.natsServer.Close()
+	}
 }
 
 func (m *Manifest) authenticator(apiKey string) (bool, error) {
@@ -164,6 +177,7 @@ func (m *Manifest) handler(conn net.Conn, apiKey string) error {
 	})
 	err = prometheus.Register(prometheusInputBeastFrames)
 	if err != nil {
+		m.feeders.SetDisconnected(apiKey, feederauth.BEAST)
 		return fmt.Errorf("failed to register prometheus counter: %w", err)
 	}
 	prometheusConnectedBeastFeeders.Inc()

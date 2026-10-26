@@ -129,6 +129,16 @@ func ListenForIncomingPlaneWatchMLAT(ctx context.Context, opts ...Option) (*MLAT
 	return mb, nil
 }
 
+// Close releases resources owned by the MLAT bridge.
+func (mb *MLATBridge) Close() {
+	if mb == nil {
+		return
+	}
+	if mb.natsServer != nil {
+		mb.natsServer.Close()
+	}
+}
+
 func (mb *MLATBridge) authenticator(apiKey string) (bool, error) {
 	return mb.feeders.Authenticate(apiKey, feederauth.MLAT)
 }
@@ -256,14 +266,6 @@ func (mb *MLATBridge) simplexBridge(ctx context.Context, cancel context.CancelFu
 		err  error
 		m, n int
 	)
-
-	// close both sides of the bridge when done
-	defer func() {
-		_ = from.Close()
-	}()
-	defer func() {
-		_ = to.Close()
-	}()
 
 	// make buffer to hold data in flight
 	buf := make([]byte, 64*1024) // 64KiB is a good general-purpose size
