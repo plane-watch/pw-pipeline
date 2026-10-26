@@ -41,6 +41,23 @@ channels:
       message:
         $ref: "#/components/messages/PlaneLocationHistoryResponse"
 
+  set-sub-tile-list:
+    publish:
+      description: Atomically replaces the full subscribed tile list. All tiles are validated before applying; if any tile is unknown, the entire request is rejected and existing subscriptions are preserved.
+      message:
+        $ref: '#/components/messages/CmdSetSubTileList'
+    subscribe:
+      description: |
+        Lifecycle responses:
+        1. ack-sub with applied tiles
+        2. plane-location-list with immediate snapshot (omitted if zero aircraft)
+        3. initial-sync-complete (always sent, even for zero aircraft)
+      message:
+        oneOf:
+          - $ref: '#/components/messages/TileListResponse'
+          - $ref: '#/components/messages/PlaneLocationList'
+          - $ref: '#/components/messages/InitialSyncComplete'
+
   location-update:
     description: Plane information that comes from a subscription
     subscribe:
@@ -48,7 +65,7 @@ channels:
       message:
         $ref: '#/components/messages/PlaneLocation'
   location-update-list:
-    description: Plane information that comes from a subscription
+    description: Plane information that comes from a subscription (tick-batched)
     subscribe:
       description: a list of plane location updates
       message:
@@ -69,6 +86,70 @@ components:
         - name: List of subscribed Tiles
           payload:
             type: sub-list
+    CmdSetSubTileList:
+      contentType: application/json
+      description: Atomically replaces the full subscribed tile list
+      payload:
+        type: object
+        required:
+          - type
+          - gridTile
+        properties:
+          type:
+            type: string
+            description: set-sub-tile-list
+          gridTile:
+            type: string
+            description: comma-separated list of suffixed tile names (e.g. "tile35_high,tile36_high")
+          requestId:
+            type: string
+            description: optional correlation ID, echoed on all lifecycle responses
+      examples:
+        - name: Set tile subscriptions
+          payload:
+            type: set-sub-tile-list
+            gridTile: "tile35_high,tile36_high"
+            requestId: "req-1"
+    InitialSyncComplete:
+      contentType: application/json
+      description: Sent after the snapshot phase of set-sub-tile-list completes. Always sent, even when zero aircraft match.
+      payload:
+        type: object
+        required:
+          - type
+          - tiles
+          - aircraftCount
+        properties:
+          type:
+            type: string
+            description: initial-sync-complete
+          tiles:
+            type: array
+            description: the applied tile list
+            items:
+              type: string
+          aircraftCount:
+            type: integer
+            description: number of aircraft in the snapshot (can be 0)
+          requestId:
+            type: string
+            description: echoed from the originating request, if provided
+      examples:
+        - name: Sync complete with aircraft
+          payload:
+            type: initial-sync-complete
+            tiles:
+              - tile35_high
+              - tile36_high
+            aircraftCount: 42
+            requestId: "req-1"
+        - name: Sync complete with zero aircraft
+          payload:
+            type: initial-sync-complete
+            tiles:
+              - tile99_high
+            aircraftCount: 0
+            requestId: "req-2"
     CmdSubTile:
       contentType: application/json
       payload:

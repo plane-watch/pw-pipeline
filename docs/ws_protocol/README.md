@@ -100,6 +100,28 @@ rq := WsRequest{
 // Server responds with array of subscribed tiles
 ```
 
+**Set subscribed tile list** (atomic replacement):
+```go
+const RequestTypeSetSubscribedTiles = "set-sub-tile-list"
+
+rq := WsRequest{
+    Type:      RequestTypeSetSubscribedTiles,
+    GridTile:  "tile35_high,tile36_high",  // comma-separated
+    RequestId: "req-123",                   // optional, echoed on responses
+}
+// Atomically replaces all subscriptions.
+// Server validates all tiles before applying — if any tile is invalid,
+// the entire request is rejected and existing subscriptions remain intact.
+//
+// Lifecycle:
+//   1. ack-sub          — subscriptions applied (tiles + requestId)
+//   2. plane-location-list — immediate snapshot flush (may be omitted if zero aircraft)
+//   3. initial-sync-complete — snapshot phase done (always sent, even for zero aircraft)
+//
+// The snapshot plane-location-list carries requestId. Later tick-batched
+// plane-location-list messages from live updates do NOT carry requestId.
+```
+
 **Search aircraft**:
 ```go
 const RequestTypeSearch = "search"
@@ -265,6 +287,22 @@ resp := WsResponse{
 }
 ```
 
+**Initial sync complete**:
+```go
+const ResponseTypeInitialSyncComplete = "initial-sync-complete"
+
+resp := WsResponse{
+    Type:          ResponseTypeInitialSyncComplete,
+    Tiles:         []string{"tile35_high", "tile36_high"},
+    AircraftCount: &count,  // number of aircraft in snapshot (can be 0)
+    RequestId:     "req-123",
+}
+// Sent after the snapshot phase of set-sub-tile-list completes.
+// Always sent, even when zero aircraft match.
+// Distinct from ack-sub — this signals data delivery is complete,
+// not just that subscriptions were applied.
+```
+
 ## Special Grid Tiles
 
 ### All Low Altitude
@@ -312,12 +350,13 @@ rq := WsRequest{
 
 ```go
 type WsRequest struct {
-    Type     string `json:"type"`                // Request type constant
-    GridTile string `json:"gridTile"`            // Tile name (for sub/unsub/grid-planes)
-    Icao     string `json:"icao,omitempty"`      // Aircraft ICAO (for history)
-    CallSign string `json:"callSign,omitempty"`  // Callsign (for search)
-    Tick     int    `json:"tick,omitempty"`      // Update interval (milliseconds)
-    Query    string `json:"query,omitempty"`     // Search query
+    Type      string `json:"type"`                 // Request type constant
+    GridTile  string `json:"gridTile"`             // Tile name (for sub/unsub/grid-planes), comma-separated for set-sub-tile-list
+    Icao      string `json:"icao,omitempty"`       // Aircraft ICAO (for history)
+    CallSign  string `json:"callSign,omitempty"`   // Callsign (for search)
+    Tick      int    `json:"tick,omitempty"`        // Update interval (milliseconds)
+    Query     string `json:"query,omitempty"`       // Search query
+    RequestId string `json:"requestId,omitempty"`   // Optional correlation ID, echoed on responses
 }
 ```
 
@@ -340,22 +379,25 @@ rq := WsRequest{
 
 ```go
 type WsResponse struct {
-    Type      string                  `json:"type"`
-    Message   string                  `json:"message,omitempty"`
-    Tiles     []string                `json:"tiles,omitempty"`
-    Location  *export.PlaneLocation   `json:"location,omitempty"`
-    Locations []*export.PlaneLocation `json:"locations,omitempty"`
-    Icao      string                  `json:"icao,omitempty"`
-    CallSign  string                  `json:"callSign,omitempty"`
-    History   []LocationHistory       `json:"history,omitempty"`
-    Results   *SearchResult           `json:"results,omitempty"`
+    Type          string                  `json:"type"`
+    Message       string                  `json:"message,omitempty"`
+    Tiles         []string                `json:"tiles,omitempty"`
+    Location      *export.PlaneLocation   `json:"location,omitempty"`
+    Locations     []*export.PlaneLocation `json:"locations,omitempty"`
+    Icao          string                  `json:"icao,omitempty"`
+    CallSign      string                  `json:"callSign,omitempty"`
+    History       []LocationHistory       `json:"history,omitempty"`
+    Results       *SearchResult           `json:"results,omitempty"`
+    RequestId     string                  `json:"requestId,omitempty"`
+    AircraftCount *int                    `json:"aircraftCount,omitempty"`
 }
 ```
 
 **Type determines which fields populated**:
 - `ResponseTypePlaneLocation`: Location field set
-- `ResponseTypePlaneLocations`: Locations field set
-- `ResponseTypeAckSub`: Tiles field set
+- `ResponseTypePlaneLocations`: Locations field set (+ RequestId on snapshot flush only)
+- `ResponseTypeAckSub`: Tiles field set (+ RequestId if provided)
+- `ResponseTypeInitialSyncComplete`: Tiles, AircraftCount (+ RequestId if provided)
 - `ResponseTypeSearchResults`: Results field set
 
 ### LocationHistory
@@ -957,32 +999,22 @@ ws_protocol.WithReadLimit(10 * 1024 * 1024)  // 10 MiB
 
 ### Request/Response Correlation
 
-**Proposed**: Track request IDs
+**Implemented**: Optional `requestId` field on `WsRequest` is echoed on associated responses.
+Currently supported on `set-sub-tile-list` — the `requestId` is echoed on `ack-sub`,
+the immediate snapshot `plane-location-list`, and `initial-sync-complete`.
+
 ```go
-type WsRequest struct {
-    Type      string
-    RequestID string  // Unique ID per request
-    // ... other fields
+rq := WsRequest{
+    Type:      RequestTypeSetSubscribedTiles,
+    GridTile:  "tile35_high",
+    RequestId: "my-req-1",
 }
 
-type WsResponse struct {
-    Type      string
-    RequestID string  // Matches request
-    // ... other fields
-}
-
-// Async request
-requestID := client.Subscribe("tile10")
-
-// Later: response arrives
-ws_protocol.WithResponseHandler(func(resp *ws_protocol.WsResponse) {
-    if resp.RequestID == requestID {
-        // This is the ack for our subscribe
-    }
-})
+// Responses will include RequestId: "my-req-1"
+// Useful for ignoring superseded loads during rapid panning
 ```
 
-**Benefit**: Match responses to requests in async environment
+**Omitting `requestId`**: Responses simply omit the field (backward compatible).
 
 ### Typed Handlers
 

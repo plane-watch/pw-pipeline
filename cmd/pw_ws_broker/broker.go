@@ -28,7 +28,7 @@ type (
 	processMessage func(highLow string, loc *export.PlaneLocation)
 )
 
-func NewPlaneWatchWebSocketBroker(input source, natsRpc *nats_io.Server, httpAddr, cert, certKey string, serveTestWeb bool, sendTickDuration time.Duration) (*PwWsBroker, error) {
+func NewPlaneWatchWebSocketBroker(input source, natsRpc *nats_io.Server, httpAddr, cert, certKey string, serveTestWeb bool, sendTickDuration, snapshotMaxAge time.Duration) (*PwWsBroker, error) {
 
 	return &PwWsBroker{
 		input: input,
@@ -39,6 +39,7 @@ func NewPlaneWatchWebSocketBroker(input source, natsRpc *nats_io.Server, httpAdd
 			cert:             cert,
 			certKey:          certKey,
 			sendTickDuration: sendTickDuration,
+			snapshotMaxAge:   snapshotMaxAge,
 		},
 		exitChan: make(chan bool),
 	}, nil

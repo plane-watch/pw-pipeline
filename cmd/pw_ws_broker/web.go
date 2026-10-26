@@ -23,6 +23,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/exp/maps"
+	"slices"
 
 	"plane.watch/lib/dedupe/forgetfulmap"
 	"plane.watch/lib/export"
@@ -70,6 +71,7 @@ type (
 		listening bool
 
 		sendTickDuration time.Duration
+		snapshotMaxAge   time.Duration
 	}
 
 	loadedResponse struct {
@@ -82,12 +84,14 @@ type (
 		conn    *websocket.Conn
 		outChan chan loadedResponse
 		cmdChan chan WsCmd
+		writeMu sync.Mutex
 
 		parent     *ClientList
 		identifier string
 		log        zerolog.Logger
 
 		sendTickDuration time.Duration
+		snapshotMaxAge   time.Duration
 	}
 	WsCmd struct {
 		action     ws_protocol.ProtocolRequest
@@ -97,6 +101,7 @@ type (
 		locHistory []ws_protocol.LocationHistory
 		results    ws_protocol.SearchResult
 		list       []string
+		requestId  string
 	}
 	ClientList struct {
 		//clients     map[*WsClient]chan ws_protocol.WsResponse
@@ -322,7 +327,7 @@ func (bw *PwWsBrokerWeb) servePlanes(w http.ResponseWriter, r *http.Request) {
 	log.Debug().Str("protocol", conn.Subprotocol()).Msg("Speaking...")
 	switch conn.Subprotocol() {
 	case ws_protocol.WsProtocolPlanes:
-		client := NewWsClient(conn, r.RemoteAddr, bw.sendTickDuration)
+		client := NewWsClient(conn, r.RemoteAddr, bw.sendTickDuration, bw.snapshotMaxAge)
 		bw.clients.addClient(client)
 		client.Handle(r.Context())
 		bw.clients.removeClient(client)
@@ -345,7 +350,7 @@ func (bw *PwWsBrokerWeb) HealthCheckName() string {
 }
 
 // NewWsClient creates a new Websocket Client. This represents an individual connection and its handling
-func NewWsClient(conn *websocket.Conn, identifier string, defaultSendTick time.Duration) *WsClient {
+func NewWsClient(conn *websocket.Conn, identifier string, defaultSendTick, snapshotMaxAge time.Duration) *WsClient {
 	client := WsClient{
 		conn:             conn,
 		cmdChan:          make(chan WsCmd),
@@ -353,6 +358,7 @@ func NewWsClient(conn *websocket.Conn, identifier string, defaultSendTick time.D
 		identifier:       identifier,
 		log:              log.With().Str("client", identifier).Logger(),
 		sendTickDuration: defaultSendTick,
+		snapshotMaxAge:   snapshotMaxAge,
 	}
 	return &client
 }
@@ -385,18 +391,16 @@ func (c *WsClient) AddSub(tileName string) {
 	c.log.Debug().Msg("Add Sub Done")
 }
 
-// SetSubscribedTiles Sets the list of tiles that should subscribed right now
-func (c *WsClient) SetSubscribedTiles(tileList []string) {
+// SetSubscribedTiles Sets the list of tiles that should subscribed right now.
+// A single command handles validation, subscription, snapshot flush, and completion
+// so that a failed validation does not trigger a stray initial-sync-complete.
+func (c *WsClient) SetSubscribedTiles(tileList []string, requestId string) {
 	c.log.Debug().Msg("Setting Tile List")
 	c.cmdChan <- WsCmd{
-		action: ws_protocol.RequestTypeSetSubscribedTiles,
-		list:   tileList,
+		action:    ws_protocol.RequestTypeSetSubscribedTiles,
+		list:      tileList,
+		requestId: requestId,
 	}
-
-	c.cmdChan <- WsCmd{
-		action: ws_protocol.RequestTypeSendAllSubscribed,
-	}
-
 	c.log.Debug().Msg("Setting Tile List Done")
 }
 
@@ -498,7 +502,11 @@ func (c *WsClient) planeProtocolHandler(ctx context.Context, conn *websocket.Con
 				case ws_protocol.RequestTypeSubscribeList:
 					c.SendSubscribedTiles()
 				case ws_protocol.RequestTypeSetSubscribedTiles:
-					c.SetSubscribedTiles(strings.Split(rq.GridTile, ","))
+					var tileList []string
+					if rq.GridTile != "" {
+						tileList = strings.Split(rq.GridTile, ",")
+					}
+					c.SetSubscribedTiles(tileList, rq.RequestId)
 				case ws_protocol.RequestTypeUnsubscribe:
 					c.UnSub(rq.GridTile)
 				case ws_protocol.RequestTypeGridPlanes:
@@ -569,16 +577,104 @@ func (c *WsClient) planeProtocolHandler(ctx context.Context, conn *websocket.Con
 				}
 				delete(subs, cmdMsg.what)
 			case ws_protocol.RequestTypeSetSubscribedTiles:
-				clear(subs)
+				// Validate all tiles before applying — reject the whole request if any are invalid
+				allValid := true
+				var invalidTile string
 				for _, tile := range cmdMsg.list {
-					if _, ok := grid[tile]; ok {
-						subs[tile] = struct{}{}
+					if _, ok := grid[tile]; !ok {
+						allValid = false
+						invalidTile = tile
+						break
 					}
 				}
-				err = c.sendAck(ctx, ws_protocol.ResponseTypeAckUnsub, cmdMsg.what)
-				prometheusSubscriptions.WithLabelValues(cmdMsg.what).Set(float64(len(subs)))
+				if !allValid {
+					err = c.sendError(ctx, "Unknown Tile: "+invalidTile)
+					break
+				}
+
+				// Build new subscription set
+				newSubs := make(map[string]struct{}, len(cmdMsg.list))
+				for _, tile := range cmdMsg.list {
+					newSubs[tile] = struct{}{}
+				}
+
+				// Diff old vs new for prometheus: decrement removed, increment added
+				for k := range subs {
+					if _, stillPresent := newSubs[k]; !stillPresent {
+						prometheusSubscriptions.WithLabelValues(k).Dec()
+					}
+				}
+				for k := range newSubs {
+					if _, wasPresent := subs[k]; !wasPresent {
+						prometheusSubscriptions.WithLabelValues(k).Inc()
+					}
+				}
+
+				// Atomically replace
+				clear(subs)
+				for k, v := range newSubs {
+					subs[k] = v
+				}
+
+				// Send ack-sub with the applied tile list
+				appliedTiles := maps.Keys(subs)
+				slices.Sort(appliedTiles)
+				err = c.sendPlaneMessage(ctx, &ws_protocol.WsResponse{
+					Type:      ws_protocol.ResponseTypeAckSub,
+					Tiles:     appliedTiles,
+					RequestId: cmdMsg.requestId,
+				})
 				clear(icaoIdLookup)
 				clear(locationMessages)
+
+				// Snapshot + completion: inlined here so a failed validation above
+				// never triggers a stray initial-sync-complete.
+				if err == nil {
+					matching := 0
+					snapshotLocations := make([]*export.PlaneLocation, 0, 1000)
+					var cutoff time.Time
+					enforceSnapshotMaxAge := c.snapshotMaxAge > 0
+					if enforceSnapshotMaxAge {
+						cutoff = time.Now().UTC().Add(-c.snapshotMaxAge)
+					}
+					c.parent.globalList.Range(func(key, value interface{}) bool {
+						loc := value.(*export.PlaneLocation)
+						if enforceSnapshotMaxAge && loc.LastMsg.Before(cutoff) {
+							return true
+						}
+						if locationMatchesSubs(subs, loc) {
+							snapshotLocations = append(snapshotLocations, loc)
+							matching++
+						}
+						return true
+					})
+
+					// Option B: flush snapshot immediately
+					if len(snapshotLocations) > 0 {
+						err = c.sendPlaneMessage(ctx, &ws_protocol.WsResponse{
+							Type:      ws_protocol.ResponseTypePlaneLocations,
+							Locations: snapshotLocations,
+							RequestId: cmdMsg.requestId,
+						})
+						// Populate icaoIdLookup so live updates can deduplicate
+						for _, loc := range snapshotLocations {
+							if _, ok := icaoIdLookup[loc.Icao]; !ok {
+								locationMessages = append(locationMessages, loc)
+								icaoIdLookup[loc.Icao] = len(locationMessages) - 1
+							}
+						}
+					}
+
+					// Always send initial-sync-complete, even for zero aircraft
+					if err == nil {
+						err = c.sendPlaneMessage(ctx, &ws_protocol.WsResponse{
+							Type:          ws_protocol.ResponseTypeInitialSyncComplete,
+							Tiles:         appliedTiles,
+							AircraftCount: &matching,
+							RequestId:     cmdMsg.requestId,
+						})
+					}
+				}
 			case ws_protocol.RequestTypeSubscribeList:
 				tiles := maps.Keys(subs)
 				err = c.sendPlaneMessage(ctx, &ws_protocol.WsResponse{
@@ -588,10 +684,18 @@ func (c *WsClient) planeProtocolHandler(ctx context.Context, conn *websocket.Con
 
 			case ws_protocol.RequestTypeSendAllSubscribed:
 				matching := 0
-				// find all things currently in requested grid
+				var cutoff time.Time
+				enforceSnapshotMaxAge := c.snapshotMaxAge > 0
+				if enforceSnapshotMaxAge {
+					cutoff = time.Now().UTC().Add(-c.snapshotMaxAge)
+				}
+				// Find all current matching aircraft, filtered by recency.
 				c.parent.globalList.Range(func(key, value interface{}) bool {
 					loc := value.(*export.PlaneLocation)
-					if _, subbed := subs[loc.TileLocation]; subbed {
+					if enforceSnapshotMaxAge && loc.LastMsg.Before(cutoff) {
+						return true
+					}
+					if locationMatchesSubs(subs, loc) {
 						if id, ok := icaoIdLookup[loc.Icao]; ok {
 							locationMessages[id] = loc
 						} else {
@@ -603,6 +707,25 @@ func (c *WsClient) planeProtocolHandler(ctx context.Context, conn *websocket.Con
 					return true
 				})
 
+				if len(locationMessages) > 0 {
+					err = c.sendPlaneMessage(ctx, &ws_protocol.WsResponse{
+						Type:      ws_protocol.ResponseTypePlaneLocations,
+						Locations: locationMessages,
+					})
+					locationMessages = make([]*export.PlaneLocation, 0, 1000)
+					clear(icaoIdLookup)
+				}
+				_ = matching
+				if err == nil {
+					// Legacy path has no requestId, but still emits completion for parity.
+					appliedTiles := maps.Keys(subs)
+					slices.Sort(appliedTiles)
+					err = c.sendPlaneMessage(ctx, &ws_protocol.WsResponse{
+						Type:          ws_protocol.ResponseTypeInitialSyncComplete,
+						Tiles:         appliedTiles,
+						AircraftCount: &matching,
+					})
+				}
 			case ws_protocol.RequestTypeGridPlanes:
 				if _, gridOk := gridNames[cmdMsg.what]; gridOk {
 					matching := 0
@@ -654,11 +777,7 @@ func (c *WsClient) planeProtocolHandler(ctx context.Context, conn *websocket.Con
 				err = c.sendError(ctx, "Unknown Command")
 			}
 		case planeMsg := <-c.outChan:
-			// if we have a subscription to this planes tile or all tiles
-			// log.Debug().Str("tile", planeMsg.tile).Str("highlow", planeMsg.highLow).Msg("info")
-			_, tileOk := subs[planeMsg.tile]
-			_, allOk := subs["all"+planeMsg.highLow]
-			if tileOk || allOk {
+			if tileMatchesSubs(subs, planeMsg.out.Location.TileLocation, planeMsg.highLow) {
 				if c.sendTickDuration > 0 {
 					// limit our updates to only 1 per icao, sent periodically
 					if id, ok := icaoIdLookup[planeMsg.out.Location.Icao]; ok {
@@ -699,6 +818,32 @@ func (c *WsClient) planeProtocolHandler(ctx context.Context, conn *websocket.Con
 	return err
 }
 
+// tileMatchesSubs is the canonical subscription matcher. Both the live streaming path
+// and the snapshot path use this function to determine whether an aircraft matches
+// the current subscription set.
+//
+// It checks whether subs contains either the tile-specific key (tileLocation + highLow)
+// or the wildcard key ("all" + highLow).
+//
+// Live routing calls this directly with the known highLow from the incoming NATS message.
+// Snapshot matching calls locationMatchesSubs (below), which expands both suffixes.
+func tileMatchesSubs(subs map[string]struct{}, tileLocation string, highLow string) bool {
+	_, tileOk := subs[tileLocation+highLow]
+	_, allOk := subs["all"+highLow]
+	return tileOk || allOk
+}
+
+// locationMatchesSubs checks whether a PlaneLocation matches any subscription.
+// Used by the snapshot path where highLow is not known — checks both _low and _high
+// suffixes via tileMatchesSubs.
+//
+// PlaneLocation.TileLocation is always bare (e.g. "tile35").
+// Subscriptions are stored with suffixed keys (e.g. "tile35_high", "all_low").
+func locationMatchesSubs(subs map[string]struct{}, loc *export.PlaneLocation) bool {
+	return tileMatchesSubs(subs, loc.TileLocation, "_low") ||
+		tileMatchesSubs(subs, loc.TileLocation, "_high")
+}
+
 // sendAck sends an acknowledgement message to the client
 func (c *WsClient) sendAck(ctx context.Context, ackType ws_protocol.ProtocolResponse, tile string) error {
 	rs := ws_protocol.WsResponse{
@@ -726,14 +871,19 @@ func (c *WsClient) sendPlaneMessage(ctx context.Context, planeMsg *ws_protocol.W
 		c.log.Debug().Err(err).Str("type", planeMsg.Type.String()).Msg("Failed to marshal plane msg to send to client")
 		return err
 	}
-	go func() {
-		if err = c.writeTimeout(ctx, 3*time.Second, buf); nil != err {
-			c.log.Debug().
-				Err(err).
-				Str("type", planeMsg.Type.String()).
-				Msgf("Failed to send message to client. %+v", err)
-		}
-	}()
+
+	// Serialize websocket writes per client so command-loop ordering is preserved on the wire.
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+
+	if err = c.writeTimeout(ctx, 3*time.Second, buf); nil != err {
+		c.log.Debug().
+			Err(err).
+			Str("type", planeMsg.Type.String()).
+			Msgf("Failed to send message to client. %+v", err)
+		return err
+	}
+
 	return nil
 }
 
