@@ -33,6 +33,7 @@ jobs:
           - pw_atc_api
           - pw_ingest
           - pw_router
+          - pw_archiver
           - pw_ws_broker
           - mlat-server
           - pw_haproxy_api

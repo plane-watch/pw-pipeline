@@ -133,6 +133,19 @@ pw_ingest \
 --tag north-antenna
 ```
 
+### Raw Archive Flags (optional)
+
+**--raw-archive-subject**: publish every accepted frame, batched into one
+NATS message per interval (default 5 s), for an archiver to consume. Off
+when empty; needs a `nats://` sink. In an MLAT mux this is how the SBS
+result lines reach the archive.
+```bash
+--raw-archive-subject v1.pw-ingest.raw
+```
+
+See [rawarchive](../rawarchive/README.md) and
+[middleware](../middleware/README.md#raw-archive-middleware).
+
 ### Tracking Flags
 
 **--dedupe-filter**: Enable frame deduplication

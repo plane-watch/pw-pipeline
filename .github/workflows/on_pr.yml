@@ -39,6 +39,12 @@ jobs:
           ignore: DL3007,DL3059
           format: tty
       - uses: hadolint/hadolint-action@v3.3.0
+        name: pw_archiver
+        with:
+          dockerfile: docker/pw_archiver/Dockerfile
+          ignore: DL3007,DL3059
+          format: tty
+      - uses: hadolint/hadolint-action@v3.3.0
         name: pw_ws_broker
         with:
           dockerfile: docker/pw_ws_broker/Dockerfile
@@ -82,6 +88,7 @@ jobs:
           - pw_atc_api
           - pw_ingest
           - pw_router
+          - pw_archiver
           - pw_ws_broker
 
     steps:

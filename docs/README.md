@@ -59,7 +59,8 @@ Core functionality organized into focused, reusable packages:
 
 - **[producer](producer/README.md)** - Data source abstraction (Beast/AVR/SBS1)
 - **[dedupe](dedupe/README.md)** - Frame deduplication using forgetful maps
-- **[middleware](middleware/README.md)** - Frame transformation pipeline (accounting, monitoring)
+- **[middleware](middleware/README.md)** - Frame transformation pipeline (accounting, monitoring, raw archive output)
+- **[rawarchive](rawarchive/README.md)** - Batched raw-frame message format for archiving
 - **[sink](sink/README.md)** - Event publishing abstraction with batching
 
 ### Messaging & Storage
@@ -115,6 +116,11 @@ Production services and utilities:
   - NATS RPC for search queries
   - Aircraft enrichment (registration, type, operator)
   - Feeder statistics and management
+
+- **[pw_archiver](pw_archiver/README.md)** - Keeps the raw frames the network accepts
+  - Consumes the opt-in raw archive batches from `runway` / `pw_ingest`
+  - One zstd object per UTC minute, grouped by tile, de-duplicated
+  - Writes to S3 / Cloudflare R2; one archiver per network
 
 ### Utilities
 

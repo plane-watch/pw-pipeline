@@ -120,6 +120,7 @@ func main() {
 	}
 
 	setup.IncludeSinkFlags(app)
+	setup.IncludeRawArchiveFlags(app)
 	logging.IncludeVerbosityFlags(app)
 	monitoring.IncludeMonitoringFlags(app, 9602)
 
@@ -184,6 +185,11 @@ func runDaemon(c *cli.Context) error {
 		if ns, ok := sinkType.Server().(*nats_io.Server); ok {
 			trk.AddMiddleware(middleware.NewIngestTap(ns))
 		}
+	}
+
+	// optional raw frame archive output, after dedupe so each frame is published once
+	if err = setup.HandleRawArchiveFlags(c, trk, sinkDest); err != nil {
+		return err
 	}
 
 	// start feeder cache system

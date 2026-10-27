@@ -171,6 +171,16 @@ func (n *Server) PublishWithHeaders(queue string, msg []byte, headers map[string
 	return err
 }
 
+// PublishMsg publishes a prepared message. nats.go encodes it before returning,
+// so the caller may reuse m (and its Header and Data) straight away.
+// Unlike PublishWithHeaders it does not log errors; the caller decides how loudly to report them.
+func (n *Server) PublishMsg(m *nats.Msg) error {
+	if nil == n.outgoing {
+		return errors.New("outgoing nats connection not set up")
+	}
+	return n.outgoing.PublishMsg(m)
+}
+
 func (n *Server) Close() {
 	if nil != n.incoming && n.incoming.IsConnected() {
 		if err := n.incoming.Drain(); nil != err {

@@ -163,6 +163,20 @@ NATS (mlat-sync) → runway → Feeder
 - `feeder-updates`: Feeder statistics
 - `mlat-in`: MLAT data from feeders
 
+### Raw Archive (optional)
+
+**--raw-archive-subject**: publish every accepted frame, batched into one
+NATS message per interval, for an archiver to consume. Off when empty.
+```bash
+--raw-archive-subject v1.pw-ingest.raw      # PW_RAW_ARCHIVE_SUBJECT
+--raw-archive-interval 5s                   # must divide one minute
+--raw-archive-max-bytes 524288              # early flush size
+```
+
+Frames are published after de-duplication, tagged with the feeder's tile
+but not its identity. Format and cost: [rawarchive](../rawarchive/README.md),
+[middleware](../middleware/README.md#raw-archive-middleware).
+
 ### ATC API
 
 **--atcupdatefreq**: Feeder auth refresh interval (minutes)

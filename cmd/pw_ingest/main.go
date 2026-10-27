@@ -83,6 +83,7 @@ func main() {
 
 	setup.IncludeSourceFlags(app)
 	setup.IncludeSinkFlags(app)
+	setup.IncludeRawArchiveFlags(app)
 	logging.IncludeVerbosityFlags(app)
 	monitoring.IncludeMonitoringFlags(app, 9602)
 
@@ -178,6 +179,11 @@ func commonSetup(c *cli.Context) (*tracker.Tracker, error) {
 		if ns, ok := sinkType.Server().(*nats_io.Server); ok {
 			trk.AddMiddleware(middleware.NewIngestTap(ns))
 		}
+	}
+
+	// optional raw frame archive output, after dedupe so each frame is published once
+	if err = setup.HandleRawArchiveFlags(c, trk, sinkDest); err != nil {
+		return nil, err
 	}
 
 	for _, p := range producers {
