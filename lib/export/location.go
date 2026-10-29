@@ -11,7 +11,7 @@ import (
 
 func NewPlaneLocation(plane *tracker.Plane, isNew, isRemoved bool, source string) PlaneLocation {
 	callSign := strings.TrimSpace(plane.FlightNumber())
-	return PlaneLocation{
+	pl := PlaneLocation{
 		New:             isNew,
 		Removed:         isRemoved,
 		Icao:            plane.IcaoIdentifierStr(),
@@ -54,9 +54,31 @@ func NewPlaneLocation(plane *tracker.Plane, isNew, isRemoved bool, source string
 			FlightStatus: plane.FlightStatusUpdatedAt().UTC(),
 			Special:      plane.SpecialUpdatedAt().UTC(),
 			Squawk:       plane.SquawkUpdatedAt().UTC(),
+			Nav:          plane.NavUpdatedAt().UTC(),
+			EHS:          plane.EhsUpdatedAt().UTC(),
 		},
 		sourceTagsMutex: &sync.Mutex{},
 	}
+	if nav, ok := plane.Nav(); ok {
+		pl.NavAltitudeMCP = nav.SelectedAltitudeMCP
+		pl.NavAltitudeFMS = nav.SelectedAltitudeFMS
+		pl.NavQNH = nav.QNH
+		pl.NavHeading = nav.SelectedHeading
+		if nav.Modes != nil {
+			pl.NavModes = nav.Modes.Strings()
+		}
+	}
+	if ehs, ok := plane.EHS(); ok {
+		pl.IAS = ehs.IAS
+		pl.TAS = ehs.TAS
+		pl.Mach = ehs.Mach
+		pl.Roll = ehs.Roll
+		pl.MagHeading = ehs.MagneticHeading
+		pl.TrackRate = ehs.TrackRate
+		pl.BaroRate = ehs.BaroVerticalRate
+		pl.GeomRate = ehs.InertialVerticalRate
+	}
+	return pl
 }
 
 func (pl *PlaneLocation) ToJSONBytes() ([]byte, error) {

@@ -25,6 +25,26 @@ func (f *Frame) decodeAC12Field(aC12Field int32) int32 {
 	return 100 * n
 }
 
+// decodeAC13 reads a 13-bit altitude code (the AC field of DF0/4/16/20, and
+// the threat altitude in BDS 3,0: M at bit 7, Q at bit 9 of the field) in
+// feet. Metres (M set) and an invalid Gillham code give ok=false.
+func decodeAC13(ac uint32) (feet int32, ok bool) {
+	if ac&0x40 != 0 {
+		return 0, false
+	}
+	if ac&0x10 != 0 {
+		// 25 ft increments: n is the 11-bit integer left after removing Q and M.
+		n := int32(((ac & 0x1F80) >> 2) | ((ac & 0x0020) >> 1) | (ac & 0x000F))
+		return n*25 - 1000, true
+	}
+	// 100 ft increments, Gillham coded.
+	n := modeAToModeC(decodeID13Field(int32(ac)))
+	if n < -12 {
+		return 0, false
+	}
+	return n * 100, true
+}
+
 func decodeID13Field(id13Field int32) int32 {
 	var hexGillham int32
 	// log.Printf(format, "Decoding ID13 Field", strconv.FormatInt(int64(id13Field), 2))

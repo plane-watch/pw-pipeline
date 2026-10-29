@@ -94,6 +94,10 @@ Each aircraft is a state machine tracking:
 - **Motion**: Heading, velocity, vertical rate
 - **Identity**: Flight number, squawk, registration
 - **Status**: On-ground, alert, emergency
+- **Navigation**: Selected altitude, QNH, selected heading, autopilot modes (TC 29, BDS 4,0)
+- **Enhanced surveillance**: IAS, TAS, Mach, roll, magnetic heading (BDS 5,0 / 6,0)
+
+Comm-B registers are inferred, so `nav.go` only keeps what it is sure of: a BDS 4,0 selected altitude must agree with a TC29 value from the last 60 s or be seen twice; a reply the decoder cannot settle between 5,0 and 6,0 is given the aircraft's TC19 velocity (`Plane.knownState`) and dropped if that is older than 10 s; every value expires 60 s after its last report, measured against the aircraft's last seen time.
 
 ### 4. Event Emission
 ```
@@ -280,6 +284,7 @@ func (s *MySink) OnEvent(event Event) {
 |------|---------|
 | `tracker.go` | Main orchestrator, producer/sink/middleware management |
 | `plane.go` | Aircraft state machine, position/velocity/identity tracking |
+| `nav.go` | Navigation and EHS state, acceptance and expiry rules |
 | `cpr.go` | CPR position decoding (ODD/EVEN frame pairing) |
 | `frame-list.go` | Lossy circular buffer for frame history (debugging) |
 | `event.go` | Event types and definitions |
