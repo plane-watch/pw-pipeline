@@ -1,5 +1,12 @@
 package mode_s
 
+import "errors"
+
+var (
+	errAltitudeMetres  = errors.New("altitude code in metres (M bit set)")
+	errAltitudeGillham = errors.New("invalid Gillham altitude code")
+)
+
 // var format string = "%20s = %13s"
 
 // decode an AC12 altitude field
@@ -27,22 +34,23 @@ func (f *Frame) decodeAC12Field(aC12Field int32) int32 {
 
 // decodeAC13 reads a 13-bit altitude code (the AC field of DF0/4/16/20, and
 // the threat altitude in BDS 3,0: M at bit 7, Q at bit 9 of the field) in
-// feet. Metres (M set) and an invalid Gillham code give ok=false.
-func decodeAC13(ac uint32) (feet int32, ok bool) {
+// feet. Metres (M set) give errAltitudeMetres; an invalid Gillham code gives
+// errAltitudeGillham.
+func decodeAC13(ac uint32) (int32, error) {
 	if ac&0x40 != 0 {
-		return 0, false
+		return 0, errAltitudeMetres
 	}
 	if ac&0x10 != 0 {
 		// 25 ft increments: n is the 11-bit integer left after removing Q and M.
 		n := int32(((ac & 0x1F80) >> 2) | ((ac & 0x0020) >> 1) | (ac & 0x000F))
-		return n*25 - 1000, true
+		return n*25 - 1000, nil
 	}
 	// 100 ft increments, Gillham coded.
 	n := modeAToModeC(decodeID13Field(int32(ac)))
 	if n < -12 {
-		return 0, false
+		return 0, errAltitudeGillham
 	}
-	return n * 100, true
+	return n * 100, nil
 }
 
 func decodeID13Field(id13Field int32) int32 {

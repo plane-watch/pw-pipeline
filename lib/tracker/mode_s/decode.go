@@ -512,7 +512,8 @@ func (f *Frame) decode13bitAltitudeCode() error {
 		return nil
 	}
 	f.unit = modesUnitFeet
-	f.altitude, f.validAltitude = decodeAC13(f.ac)
+	alt, err := decodeAC13(f.ac)
+	f.altitude, f.validAltitude = alt, err == nil
 
 	return nil
 }

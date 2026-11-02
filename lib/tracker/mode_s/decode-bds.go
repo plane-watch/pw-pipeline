@@ -206,22 +206,22 @@ func inferCommBMessageType(mb []byte) (byte, byte, error) {
 
 // DataLinkCapability is the BDS 1,0 report: what the transponder can do.
 type DataLinkCapability struct {
+	DteStatus             uint16
+	SubnetworkVersion     uint8 // Mode S subnetwork version number
+	UplinkElmThroughput   uint8
+	DownlinkElmThroughput uint8
+	AcasVersion           uint8
 	Continuation          bool // another capability register follows
 	OverlayCommand        bool // overlay command capability
 	AcasOperational       bool
-	SubnetworkVersion     uint8 // Mode S subnetwork version number
-	EnhancedProtocol      bool  // level 5 transponder
-	SpecificServices      bool  // Mode S specific services
-	UplinkElmThroughput   uint8
-	DownlinkElmThroughput uint8
+	EnhancedProtocol      bool // level 5 transponder
+	SpecificServices      bool // Mode S specific services
 	AircraftIdent         bool // can report BDS 2,0
 	Squitter              bool // squitter capability subfield
 	SurveillanceIdent     bool // surveillance identifier code
 	CommonUsageGicb       bool // can report BDS 1,7
 	AcasHybridSurv        bool
 	AcasGeneratesRA       bool // ACAS generating TAs and RAs
-	AcasVersion           uint8
-	DteStatus             uint16
 }
 
 // GicbCapability is the BDS 1,7 report: which common-usage registers the
@@ -331,7 +331,7 @@ func decodeBds30(mb []byte) *AcasRA {
 		// 31-43: Mode C altitude code; 44-50: range, (n-1)/10 NM, 0 = no
 		// data, 127 = beyond 12.55 NM; 51-56: bearing, 6(n-1)+3 degrees,
 		// 0 = no data, 61-63 invalid.
-		if alt, ok := decodeAC13(uint32(bitsAt(mb, 31, 43))); ok {
+		if alt, err := decodeAC13(uint32(bitsAt(mb, 31, 43))); err == nil {
 			ra.ThreatAltFt = &alt
 		}
 		if n := bitsAt(mb, 44, 50); n != 0 {
