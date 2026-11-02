@@ -514,6 +514,22 @@ heading = atan2(EW_velocity, NS_velocity)
 
 **See**: `decode-adsb.go:193-207`
 
+### Target State and Status (TC 29, subtype 1)
+
+**Purpose**: What the autopilot is set to
+
+**Contains**:
+- Selected altitude (MCP/FCU or FMS, 32 ft steps)
+- Barometric pressure setting (QNH, 0.8 hPa steps)
+- Selected heading
+- Mode bits: autopilot, VNAV, altitude hold, approach, LNAV; TCAS operational
+
+**Why it matters**: the "alt bug" shows where an aircraft is going before it moves, and whether a level-off is intended.
+
+**Gotcha**: zero means "no data" for altitude and pressure; the autopilot mode bits are only valid when bit 79 says so (TCAS is always valid).
+
+**See**: `decode-adsb.go` (`decodeTargetStateStatusV2`), `target-state.go`
+
 ### Operational Status (TC 31)
 
 **Purpose**: Aircraft capabilities and configuration
@@ -562,9 +578,11 @@ heading = atan2(EW_velocity, NS_velocity)
 
 **Why inference is hard**: Multiple BDS types can have similar bit patterns. The code uses sequential checks, most specific first.
 
-**Limitations**: Cannot reliably decode BDS 4.0-6.0 yet - patterns overlap too much.
+**BDS 4.0 / 5.0 / 6.0**: tested in `decode-bds.go` too (status bits consistent with values, reserved bits zero, ranges plausible, per mode-s.org chapter 9). A reply can pass more than one test. 4.0 alone is taken as is; a reply reading as both 5.0 and 6.0 is settled by `Frame.ResolveCommB(KnownState)`, which the tracker calls with the aircraft's TC19 ground speed and track: 5.0 carries ground speed and track, 6.0 airspeed and heading, and the nearer vector wins. Anything else ambiguous is left undecided. Observed on an hour of Perth traffic: 166 of 2,330 Comm-B replies passed both tests, 165 were settled by velocity, none differently from pyModeS.
 
-**See**: `decode-bds.go:110-162`
+**Limitations**: inference is a guess. The tracker, not the decoder, decides whether to trust it (see [Tracker](../README.md)).
+
+**See**: `decode-bds.go`
 
 ## ICAO Address Filtering
 
@@ -649,7 +667,9 @@ Every frame goes through validation:
 | `frame.go` | Core Frame struct and getters |
 | `decode.go` | Main decoding pipeline, DF routing |
 | `decode-adsb.go` | ADS-B (DF17/18) message decoding |
-| `decode-bds.go` | Comm-B BDS register inference |
+| `decode-bds.go` | Comm-B BDS register inference, ELS and EHS, and the 5.0 versus 6.0 resolution |
+| `target-state.go` | `TargetState` and `NavModes`, filled from TC 29 and BDS 4,0 |
+| `bits.go` | Bit field helpers (DO-260B numbering) |
 | `crc.go` | CRC-24 calculation and ICAO extraction |
 | `icao_filter.go` | ICAO filtering callbacks |
 | `common.go` | Gillham code and altitude utilities |

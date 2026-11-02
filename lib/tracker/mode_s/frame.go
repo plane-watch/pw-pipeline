@@ -192,6 +192,16 @@ type (
 		// timeStamp is set when the frame is created
 		timeStamp time.Time
 
+		// targetState holds selected altitude, QNH, heading and autopilot
+		// modes from ADS-B type 29 subtype 1 or Comm-B BDS 4,0.
+		targetState *TargetState
+		// commB holds the EHS registers a DF20/21 reply could be.
+		commB *CommB
+		// ELS registers read from a DF20/21 reply.
+		dataLink *DataLinkCapability
+		gicb     *GicbCapability
+		acasRA   *AcasRA
+
 		cccHasOperationalTcas *bool
 		cccHasTargetChangeRpt *bool
 		cccHasAirRefVel       *bool

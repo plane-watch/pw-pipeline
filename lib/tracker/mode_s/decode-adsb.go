@@ -266,6 +266,7 @@ func (f *Frame) decodeAdsb() error {
 			// bit 84    Approach Mode
 			// bit 85    TCAS Operational
 			// bit 86-88 Reserved
+			f.decodeTargetStateStatusV2()
 		}
 	case 30:
 	// NoOp
@@ -426,6 +427,54 @@ func (f *Frame) decodeAdsb2() (*extendedSquitter, error) {
 	default:
 	}
 	return &es, err
+}
+
+// decodeTargetStateStatusV2 decodes ADS-B type 29 subtype 1. Bit numbers are
+// within the 112-bit message (the ME field starts at bit 33).
+func (f *Frame) decodeTargetStateStatusV2() {
+	m := f.message
+	ts := &TargetState{Source: TargetStateFromAdsb}
+
+	// 41: source (0 MCP/FCU, 1 FMS); 42-52: selected altitude, 0 = no data.
+	if raw := bitsAt(m, 42, 52); raw != 0 {
+		alt := int32(raw-1) * 32
+		if bitsAt(m, 41, 41) == 0 {
+			ts.SelectedAltitudeMcp = &alt
+		} else {
+			ts.SelectedAltitudeFms = &alt
+		}
+	}
+	// 53-61: barometric pressure setting, 0 = no data.
+	if raw := bitsAt(m, 53, 61); raw != 0 {
+		q := 800 + float64(raw-1)*0.8
+		ts.BaroSetting = &q
+	}
+	// 62: heading status; 63-71: sign and 8 bits, read as one 9-bit value.
+	if bitsAt(m, 62, 62) == 1 {
+		h := float64(bitsAt(m, 63, 71)) * 180 / 256
+		ts.SelectedHeading = &h
+	}
+	f.nacP = byte(bitsAt(m, 72, 75))
+	f.sil = byte(bitsAt(m, 77, 78))
+	// 79: mode bits valid; 80 autopilot, 81 VNAV, 82 altitude hold,
+	// 83 reserved (ADS-R), 84 approach, 86 LNAV.
+	if bitsAt(m, 79, 79) == 1 {
+		var modes NavModes
+		for _, b := range []struct {
+			bit  int
+			mode NavModes
+		}{{80, NavModeAutopilot}, {81, NavModeVNAV}, {82, NavModeAltHold}, {84, NavModeApproach}, {86, NavModeLNAV}} {
+			if bitsAt(m, b.bit, b.bit) == 1 {
+				modes |= b.mode
+			}
+		}
+		ts.NavModes = &modes
+	}
+	// 85: TCAS operational, defined whatever bit 79 says.
+	tcas := bitsAt(m, 85, 85) == 1
+	ts.TcasOperational = &tcas
+
+	f.targetState = ts
 }
 
 // =========================================================================

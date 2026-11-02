@@ -312,6 +312,47 @@ components:
             type: number
           CallSign:
             type: string
+          NavAltitudeMCP:
+            type: integer
+            description: 'Selected altitude in the MCP/FCU window (the "alt bug"), feet. From ADS-B target state (TC29) or Comm-B BDS 4,0. Present only while reported; dropped 60 s after the last report.'
+          NavAltitudeFMS:
+            type: integer
+            description: 'FMS selected altitude, feet. Same lifetime as NavAltitudeMCP.'
+          NavQNH:
+            type: number
+            description: 'Barometric pressure setting, hPa.'
+          NavHeading:
+            type: number
+            description: 'Selected heading, degrees.'
+          NavModes:
+            type: array
+            description: 'Engaged autopilot modes. Any of autopilot, vnav, lnav, althold, approach, tcas.'
+            items:
+              type: string
+          IAS:
+            type: integer
+            description: 'Indicated airspeed, knots, from Comm-B BDS 6,0. Present only while reported; dropped 60 s after the last report.'
+          TAS:
+            type: integer
+            description: 'True airspeed, knots, from Comm-B BDS 5,0.'
+          Mach:
+            type: number
+            description: 'Mach number, from Comm-B BDS 6,0.'
+          Roll:
+            type: number
+            description: 'Roll angle, degrees, right wing down positive, from Comm-B BDS 5,0.'
+          MagHeading:
+            type: number
+            description: 'Magnetic heading, degrees, from Comm-B BDS 6,0.'
+          TrackRate:
+            type: number
+            description: 'Rate of turn, degrees per second, positive to the right, from Comm-B BDS 5,0.'
+          BaroRate:
+            type: integer
+            description: 'Barometric vertical rate, ft/min, from Comm-B BDS 6,0.'
+          GeomRate:
+            type: integer
+            description: 'Inertial vertical rate, ft/min, from Comm-B BDS 6,0.'
       examples:
         - name: Example Payload
           payload:
@@ -341,6 +382,42 @@ components:
             LastMsg: '2022-03-12T09:47:22.141293262Z'
             SignalRssi: 7.781512503836437
             CallSign: KLM81K
+        - name: Airliner with navigation and enhanced surveillance data
+          payload:
+            New: false
+            Removed: false
+            Icao: 7CAF5F
+            Lat: -31.8234
+            Lon: 115.9641
+            Heading: 345.96
+            Velocity: 243.26
+            Altitude: 13350
+            VerticalRate: 1600
+            AltitudeUnits: feet
+            FlightStatus: ''
+            OnGround: false
+            Airframe: ''
+            AirframeType: ''
+            HasLocation: true
+            HasHeading: true
+            HasVerticalRate: true
+            HasVelocity: true
+            SourceTag: YPPH-0001
+            Squawk: '4224'
+            Special: ''
+            TileLocation: tile35
+            TrackedSince: '2026-10-22T00:42:30.123456789Z'
+            LastMsg: '2026-10-22T00:50:02.000000000Z'
+            SignalRssi: -12.5
+            CallSign: VOZ1234
+            NavAltitudeMCP: 22016
+            NavQNH: 1012.8
+            NavHeading: 343.125
+            NavModes:
+              - tcas
+            IAS: 211
+            Mach: 0.408
+            MagHeading: 337.67578125
 
     PlaneLocationHistoryResponse:
       contentType: application/json

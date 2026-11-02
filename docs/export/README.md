@@ -109,6 +109,8 @@ type Updates struct {
     FlightStatus time.Time
     Special      time.Time
     Squawk       time.Time
+    Nav          time.Time  // NavAltitudeMCP, NavAltitudeFMS, NavQNH, NavHeading, NavModes
+    EHS          time.Time  // IAS, TAS, Mach, Roll, MagHeading, TrackRate, BaroRate, GeomRate
 }
 ```
 
@@ -146,6 +148,54 @@ Segments  []Segment  // [ORD, DEN, LAX]
 **Why pointers**: Distinguish "no data" (nil) from "empty string" ("")
 
 **Populated by**: Separate enrichment services (not tracker)
+
+### Navigation and Enhanced Surveillance Fields
+
+```go
+// Navigation state: what the flight control system is set to
+NavAltitudeMCP *int     // 22016  feet, MCP/FCU selected altitude (the "alt bug")
+NavAltitudeFMS *int     // 35000  feet, FMS selected altitude
+NavQNH         *float64 // 1012.8 hPa, barometric pressure setting
+NavHeading     *float64 // 343.125 degrees, selected heading
+NavModes       []string // ["autopilot", "lnav", "tcas"]
+
+// Enhanced surveillance
+IAS        *int     // 211   knots, indicated airspeed
+TAS        *int     // 240   knots, true airspeed
+Mach       *float64 // 0.408
+Roll       *float64 // -11.25 degrees, right wing down positive
+MagHeading *float64 // 337.68 degrees, magnetic heading
+TrackRate  *float64 // -0.125 degrees per second, positive to the right
+BaroRate   *int     // -320  ft/min, barometric vertical rate
+GeomRate   *int     // -352  ft/min, inertial vertical rate
+```
+
+**Where they come from**: `lib/tracker/mode_s` decodes them
+(`decode-adsb.go`, `decode-bds.go`) from frames it previously ignored:
+
+| Fields | Source |
+|---|---|
+| NavAltitudeMCP, NavAltitudeFMS, NavQNH, NavHeading, NavModes | ADS-B target state and status, type code 29 subtype 1 (DO-260B); Comm-B BDS 4,0 for aircraft that do not send it |
+| IAS, Mach, MagHeading, BaroRate, GeomRate | Comm-B BDS 6,0 (heading and speed) |
+| TAS, Roll, TrackRate | Comm-B BDS 5,0 (track and turn) |
+
+The ELS registers are read too but not sent: BDS 1,0 (data link
+capability) and 3,0 (the active ACAS resolution advisory) are kept on the
+`Plane`, and 1,7 (which registers the transponder supports) is used to
+rule out EHS candidates before the velocity rule is tried.
+
+Comm-B replies do not say which register they carry, so the tracker only
+uses a register it is sure of: an inferred BDS 4,0 must agree with a
+recent type 29 value or be seen twice, and a reply that could be either
+5,0 or 6,0 is decided against the aircraft's ADS-B ground speed and track
+(`lib/tracker/nav.go`). `NavModes` uses readsb's names: `autopilot`,
+`vnav`, `lnav`, `althold`, `approach`, `tcas`.
+
+**Lifetime**: every field is omitted (nil, `omitempty`) when the aircraft
+has not reported it, and dropped 60 seconds after the last report so a
+stale selected altitude never rides along with a live position.
+`Updates.Nav` and `Updates.EHS` carry the time of the last report, and
+`MergePlaneLocations` takes the newer feeder's nav or EHS set as a whole.
 
 **Typical flow**:
 ```
@@ -211,7 +261,13 @@ func (pl *PlaneLocation) ToJSONBytes() ([]byte, error) {
     "Heading": "2024-11-16T12:34:55Z"
   },
   "CallSign": "UAL123",
-  "Registration": "N12345"
+  "Registration": "N12345",
+  "NavAltitudeMCP": 37000,
+  "NavQNH": 1013.2,
+  "NavModes": ["autopilot", "vnav", "lnav", "tcas"],
+  "IAS": 265,
+  "Mach": 0.78,
+  "MagHeading": 283.4
 }
 ```
 

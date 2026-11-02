@@ -1,7 +1,9 @@
 package mode_s
 
 import (
+	"encoding/hex"
 	"fmt"
+	"math"
 	"testing"
 	"time"
 )
@@ -375,4 +377,123 @@ func TestDecodeDF17MT31(t *testing.T) {
 			// todo: determine more tests
 		})
 	}
+}
+
+// Real type 29 subtype 1 messages heard near Perth on 2026-10-22, with the
+// values pyModeS 3.6 decodes from them.
+func TestDecodeTargetStateStatusV2(t *testing.T) {
+	type modes struct{ ap, vnav, alt, appr, lnav bool }
+	tests := []struct {
+		msg   string
+		mcp   int32
+		qnh   float64
+		hdg   *float64
+		modes *modes
+		tcas  bool
+	}{
+		{"8d7c355dea06e898013c006d22f0", 3488, 1019.2, nil, nil, false},
+		{"8d7cac31ea030898013e08126be3", 1504, 1019.2, nil, &modes{}, true},
+		{"8dc04c04ea234890013f08ceb2c2", 18016, 1018.4, nil, &modes{ap: true}, true},
+		{"8d7cad1cea09d89ea13e0401cfc7", 4992, 1019.2, new(236.25), &modes{lnav: true}, false},
+		{"8f7cad1cea09d89ea13f0cbf50db", 4992, 1019.2, new(236.25), &modes{ap: true, lnav: true}, true},
+		{"8d7c4a07ea05f89e9d3e84f01711", 3008, 1019.2, new(234.84375), &modes{vnav: true, lnav: true}, false},
+		{"8d7c4a07ea05f89e9d3f84fe1a91", 3008, 1019.2, new(234.84375), &modes{ap: true, vnav: true, lnav: true}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.msg, func(t *testing.T) {
+			f, err := DecodeString(tt.msg, time.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+			ts := f.TargetState()
+			if ts == nil {
+				t.Fatal("no target state")
+			}
+			if ts.Source != TargetStateFromAdsb {
+				t.Errorf("source %q", ts.Source)
+			}
+			if ts.SelectedAltitudeMcp == nil || *ts.SelectedAltitudeMcp != tt.mcp || ts.SelectedAltitudeFms != nil {
+				t.Errorf("selected altitude: mcp %v fms %v, want mcp %d", ts.SelectedAltitudeMcp, ts.SelectedAltitudeFms, tt.mcp)
+			}
+			if ts.BaroSetting == nil || math.Abs(*ts.BaroSetting-tt.qnh) > 0.01 {
+				t.Errorf("QNH %v, want %v", ts.BaroSetting, tt.qnh)
+			}
+			if (ts.SelectedHeading == nil) != (tt.hdg == nil) || (tt.hdg != nil && math.Abs(*ts.SelectedHeading-*tt.hdg) > 1e-9) {
+				t.Errorf("selected heading %v, want %v", ts.SelectedHeading, tt.hdg)
+			}
+			if (ts.NavModes == nil) != (tt.modes == nil) {
+				t.Fatalf("nav modes %v, want %v", ts.NavModes, tt.modes)
+			}
+			if tt.modes != nil {
+				m := *ts.NavModes
+				got := modes{m&NavModeAutopilot != 0, m&NavModeVNAV != 0, m&NavModeAltHold != 0, m&NavModeApproach != 0, m&NavModeLNAV != 0}
+				if got != *tt.modes {
+					t.Errorf("nav modes %+v, want %+v", got, *tt.modes)
+				}
+			}
+			if ts.TcasOperational == nil || *ts.TcasOperational != tt.tcas {
+				t.Errorf("TCAS %v, want %v", ts.TcasOperational, tt.tcas)
+			}
+		})
+	}
+}
+
+// setBits writes v into bits first..last (1-based, inclusive) of b.
+func setBits(b []byte, first, last int, v uint64) {
+	for bit := last; bit >= first; bit-- {
+		idx, shift := (bit-1)/8, 7-(bit-1)%8
+		if v&1 == 1 {
+			b[idx] |= 1 << shift
+		} else {
+			b[idx] &^= 1 << shift
+		}
+		v >>= 1
+	}
+}
+
+func tssFrame(t *testing.T, msg string, edit func(m []byte)) *Frame {
+	t.Helper()
+	m, err := hex.DecodeString(msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edit(m)
+	f := &Frame{message: m}
+	f.decodeTargetStateStatusV2()
+	return f
+}
+
+// Variants not in the capture, built by changing bits of a real message.
+func TestDecodeTargetStateStatusV2Variants(t *testing.T) {
+	const base = "8d7c4a07ea05f89e9d3f84fe1a91" // 3008 ft MCP, 1019.2 hPa, AP+VNAV+LNAV
+
+	t.Run("FMS source", func(t *testing.T) {
+		ts := tssFrame(t, base, func(m []byte) { setBits(m, 41, 41, 1) }).TargetState()
+		if ts.SelectedAltitudeMcp != nil || ts.SelectedAltitudeFms == nil || *ts.SelectedAltitudeFms != 3008 {
+			t.Errorf("mcp %v fms %v, want fms 3008", ts.SelectedAltitudeMcp, ts.SelectedAltitudeFms)
+		}
+	})
+	t.Run("no data", func(t *testing.T) {
+		ts := tssFrame(t, base, func(m []byte) {
+			setBits(m, 42, 52, 0) // selected altitude
+			setBits(m, 53, 61, 0) // QNH
+			setBits(m, 62, 62, 0) // heading status
+			setBits(m, 79, 79, 0) // mode bits status
+		}).TargetState()
+		if ts.SelectedAltitudeMcp != nil || ts.SelectedAltitudeFms != nil || ts.BaroSetting != nil ||
+			ts.SelectedHeading != nil || ts.NavModes != nil {
+			t.Errorf("want every value nil, got %+v", ts)
+		}
+	})
+	t.Run("altitude hold and approach", func(t *testing.T) {
+		ts := tssFrame(t, base, func(m []byte) {
+			setBits(m, 80, 86, 0b0010100) // 82 alt hold, 84 approach
+		}).TargetState()
+		if ts.NavModes == nil || *ts.NavModes != NavModeAltHold|NavModeApproach {
+			t.Errorf("nav modes %v", ts.NavModes)
+		}
+		if got := ts.NavModes.Strings(); len(got) != 2 || got[0] != "althold" || got[1] != "approach" {
+			t.Errorf("Strings() = %v", got)
+		}
+	})
 }
